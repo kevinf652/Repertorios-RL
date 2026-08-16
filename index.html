@@ -586,64 +586,119 @@ input,textarea,button{font-family:inherit}
 <div id="vocal-editor-modal" class="login-modal hidden" onclick="if(event.target===this)hideVocalEditor()">
   <div class="login-box" style="width:380px;max-height:85vh;overflow-y:auto">
     <h3 id="vocal-editor-title" style="font-size:1.1rem;margin-bottom:2px">Asignar vocales</h3>
-    <p style="font-size:.75rem;color:#a1a1aa;margin-bottom:16px" id="vocal-editor-subtitle">Asigna los vocales por día antes de agregar la canción</p>
+    <p style="font-size:.75rem;color:#a1a1aa;margin-bottom:12px" id="vocal-editor-subtitle">Asigna los vocales por día antes de agregar la canción</p>
     
-    <!-- Vocalista Principal -->
-    <div class="form-group" style="margin-bottom:14px">
-      <label class="label" style="font-weight:600;color:#d4d4d8">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        Vocalista principal
-      </label>
-      <input type="text" id="vocal-input-main-dom" class="input" placeholder="Nombre del vocalista" style="background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+    <!-- Tabs -->
+    <div style="display:flex;gap:4px;background:#27272a;padding:3px;border-radius:10px;margin-bottom:14px">
+      <button class="rep-tab active" id="vocal-tab-dom" onclick="switchVocalTab('domingo')">🌞 Domingo</button>
+      <button class="rep-tab" id="vocal-tab-lun" onclick="switchVocalTab('lunes')">🌙 Lunes</button>
+      <button class="rep-tab" id="vocal-tab-audios" onclick="switchVocalTab('audios')">🔊 Voces</button>
     </div>
 
-    <!-- Coros Section -->
-    <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-        <span style="font-size:.8rem;font-weight:600;color:#fbbf24">Coros</span>
-        <span style="font-size:.65rem;color:#71717a;margin-left:auto">Opcional</span>
+    <!-- Domingo Tab -->
+    <div id="vocal-fields-domingo">
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="label" style="font-weight:600;color:#d4d4d8">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Vocalista principal domingo
+        </label>
+        <input type="text" id="vocal-input-main-dom" class="input" placeholder="Nombre del vocalista" style="background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div>
-          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
-            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">1</span>
-            Coro 1
-          </label>
-          <input type="text" id="vocal-coro-1" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+      <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span style="font-size:.8rem;font-weight:600;color:#fbbf24">Coros domingo</span>
         </div>
-        <div>
-          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
-            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">2</span>
-            Coro 2
-          </label>
-          <input type="text" id="vocal-coro-2" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
-        </div>
-        <div>
-          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
-            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">3</span>
-            Coro 3
-          </label>
-          <input type="text" id="vocal-coro-3" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
-        </div>
-        <div>
-          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
-            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">4</span>
-            Coro 4
-          </label>
-          <input type="text" id="vocal-coro-4" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">1</span>
+              Coro 1
+            </label>
+            <input type="text" id="vocal-coro-dom-1" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">2</span>
+              Coro 2
+            </label>
+            <input type="text" id="vocal-coro-dom-2" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">3</span>
+              Coro 3
+            </label>
+            <input type="text" id="vocal-coro-dom-3" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">4</span>
+              Coro 4
+            </label>
+            <input type="text" id="vocal-coro-dom-4" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Audio Voces Section -->
-    <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-        <span style="font-size:.8rem;font-weight:600;color:#4ade80">Audios de coros</span>
+    <!-- Lunes Tab -->
+    <div id="vocal-fields-lunes" style="display:none">
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="label" style="font-weight:600;color:#d4d4d8">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Vocalista principal lunes
+        </label>
+        <input type="text" id="vocal-input-main-lun" class="input" placeholder="Nombre del vocalista" style="background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
       </div>
-      <p style="font-size:.65rem;color:#71717a;margin-bottom:10px">Sube los audios de cada coro. El nombre se asigna automáticamente.</p>
-      <div id="vocal-audio-list"></div>
+      <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span style="font-size:.8rem;font-weight:600;color:#c084fc">Coros lunes</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(192,132,252,.2);color:#c084fc;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">1</span>
+              Coro 1
+            </label>
+            <input type="text" id="vocal-coro-lun-1" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(192,132,252,.2);color:#c084fc;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">2</span>
+              Coro 2
+            </label>
+            <input type="text" id="vocal-coro-lun-2" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(192,132,252,.2);color:#c084fc;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">3</span>
+              Coro 3
+            </label>
+            <input type="text" id="vocal-coro-lun-3" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:rgba(192,132,252,.2);color:#c084fc;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">4</span>
+              Coro 4
+            </label>
+            <input type="text" id="vocal-coro-lun-4" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio Voces Tab -->
+    <div id="vocal-fields-audios" style="display:none">
+      <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          <span style="font-size:.8rem;font-weight:600;color:#4ade80">Audios de coros</span>
+        </div>
+        <p style="font-size:.65rem;color:#71717a;margin-bottom:10px">Sube los audios de cada coro. El nombre se asigna automáticamente.</p>
+        <div id="vocal-audio-list"></div>
+      </div>
     </div>
 
     <div style="display:flex;gap:8px;margin-top:16px">
@@ -2308,6 +2363,12 @@ let vocalTab='domingo';
 
 function switchVocalTab(day){
   vocalTab=day;
+  document.getElementById('vocal-tab-dom').className='rep-tab '+(day==='domingo'?'active':'');
+  document.getElementById('vocal-tab-lun').className='rep-tab '+(day==='lunes'?'active':'');
+  document.getElementById('vocal-tab-audios').className='rep-tab '+(day==='audios'?'active':'');
+  document.getElementById('vocal-fields-domingo').style.display=day==='domingo'?'block':'none';
+  document.getElementById('vocal-fields-lunes').style.display=day==='lunes'?'block':'none';
+  document.getElementById('vocal-fields-audios').style.display=day==='audios'?'block':'none';
   if(day==='audios')renderVocalAudioList();
 }
 
@@ -2322,27 +2383,35 @@ function showVocalEditor(repId,songId,mode,songData){
   vocalEditorSongId=songId;
   vocalEditorMode=mode;
   vocalTab='domingo';
+  switchVocalTab('domingo');
   document.getElementById('vocal-editor-title').textContent=mode==='add'?'Asignar vocales':'Editar vocales';
   document.getElementById('vocal-editor-subtitle').textContent=mode==='add'?'Asigna los vocales por día antes de agregar la canción':'Modifica los vocales de esta canción';
   
-  // Load vocalista principal
+  // Load domingo data
   const domMain=songData?(songData.vocalista_domingo||''):'';
-  document.getElementById('vocal-input-main-dom').value=domMain;
-  
-  // Load coros from coros_domingo array (Coro 1-4)
   let domCorosRaw=songData?(songData.coros_domingo||[]):[];
   if(typeof domCorosRaw==='string')domCorosRaw=domCorosRaw?domCorosRaw.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
   if(!Array.isArray(domCorosRaw))domCorosRaw=[];
-  
-  // Populate Coro 1-4 fields
+  document.getElementById('vocal-input-main-dom').value=domMain;
+  // Populate Coro 1-4 for domingo
   for(let i=1;i<=4;i++){
-    const el=document.getElementById('vocal-coro-'+i);
+    const el=document.getElementById('vocal-coro-dom-'+i);
     if(el)el.value=domCorosRaw[i-1]||'';
   }
   
+  // Load lunes data
+  const lunMain=songData?(songData.vocalista_lunes||''):'';
+  let lunCorosRaw=songData?(songData.coros_lunes||[]):[];
+  if(typeof lunCorosRaw==='string')lunCorosRaw=lunCorosRaw?lunCorosRaw.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
+  if(!Array.isArray(lunCorosRaw))lunCorosRaw=[];
+  document.getElementById('vocal-input-main-lun').value=lunMain;
+  // Populate Coro 1-4 for lunes
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('vocal-coro-lun-'+i);
+    if(el)el.value=lunCorosRaw[i-1]||'';
+  }
+  
   document.getElementById('vocal-editor-modal').classList.remove('hidden');
-  // Render vocal audios list
-  renderVocalAudioList();
   // Use setTimeout to avoid mobile keyboard issues
   setTimeout(()=>document.getElementById('vocal-input-main-dom').focus(),100);
 }
@@ -2383,25 +2452,36 @@ function renderVocalAudioList(){
 function hideVocalEditor(){
   document.getElementById('vocal-editor-modal').classList.add('hidden');
   document.getElementById('vocal-input-main-dom').value='';
+  document.getElementById('vocal-input-main-lun').value='';
   for(let i=1;i<=4;i++){
-    const el=document.getElementById('vocal-coro-'+i);
-    if(el)el.value='';
+    const elDom=document.getElementById('vocal-coro-dom-'+i);
+    const elLun=document.getElementById('vocal-coro-lun-'+i);
+    if(elDom)elDom.value='';
+    if(elLun)elLun.value='';
   }
 }
 
 async function saveVocalEditor(){
   const vocalDom=document.getElementById('vocal-input-main-dom').value.trim()||'Por asignar';
+  const vocalLun=document.getElementById('vocal-input-main-lun').value.trim()||vocalDom;
   
-  // Build coros array from Coro 1-4 fields
+  // Build coros arrays from Coro 1-4 fields for domingo
   const corosDom=[];
   for(let i=1;i<=4;i++){
-    const el=document.getElementById('vocal-coro-'+i);
+    const el=document.getElementById('vocal-coro-dom-'+i);
     if(el&&el.value.trim())corosDom.push(el.value.trim());
   }
   
-  // For lunes, use the same vocalista and coros (user can edit separately later)
-  const vocalLun=vocalDom;
-  const corosLun=corosDom.length>0?[...corosDom]:[];
+  // Build coros arrays from Coro 1-4 fields for lunes
+  const corosLun=[];
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('vocal-coro-lun-'+i);
+    if(el&&el.value.trim())corosLun.push(el.value.trim());
+  }
+  // If lunes coros are empty, use domingo coros as fallback
+  if(corosLun.length===0&&corosDom.length>0){
+    corosDom.forEach(c=>corosLun.push(c));
+  }
   
   // Store coros separately per day (coros_domingo, coros_lunes)
   
