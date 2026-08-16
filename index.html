@@ -2072,18 +2072,34 @@ async function handleVocalAudioUpload(e){
       if(existing)vocalistaName=existing.vocalista_name||'';
     }
     
-    // Upsert vocal audio record
-    const {error:dbErr}=await supabaseClient.from('vocal_audios').upsert({
-      cancion_repertorio_id:vocalAudioUploadSongId,
-      repertorio_id:vocalAudioUploadRepId,
-      coro_number:vocalAudioUploadCoro,
-      vocalista_name:vocalistaName,
-      audio_url:audioUrl,
-      audio_path:path,
-      updated_at:Date.now()
-    },{onConflict:'cancion_repertorio_id,coro_number'});
+    // Check if record exists, then update or insert
+    const {data:existing}=await supabaseClient.from('vocal_audios').select('id').eq('cancion_repertorio_id',vocalAudioUploadSongId).eq('coro_number',vocalAudioUploadCoro).single();
     
-    if(dbErr)throw dbErr;
+    if(existing){
+      // Update existing record
+      const {error:dbErr}=await supabaseClient.from('vocal_audios').update({
+        vocalista_name:vocalistaName,
+        audio_url:audioUrl,
+        audio_path:path,
+        updated_at:Date.now()
+      }).eq('id',existing.id);
+      if(dbErr)throw dbErr;
+    }else{
+      // Insert new record
+      const id='va'+Date.now().toString(36)+Math.random().toString(36).substr(2,5);
+      const {error:dbErr}=await supabaseClient.from('vocal_audios').insert({
+        id,
+        cancion_repertorio_id:vocalAudioUploadSongId,
+        repertorio_id:vocalAudioUploadRepId,
+        coro_number:vocalAudioUploadCoro,
+        vocalista_name:vocalistaName,
+        audio_url:audioUrl,
+        audio_path:path,
+        created_at:Date.now(),
+        updated_at:Date.now()
+      });
+      if(dbErr)throw dbErr;
+    }
     
     await loadRepertorios();
     renderRepertorioView();
