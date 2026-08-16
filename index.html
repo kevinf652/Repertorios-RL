@@ -584,41 +584,74 @@ input,textarea,button{font-family:inherit}
 
 <!-- Vocal Editor Modal -->
 <div id="vocal-editor-modal" class="login-modal hidden" onclick="if(event.target===this)hideVocalEditor()">
-  <div class="login-box" style="width:360px;max-height:85vh;overflow-y:auto">
-    <h3 id="vocal-editor-title">Editar vocales</h3>
-    <p style="font-size:.75rem;color:#a1a1aa;margin-bottom:12px" id="vocal-editor-subtitle"></p>
-    <div style="display:flex;gap:4px;background:#27272a;padding:3px;border-radius:10px;margin-bottom:12px">
-      <button class="rep-tab active" id="vocal-tab-dom" onclick="switchVocalTab('domingo')">🌞 Domingo</button>
-      <button class="rep-tab" id="vocal-tab-lun" onclick="switchVocalTab('lunes')">🌙 Lunes</button>
-      <button class="rep-tab" id="vocal-tab-audios" onclick="switchVocalTab('audios')">🔊 Voces</button>
+  <div class="login-box" style="width:380px;max-height:85vh;overflow-y:auto">
+    <h3 id="vocal-editor-title" style="font-size:1.1rem;margin-bottom:2px">Asignar vocales</h3>
+    <p style="font-size:.75rem;color:#a1a1aa;margin-bottom:16px" id="vocal-editor-subtitle">Asigna los vocales por día antes de agregar la canción</p>
+    
+    <!-- Vocalista Principal -->
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="label" style="font-weight:600;color:#d4d4d8">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Vocalista principal
+      </label>
+      <input type="text" id="vocal-input-main-dom" class="input" placeholder="Nombre del vocalista" style="background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
     </div>
-    <div id="vocal-fields-domingo">
-      <div class="form-group" style="margin-bottom:10px">
-        <label class="label">Vocalista domingo</label>
-        <input type="text" id="vocal-input-main-dom" class="input" placeholder="Nombre del vocalista">
+
+    <!-- Coros Section -->
+    <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span style="font-size:.8rem;font-weight:600;color:#fbbf24">Coros</span>
+        <span style="font-size:.65rem;color:#71717a;margin-left:auto">Opcional</span>
       </div>
-      <div class="form-group" style="margin-bottom:12px">
-        <label class="label">Coros domingo (separados por coma)</label>
-        <input type="text" id="vocal-input-chorus-dom" class="input" placeholder="Juan, María, Pedro">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">1</span>
+            Coro 1
+          </label>
+          <input type="text" id="vocal-coro-1" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">2</span>
+            Coro 2
+          </label>
+          <input type="text" id="vocal-coro-2" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">3</span>
+            Coro 3
+          </label>
+          <input type="text" id="vocal-coro-3" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">4</span>
+            Coro 4
+          </label>
+          <input type="text" id="vocal-coro-4" class="input vocal-coro-input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
       </div>
     </div>
-    <div id="vocal-fields-lunes" style="display:none">
-      <div class="form-group" style="margin-bottom:10px">
-        <label class="label">Vocalista lunes</label>
-        <input type="text" id="vocal-input-main-lun" class="input" placeholder="Nombre del vocalista">
+
+    <!-- Audio Voces Section -->
+    <div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <span style="font-size:.8rem;font-weight:600;color:#4ade80">Audios de coros</span>
       </div>
-      <div class="form-group" style="margin-bottom:12px">
-        <label class="label">Coros lunes (separados por coma)</label>
-        <input type="text" id="vocal-input-chorus-lun" class="input" placeholder="Juan, María, Pedro">
-      </div>
-    </div>
-    <div id="vocal-fields-audios" style="display:none">
-      <p style="font-size:.7rem;color:#71717a;margin-bottom:10px">Sube los audios de cada coro. El nombre se asigna automáticamente.</p>
+      <p style="font-size:.65rem;color:#71717a;margin-bottom:10px">Sube los audios de cada coro. El nombre se asigna automáticamente.</p>
       <div id="vocal-audio-list"></div>
     </div>
-    <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn btn-zinc" style="flex:1" onclick="hideVocalEditor()">Cancelar</button>
-      <button class="btn btn-amber" style="flex:1" onclick="saveVocalEditor()">Guardar</button>
+
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-zinc" style="flex:1;justify-content:center;padding:10px" onclick="hideVocalEditor()">Cancelar</button>
+      <button class="btn btn-amber" style="flex:1;justify-content:center;padding:10px" onclick="saveVocalEditor()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+        Guardar
+      </button>
     </div>
   </div>
 </div>
@@ -1887,6 +1920,8 @@ function renderRepVocesView(){
   r.canciones.forEach(s=>{
     const songAudios=r.vocalAudios?r.vocalAudios.filter(va=>va.cancion_repertorio_id===s.id):[];
     const hasAudios=songAudios.some(a=>a.audio_url);
+    // Get coro names for this song
+    const corosNames=repDay==='domingo'?(s.coros_domingo||[]):(s.coros_lunes||s.coros_domingo||[]);
     html+='<div style="background:rgba(39,39,42,.5);border:1px solid rgba(63,63,70,.5);border-radius:12px;padding:12px;margin-bottom:10px">';
     html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
     html+='<div class="rep-song-order">'+s.orden+'</div>';
@@ -1896,17 +1931,18 @@ function renderRepVocesView(){
       html+='<span style="font-size:.65rem;color:#4ade80;background:rgba(34,197,94,.15);padding:2px 6px;border-radius:4px">🎵 Audios</span>';
     }
     html+='</div>';
-    // Show audio players for each coro
+    // Show audio players for each coro with names
     for(let coro=1;coro<=4;coro++){
       const audio=songAudios.find(va=>va.coro_number===coro);
+      const coroName=corosNames[coro-1]||'';
       const audioKey=r.id+'_'+s.id+'_'+coro;
       html+='<div style="display:flex;align-items:center;gap:8px;padding:8px;background:rgba(27,27,30,.5);border-radius:8px;margin-bottom:4px;border:1px solid rgba(63,63,70,.3)">';
-      html+='<span style="min-width:30px;font-size:.7rem;color:#71717a;font-weight:600">C'+coro+'</span>';
+      html+='<span style="min-width:30px;font-size:.7rem;color:#fbbf24;font-weight:700;background:rgba(245,158,11,.15);padding:2px 6px;border-radius:4px">'+coro+'</span>';
       if(audio&&audio.audio_url){
         html+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80;flex-shrink:0" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-        html+='<div style="flex:1;min-width:0;font-size:.7rem;color:#d4d4d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(audio.vocalista_name||'Audio Coro '+coro)+'</div>';
+        html+='<div style="flex:1;min-width:0;font-size:.7rem;color:#d4d4d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(coroName?coroName:(audio.vocalista_name||'Audio Coro '+coro))+'</div>';
       }else{
-        html+='<div style="flex:1;font-size:.7rem;color:#52525b;font-style:italic">Sin audio</div>';
+        html+='<div style="flex:1;font-size:.7rem;color:#52525b;font-style:italic">'+(coroName?esc(coroName):'Sin audio')+'</div>';
       }
       html+='</div>';
     }
@@ -1925,7 +1961,10 @@ function renderRepertorioView(){
     var corosForDay=(repDay==='domingo'?(s.coros_domingo||[]):(s.coros_lunes||s.coros_domingo||[]));
     if(typeof corosForDay==='string')corosForDay=corosForDay?corosForDay.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
     if(!Array.isArray(corosForDay))corosForDay=[];
-    return '<div class="rep-song-card" onclick="viewRepSong(\''+r.id+'\',\''+s.id+'\')"><div class="rep-song-order">'+s.orden+'</div><div class="rep-song-info"><div class="rep-song-title">'+esc(s.titulo)+'</div><div class="rep-song-artist">'+esc(s.artista)+'</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc((repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar')))+'</span>'+(corosForDay.length>0?'<span class="rep-vocal-chorus">Coros: '+corosForDay.join(', ')+'</span>':'')+'</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>'+(s.dia!=='ambos'?'<span class="rep-day-badge '+(s.dia==='domingo'?'dom':'lun')+'">Solo '+(s.dia==='domingo'?'Domingo':'Lunes')+'</span>':'')+'</div>'+(canEditVocals()?'<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\''+r.id+'\',\''+s.id+'\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>':'')+(canManageReps()?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\''+r.id+'\',\''+s.id+'\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
+    // Build numbered coros display
+    const corosDisplay=corosForDay.length>0?corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span style="color:#a1a1aa;font-size:.7rem">'+esc(c)+'</span></span>'}).join(''):'';
+
+    return '<div class="rep-song-card" onclick="viewRepSong(\''+r.id+'\',\''+s.id+'\')"><div class="rep-song-order">'+s.orden+'</div><div class="rep-song-info"><div class="rep-song-title">'+esc(s.titulo)+'</div><div class="rep-song-artist">'+esc(s.artista)+'</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc((repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar')))+'</span>'+(corosForDay.length>0?'<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">'+corosDisplay+'</span>':'')+'</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>'+(s.dia!=='ambos'?'<span class="rep-day-badge '+(s.dia==='domingo'?'dom':'lun')+'">Solo '+(s.dia==='domingo'?'Domingo':'Lunes')+'</span>':'')+'</div>'+(canEditVocals()?'<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\''+r.id+'\',\''+s.id+'\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>':'')+(canManageReps()?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\''+r.id+'\',\''+s.id+'\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
   }).join('');
 }
 
@@ -1950,7 +1989,7 @@ function renderRepSongView(){
   // Update notation toggle
   const ntBtn=document.getElementById('notation-toggle');
   if(ntBtn)ntBtn.innerHTML=useFlats?'♭':'#';
-  document.getElementById('rep-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.75rem;color:#a1a1aa">🎶 Coros: '+corosForDay.join(', ')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
+  document.getElementById('rep-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">'+corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span>'+esc(c)+'</span></span>'}).join('')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
   document.getElementById('rep-song-key').innerHTML='<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(repCurrentKey)+'</div>'+(repCurrentKey!==s.tono_original?'<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.tono_original)+'</button>':'')+'</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
   // Build vocal audios section - simplified, just show play buttons
   let vocalAudiosHtml='';
@@ -2269,12 +2308,6 @@ let vocalTab='domingo';
 
 function switchVocalTab(day){
   vocalTab=day;
-  document.getElementById('vocal-tab-dom').className='rep-tab '+(day==='domingo'?'active':'');
-  document.getElementById('vocal-tab-lun').className='rep-tab '+(day==='lunes'?'active':'');
-  document.getElementById('vocal-tab-audios').className='rep-tab '+(day==='audios'?'active':'');
-  document.getElementById('vocal-fields-domingo').style.display=day==='domingo'?'block':'none';
-  document.getElementById('vocal-fields-lunes').style.display=day==='lunes'?'block':'none';
-  document.getElementById('vocal-fields-audios').style.display=day==='audios'?'block':'none';
   if(day==='audios')renderVocalAudioList();
 }
 
@@ -2289,27 +2322,27 @@ function showVocalEditor(repId,songId,mode,songData){
   vocalEditorSongId=songId;
   vocalEditorMode=mode;
   vocalTab='domingo';
-  switchVocalTab('domingo');
   document.getElementById('vocal-editor-title').textContent=mode==='add'?'Asignar vocales':'Editar vocales';
   document.getElementById('vocal-editor-subtitle').textContent=mode==='add'?'Asigna los vocales por día antes de agregar la canción':'Modifica los vocales de esta canción';
   
-  // Load domingo data - use separate columns
+  // Load vocalista principal
   const domMain=songData?(songData.vocalista_domingo||''):'';
+  document.getElementById('vocal-input-main-dom').value=domMain;
+  
+  // Load coros from coros_domingo array (Coro 1-4)
   let domCorosRaw=songData?(songData.coros_domingo||[]):[];
   if(typeof domCorosRaw==='string')domCorosRaw=domCorosRaw?domCorosRaw.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
   if(!Array.isArray(domCorosRaw))domCorosRaw=[];
-  document.getElementById('vocal-input-main-dom').value=domMain;
-  document.getElementById('vocal-input-chorus-dom').value=domCorosRaw.join(', ');
   
-  // Load lunes data - use separate columns
-  const lunMain=songData?(songData.vocalista_lunes||''):'';
-  let lunCorosRaw=songData?(songData.coros_lunes||[]):[];
-  if(typeof lunCorosRaw==='string')lunCorosRaw=lunCorosRaw?lunCorosRaw.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
-  if(!Array.isArray(lunCorosRaw))lunCorosRaw=[];
-  document.getElementById('vocal-input-main-lun').value=lunMain;
-  document.getElementById('vocal-input-chorus-lun').value=lunCorosRaw.join(', ');
+  // Populate Coro 1-4 fields
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('vocal-coro-'+i);
+    if(el)el.value=domCorosRaw[i-1]||'';
+  }
   
   document.getElementById('vocal-editor-modal').classList.remove('hidden');
+  // Render vocal audios list
+  renderVocalAudioList();
   // Use setTimeout to avoid mobile keyboard issues
   setTimeout(()=>document.getElementById('vocal-input-main-dom').focus(),100);
 }
@@ -2350,18 +2383,25 @@ function renderVocalAudioList(){
 function hideVocalEditor(){
   document.getElementById('vocal-editor-modal').classList.add('hidden');
   document.getElementById('vocal-input-main-dom').value='';
-  document.getElementById('vocal-input-chorus-dom').value='';
-  document.getElementById('vocal-input-main-lun').value='';
-  document.getElementById('vocal-input-chorus-lun').value='';
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('vocal-coro-'+i);
+    if(el)el.value='';
+  }
 }
 
 async function saveVocalEditor(){
   const vocalDom=document.getElementById('vocal-input-main-dom').value.trim()||'Por asignar';
-  const corosDomStr=document.getElementById('vocal-input-chorus-dom').value.trim();
-  const corosDom=corosDomStr?corosDomStr.split(',').map(c=>c.trim()).filter(Boolean):[];
-  const vocalLun=document.getElementById('vocal-input-main-lun').value.trim()||vocalDom;
-  const corosLunStr=document.getElementById('vocal-input-chorus-lun').value.trim();
-  const corosLun=corosLunStr?corosLunStr.split(',').map(c=>c.trim()).filter(Boolean):corosDom;
+  
+  // Build coros array from Coro 1-4 fields
+  const corosDom=[];
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('vocal-coro-'+i);
+    if(el&&el.value.trim())corosDom.push(el.value.trim());
+  }
+  
+  // For lunes, use the same vocalista and coros (user can edit separately later)
+  const vocalLun=vocalDom;
+  const corosLun=corosDom.length>0?[...corosDom]:[];
   
   // Store coros separately per day (coros_domingo, coros_lunes)
   
@@ -2423,6 +2463,60 @@ ALTER TABLE admin_users ADD COLUMN apellido TEXT;
 
 -- Si ya tienes datos existentes, puedes actualizarlos:
 UPDATE admin_users SET nombre='Tu Nombre', apellido='Tu Apellido' WHERE id='admin';
+*/
+
+// ============= SQL PARA ARREGLAR RLS - TABLA vocal_audios =============
+// Error: "new row violates row-level security policy"
+// Ejecuta esto en el SQL Editor de Supabase para permitir inserts/updates:
+/*
+-- Habilitar RLS (si no está habilitado)
+ALTER TABLE vocal_audios ENABLE ROW LEVEL SECURITY;
+
+-- Política para permitir a usuarios anónimos/autenticados INSERT
+CREATE POLICY "Allow insert vocal_audios" ON vocal_audios
+  FOR INSERT WITH CHECK (true);
+
+-- Política para permitir a usuarios anónimos/autenticados UPDATE
+CREATE POLICY "Allow update vocal_audios" ON vocal_audios
+  FOR UPDATE USING (true);
+
+-- Política para permitir a usuarios anónimos/autenticados SELECT
+CREATE POLICY "Allow select vocal_audios" ON vocal_audios
+  FOR SELECT USING (true);
+
+-- Política para permitir a usuarios anónimos/autenticados DELETE
+CREATE POLICY "Allow delete vocal_audios" ON vocal_audios
+  FOR DELETE USING (true);
+*/
+
+// ============= SQL PARA ARREGLAR RLS - STORAGE vocal-audios =============
+// Error al subir audio al bucket vocal-audios
+// Ve a Supabase Dashboard > Storage > vocal-audios > Policies
+// Y crea estas políticas:
+/*
+-- Política para permitir uploads anónimos
+CREATE POLICY "Allow anonymous uploads" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'vocal-audios');
+
+-- Política para permitir lectura anónima
+CREATE POLICY "Allow anonymous reads" ON storage.objects
+  FOR SELECT USING (bucket_id = 'vocal-audios');
+
+-- Política para permitir deletes anónimos
+CREATE POLICY "Allow anonymous deletes" ON storage.objects
+  FOR DELETE USING (bucket_id = 'vocal-audios');
+*/
+
+// ============= SQL PARA ARREGLAR RLS - STORAGE repertorio-audios =============
+// Si también tienes problemas con el bucket repertorio-audios:
+/*
+-- Política para permitir uploads anónimos
+CREATE POLICY "Allow anonymous uploads repertorio" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'repertorio-audios');
+
+-- Política para permitir lectura anónima
+CREATE POLICY "Allow anonymous reads repertorio" ON storage.objects
+  FOR SELECT USING (bucket_id = 'repertorio-audios');
 */
 
 // ============= SQL PARA TABLA user_songs (sync de canciones) =============
