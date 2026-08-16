@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="REPERTORIOS RL">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="favicon.png">
 <title>REPERTORIOS RL</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -166,20 +167,154 @@ input,textarea,button{font-family:inherit}
 .install-ios-box p{font-size:.8rem;color:#a1a1aa;margin-bottom:12px;line-height:1.5}
 .install-ios-box .step{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:.8rem;color:#d4d4d8}
 .install-ios-box .step-num{width:24px;height:24px;background:#f59e0b;color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;flex-shrink:0}
+
+/* ============= AUTH STYLES ============= */
+.auth-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);backdrop-filter:blur(10px);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.auth-modal.active{display:flex}
+.auth-card{background:#18181b;border:1px solid rgba(63,63,70,.5);border-radius:16px;padding:24px;width:100%;max-width:360px;box-shadow:0 25px 50px -12px rgba(0,0,0,.5)}
+.auth-title{font-size:1.25rem;font-weight:700;color:#fff;text-align:center;margin-bottom:6px}
+.auth-subtitle{font-size:.8rem;color:#71717a;text-align:center;margin-bottom:20px}
+.auth-tabs{display:flex;gap:4px;background:#27272a;border-radius:10px;padding:4px;margin-bottom:20px}
+.auth-tab{flex:1;padding:8px;border:none;border-radius:8px;font-size:.8rem;font-weight:600;cursor:pointer;transition:all .2s;background:transparent;color:#71717a}
+.auth-tab.active{background:#f59e0b;color:#000}
+.auth-tab:hover:not(.active){color:#a1a1aa}
+.auth-error{background:rgba(248,113,113,.2);color:#f87171;padding:8px 12px;border-radius:8px;font-size:.75rem;margin-bottom:12px;display:none}
+.auth-error.show{display:block}
+.auth-success{background:rgba(34,197,94,.2);color:#4ade80;padding:8px 12px;border-radius:8px;font-size:.75rem;margin-bottom:12px;display:none}
+.auth-success.show{display:block}
+.user-menu{position:relative}
+.user-btn{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;border:1px solid rgba(63,63,70,.5);background:#27272a;color:#d4d4d8;font-size:.75rem;font-weight:500;cursor:pointer;transition:all .2s}
+.user-btn:hover{border-color:rgba(245,158,11,.3);background:#3f3f46}
+.user-avatar{width:24px;height:24px;background:#f59e0b;color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700}
+.user-dropdown{position:absolute;top:100%;right:0;margin-top:8px;background:#27272a;border:1px solid rgba(63,63,70,.5);border-radius:12px;padding:8px;min-width:180px;box-shadow:0 10px 25px rgba(0,0,0,.3);display:none;z-index:100}
+.user-dropdown.active{display:block}
+.user-dropdown-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;font-size:.8rem;color:#d4d4d8;cursor:pointer;transition:all .2s;border:none;background:transparent;width:100%;text-align:left}
+.user-dropdown-item:hover{background:#3f3f46;color:#fff}
+.user-dropdown-divider{height:1px;background:rgba(63,63,70,.5);margin:4px 0}
+
 </style>
 </head><body>
+
+<!-- AUTH MODAL -->
+<div id="auth-modal" class="auth-modal">
+  <div class="auth-card">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="width:48px;height:48px;background:#f59e0b;border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+      <div class="auth-title">REPERTORIOS RL</div>
+      <div class="auth-subtitle">Inicia sesión para sincronizar tus datos</div>
+    </div>
+    
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">Iniciar Sesión</button>
+      <button class="auth-tab" onclick="switchAuthTab('register')">Registrarse</button>
+    </div>
+    
+    <div id="auth-error" class="auth-error"></div>
+    <div id="auth-success" class="auth-success"></div>
+    
+    <!-- Login Form -->
+    <form id="auth-login-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="label">Usuario</label>
+        <input type="text" id="login-username" class="input" placeholder="Tu usuario" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Contraseña</label>
+        <input type="password" id="login-password" class="input" placeholder="Tu contraseña" required>
+      </div>
+      <button type="submit" class="btn btn-amber" style="width:100%;justify-content:center;padding:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10,17 15,12 10,7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Iniciar Sesión
+      </button>
+      <div style="text-align:center;margin-top:16px">
+        <button type="button" class="btn btn-zinc" onclick="closeAuthModal()" style="font-size:.75rem">
+          Usar sin sesión (solo local)
+        </button>
+      </div>
+    </form>
+    
+    <!-- Register Form -->
+    <form id="auth-register-form" style="display:none" onsubmit="handleRegister(event)">
+      <div class="form-group">
+        <label class="label">Nombre</label>
+        <input type="text" id="reg-nombre" class="input" placeholder="Tu nombre" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Apellido</label>
+        <input type="text" id="reg-apellido" class="input" placeholder="Tu apellido" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Usuario</label>
+        <input type="text" id="reg-username" class="input" placeholder="Elige un usuario" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Contraseña</label>
+        <input type="password" id="reg-password" class="input" placeholder="Elige una contraseña" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Confirmar contraseña</label>
+        <input type="password" id="reg-password-confirm" class="input" placeholder="Repite la contraseña" required>
+      </div>
+      <button type="submit" class="btn btn-amber" style="width:100%;justify-content:center;padding:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Crear Cuenta
+      </button>
+    </form>
+    
+    <div style="text-align:center;margin-top:12px;font-size:.7rem;color:#71717a">
+      Tus datos locales se mantendrán intactos
+    </div>
+  </div>
+</div>
+
+<!-- CHANGE PASSWORD MODAL -->
+<div id="change-password-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">Cambiar Contraseña</div>
+    <div class="auth-subtitle">Ingresa tu contraseña actual y la nueva</div>
+    
+    <div id="cp-error" class="auth-error"></div>
+    <div id="cp-success" class="auth-success"></div>
+    
+    <form onsubmit="handleChangePassword(event)">
+      <div class="form-group">
+        <label class="label">Contraseña actual</label>
+        <input type="password" id="cp-old-password" class="input" placeholder="Tu contraseña actual" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Nueva contraseña</label>
+        <input type="password" id="cp-new-password" class="input" placeholder="Nueva contraseña" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Confirmar nueva contraseña</label>
+        <input type="password" id="cp-new-password-confirm" class="input" placeholder="Repite la nueva contraseña" required>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-zinc" onclick="closeChangePasswordModal()" style="flex:1;justify-content:center">
+          Cancelar
+        </button>
+        <button type="submit" class="btn btn-amber" style="flex:1;justify-content:center">
+          Cambiar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 
 <!-- PAGE: Library -->
 <div id="page-library" class="page active">
   <div class="header">
     <div class="header-inner">
       <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:32px;height:32px;background:linear-gradient(135deg,#f59e0b,#ea580c);border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(245,158,11,.2)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <div style="width:32px;height:32px;border-radius:8px;overflow:hidden;box-shadow:0 4px 8px rgba(245,158,11,.2)">
+          <img src="icon-192.png" alt="Logo" style="width:100%;height:100%;object-fit:cover">
         </div>
         <div><div class="header-title">REPERTORIOS RL</div><div class="header-sub" id="song-count">0 canciones</div></div>
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;align-items:center">
         <input type="file" id="import-input" accept=".txt,.json" multiple style="display:none">
         <button class="btn btn-zinc" onclick="document.getElementById('import-input').click()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -189,6 +324,16 @@ input,textarea,button{font-family:inherit}
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           <span class="hide-mobile">Nueva</span>
         </button>
+        <div class="user-menu">
+          <button class="user-btn" onclick="toggleUserMenu()">
+            <div class="user-avatar" id="user-avatar-btn">?</div>
+            <span id="user-name-btn" class="hide-mobile">Invitado</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"/></svg>
+          </button>
+          <div class="user-dropdown" id="user-dropdown">
+            <div id="user-dropdown-content"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -622,6 +767,350 @@ try{
     console.log('Supabase connected');
   }
 }catch(e){console.error('Supabase init error:',e)}
+
+// ============= AUTH SYSTEM =============
+let currentUser = null;
+
+function initAuth() {
+  const saved = localStorage.getItem('rl_current_user');
+  if (saved) {
+    try {
+      currentUser = JSON.parse(saved);
+      // If logged in as admin, enable admin mode for repertorios
+      if (currentUser && currentUser.id === 'admin') {
+        repAdmin = true;
+      }
+    } catch(e) {
+      currentUser = null;
+    }
+  }
+  // Always update UI (for both logged in and guest modes)
+  updateUserUI();
+}
+
+function updateUserUI() {
+  const avatar = document.getElementById('user-avatar-btn');
+  const nameBtn = document.getElementById('user-name-btn');
+  const dropdownContent = document.getElementById('user-dropdown-content');
+  
+  if (currentUser) {
+    const displayName = currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id;
+    const initials = currentUser.nombre ? currentUser.nombre[0] + (currentUser.apellido ? currentUser.apellido[0] : '') : currentUser.id.substring(0, 2);
+    avatar.textContent = initials.toUpperCase();
+    nameBtn.textContent = currentUser.id;
+    
+    dropdownContent.innerHTML = `
+      <div style="padding:8px 12px;border-bottom:1px solid rgba(63,63,70,.5);margin-bottom:4px">
+        <div style="font-size:.8rem;font-weight:600;color:#fff">${esc(displayName.trim())}</div>
+        <div style="font-size:.7rem;color:#71717a">@${esc(currentUser.id)}</div>
+      </div>
+      <button class="user-dropdown-item" onclick="showChangePasswordModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Cambiar contraseña
+      </button>
+      <div class="user-dropdown-divider"></div>
+      <button class="user-dropdown-item" onclick="handleLogout()" style="color:#f87171">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Cerrar sesión
+      </button>
+    `;
+  } else {
+    avatar.textContent = '?';
+    nameBtn.textContent = 'Invitado';
+    
+    dropdownContent.innerHTML = `
+      <div style="padding:8px 12px;border-bottom:1px solid rgba(63,63,70,.5);margin-bottom:4px">
+        <div style="font-size:.8rem;color:#a1a1aa">Modo local</div>
+        <div style="font-size:.7rem;color:#71717a">Tus datos no se sincronizan</div>
+      </div>
+      <button class="user-dropdown-item" onclick="showAuthModal('login')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10,17 15,12 10,7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Iniciar sesión
+      </button>
+      <button class="user-dropdown-item" onclick="showAuthModal('register')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Crear cuenta
+      </button>
+    `;
+  }
+}
+
+function toggleUserMenu() {
+  const dropdown = document.getElementById('user-dropdown');
+  dropdown.classList.toggle('active');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  const menu = document.querySelector('.user-menu');
+  const dropdown = document.getElementById('user-dropdown');
+  if (menu && !menu.contains(e.target)) {
+    dropdown.classList.remove('active');
+  }
+});
+
+function showAuthModal(tab) {
+  document.getElementById('auth-modal').classList.add('active');
+  switchAuthTab(tab || 'login');
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-modal').classList.remove('active');
+  document.getElementById('auth-error').classList.remove('show');
+  document.getElementById('auth-success').classList.remove('show');
+}
+
+function switchAuthTab(tab) {
+  const tabs = document.querySelectorAll('.auth-tab');
+  tabs.forEach(t => t.classList.remove('active'));
+  
+  if (tab === 'login') {
+    tabs[0].classList.add('active');
+    document.getElementById('auth-login-form').style.display = 'block';
+    document.getElementById('auth-register-form').style.display = 'none';
+  } else {
+    tabs[1].classList.add('active');
+    document.getElementById('auth-login-form').style.display = 'none';
+    document.getElementById('auth-register-form').style.display = 'block';
+  }
+  
+  document.getElementById('auth-error').classList.remove('show');
+  document.getElementById('auth-success').classList.remove('show');
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.classList.add('show');
+  document.getElementById('auth-success').classList.remove('show');
+}
+
+function showAuthSuccess(msg) {
+  const el = document.getElementById('auth-success');
+  el.textContent = msg;
+  el.classList.add('show');
+  document.getElementById('auth-error').classList.remove('show');
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  
+  if (!username || !password) {
+    showAuthError('Por favor completa todos los campos');
+    return;
+  }
+  
+  if (!supabaseReady) {
+    showAuthError('Sin conexión a internet. No se puede iniciar sesión.');
+    return;
+  }
+  
+  try {
+    const { data, error } = await supabaseClient
+      .from('admin_users')
+      .select('*')
+      .eq('id', username.toLowerCase())
+      .eq('password_hash', password)
+      .single();
+    
+    if (error || !data) {
+      showAuthError('Usuario o contraseña incorrectos');
+      return;
+    }
+    
+    // Update last login
+    await supabaseClient
+      .from('admin_users')
+      .update({ created_at: Date.now() })
+      .eq('id', data.id);
+    
+    currentUser = { 
+      id: data.id, 
+      nombre: data.nombre || '', 
+      apellido: data.apellido || '' 
+    };
+    localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
+    
+    // If logged in as admin, automatically enable admin mode for repertorios
+    if (data.id === 'admin') {
+      repAdmin = true;
+      localStorage.setItem('cb_rep_admin', 'true');
+    }
+    
+    updateUserUI();
+    closeAuthModal();
+    showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '!', 'success');
+    
+  } catch(e) {
+    showAuthError('Error al conectar: ' + e.message);
+  }
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const nombre = document.getElementById('reg-nombre').value.trim();
+  const apellido = document.getElementById('reg-apellido').value.trim();
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const passwordConfirm = document.getElementById('reg-password-confirm').value;
+  
+  if (!nombre || !apellido || !username || !password) {
+    showAuthError('Por favor completa todos los campos');
+    return;
+  }
+  
+  if (username.toLowerCase() === 'admin') {
+    showAuthError('Este usuario está reservado');
+    return;
+  }
+  
+  if (password !== passwordConfirm) {
+    showAuthError('Las contraseñas no coinciden');
+    return;
+  }
+  
+  if (password.length < 4) {
+    showAuthError('La contraseña debe tener al menos 4 caracteres');
+    return;
+  }
+  
+  if (!supabaseReady) {
+    showAuthError('Sin conexión a internet. No se puede registrar.');
+    return;
+  }
+  
+  try {
+    // Check if username exists
+    const { data: existing } = await supabaseClient
+      .from('admin_users')
+      .select('id')
+      .eq('id', username.toLowerCase())
+      .single();
+    
+    if (existing) {
+      showAuthError('Este usuario ya está registrado');
+      return;
+    }
+    
+    // Create user
+    const { error } = await supabaseClient
+      .from('admin_users')
+      .insert({
+        id: username.toLowerCase(),
+        nombre: nombre,
+        apellido: apellido,
+        password_hash: password,
+        created_at: Date.now()
+      });
+    
+    if (error) throw error;
+    
+    showAuthSuccess('¡Cuenta creada! Ahora puedes iniciar sesión.');
+    switchAuthTab('login');
+    document.getElementById('login-username').value = username.toLowerCase();
+    document.getElementById('login-password').value = password;
+    
+  } catch(e) {
+    showAuthError('Error al registrar: ' + e.message);
+  }
+}
+
+function handleLogout() {
+  currentUser = null;
+  localStorage.removeItem('rl_current_user');
+  // Reset admin mode when logging out
+  repAdmin = false;
+  localStorage.removeItem('cb_rep_admin');
+  updateUserUI();
+  document.getElementById('user-dropdown').classList.remove('active');
+  showNotification('Sesión cerrada', 'success');
+}
+
+function showChangePasswordModal() {
+  document.getElementById('user-dropdown').classList.remove('active');
+  document.getElementById('change-password-modal').classList.add('active');
+  document.getElementById('cp-error').classList.remove('show');
+  document.getElementById('cp-success').classList.remove('show');
+  document.getElementById('cp-old-password').value = '';
+  document.getElementById('cp-new-password').value = '';
+  document.getElementById('cp-new-password-confirm').value = '';
+}
+
+function closeChangePasswordModal() {
+  document.getElementById('change-password-modal').classList.remove('active');
+}
+
+async function handleChangePassword(e) {
+  e.preventDefault();
+  const oldPass = document.getElementById('cp-old-password').value;
+  const newPass = document.getElementById('cp-new-password').value;
+  const newPassConfirm = document.getElementById('cp-new-password-confirm').value;
+  
+  if (!oldPass || !newPass || !newPassConfirm) {
+    document.getElementById('cp-error').textContent = 'Completa todos los campos';
+    document.getElementById('cp-error').classList.add('show');
+    return;
+  }
+  
+  if (newPass !== newPassConfirm) {
+    document.getElementById('cp-error').textContent = 'Las contraseñas nuevas no coinciden';
+    document.getElementById('cp-error').classList.add('show');
+    return;
+  }
+  
+  if (newPass.length < 4) {
+    document.getElementById('cp-error').textContent = 'La contraseña debe tener al menos 4 caracteres';
+    document.getElementById('cp-error').classList.add('show');
+    return;
+  }
+  
+  if (!supabaseReady || !currentUser) {
+    document.getElementById('cp-error').textContent = 'Error de conexión';
+    document.getElementById('cp-error').classList.add('show');
+    return;
+  }
+  
+  try {
+    // Verify old password
+    const { data, error } = await supabaseClient
+      .from('admin_users')
+      .select('id')
+      .eq('id', currentUser.id)
+      .eq('password_hash', oldPass)
+      .single();
+    
+    if (error || !data) {
+      document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
+      document.getElementById('cp-error').classList.add('show');
+      return;
+    }
+    
+    // Update password
+    const { error: updateError } = await supabaseClient
+      .from('admin_users')
+      .update({ password_hash: newPass })
+      .eq('id', currentUser.id);
+    
+    if (updateError) throw updateError;
+    
+    document.getElementById('cp-success').textContent = '¡Contraseña actualizada!';
+    document.getElementById('cp-success').classList.add('show');
+    document.getElementById('cp-error').classList.remove('show');
+    
+    setTimeout(() => {
+      closeChangePasswordModal();
+    }, 1500);
+    
+  } catch(e) {
+    document.getElementById('cp-error').textContent = 'Error: ' + e.message;
+    document.getElementById('cp-error').classList.add('show');
+  }
+}
+
+// Initialize auth on load
+initAuth();
 
 function showConnectionStatus(){
   const status=document.getElementById('rep-connection-status');
@@ -1271,6 +1760,64 @@ async function saveVocalEditor(){
       hideVocalEditor(); // Only close on SUCCESS
     }catch(e){alert('Error al guardar: '+e.message)} // Do NOT close on error
   }
+}
+
+
+// ============= SQL PARA MODIFICAR TABLA admin_users =============
+// Ejecuta esto en el SQL Editor de Supabase para agregar nombre y apellido:
+/*
+ALTER TABLE admin_users ADD COLUMN nombre TEXT;
+ALTER TABLE admin_users ADD COLUMN apellido TEXT;
+
+-- Si ya tienes datos existentes, puedes actualizarlos:
+UPDATE admin_users SET nombre='Tu Nombre', apellido='Tu Apellido' WHERE id='admin';
+*/
+
+// ============= NOTIFICATION FUNCTION =============
+function showNotification(message, type) {
+  const existing = document.querySelector('.floating-notification');
+  if (existing) existing.remove();
+  
+  const div = document.createElement('div');
+  div.className = 'floating-notification';
+  div.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-size: .85rem;
+    font-weight: 500;
+    z-index: 9999;
+    animation: slideDown .3s ease;
+    box-shadow: 0 10px 25px rgba(0,0,0,.3);
+  `;
+  
+  if (type === 'success') {
+    div.style.background = 'rgba(34,197,94,.9)';
+    div.style.color = '#fff';
+  } else {
+    div.style.background = 'rgba(248,113,113,.9)';
+    div.style.color = '#fff';
+  }
+  
+  div.textContent = message;
+  document.body.appendChild(div);
+  
+  setTimeout(() => {
+    div.style.opacity = '0';
+    div.style.transition = 'opacity .3s';
+    setTimeout(() => div.remove(), 300);
+  }, 3000);
+}
+
+// Add animation
+if (!document.getElementById('notification-styles')) {
+  const style = document.createElement('style');
+  style.id = 'notification-styles';
+  style.textContent = '@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+  document.head.appendChild(style);
 }
 
 // INIT
