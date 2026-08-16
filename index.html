@@ -781,6 +781,17 @@ function initAuth() {
       if (currentUser && currentUser.id === 'admin') {
         repAdmin = true;
       }
+      // Try to load songs from cloud on init
+      if (currentUser && supabaseReady) {
+        console.log('User logged in, loading songs from cloud...');
+        loadSongsFromCloud().then(cloudSongs => {
+          if (cloudSongs && cloudSongs.length > 0) {
+            songs = cloudSongs;
+            renderLibrary();
+            console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
+          }
+        });
+      }
     } catch(e) {
       currentUser = null;
     }
@@ -1119,7 +1130,16 @@ let pendingSync = false;
 
 // Sync songs to Supabase when logged in
 async function syncSongsToCloud() {
-  if (!currentUser || !supabaseReady) return;
+  if (!currentUser || !supabaseReady) {
+    console.log('Sync skipped: no user or no supabase');
+    return;
+  }
+  
+  if (syncInProgress) {
+    console.log('Sync already in progress');
+    pendingSync = true;
+    return;
+  }
   
   syncInProgress = true;
   updateSyncStatus('syncing');
@@ -1127,12 +1147,28 @@ async function syncSongsToCloud() {
   try {
     // Get current songs from localStorage
     const localSongs = load('cb_songs', []);
+    console.log('Syncing', localSongs.length, 'songs to cloud');
     
-    // Delete existing songs for this user
-    await supabaseClient
-      .from('user_songs')
-      .delete()
-      .eq('user_id', currentUser.id);
+    // First, try to delete existing songs for this user
+    try {
+      const { error: deleteError } = await supabaseClient
+        .from('user_songs')
+        .delete()
+        .eq('user_id', currentUser.id);
+      
+      if (deleteError) {
+        console.error('Delete error:', deleteError);
+        // If table doesn't exist, log it but continue
+        if (deleteError.message && deleteError.message.includes('does not exist')) {
+          console.log('Table user_songs does not exist. Please create it in Supabase.');
+          syncInProgress = false;
+          updateSyncStatus('error');
+          return;
+        }
+      }
+    } catch (delErr) {
+      console.log('Delete catch:', delErr);
+    }
     
     // Insert all songs
     if (localSongs.length > 0) {
@@ -1146,53 +1182,79 @@ async function syncSongsToCloud() {
       // Insert in batches of 50 (Supabase limit)
       for (let i = 0; i < songsToInsert.length; i += 50) {
         const batch = songsToInsert.slice(i, i + 50);
-        const { error } = await supabaseClient
+        const { data, error } = await supabaseClient
           .from('user_songs')
           .insert(batch);
         
-        if (error) throw error;
+        if (error) {
+          console.error('Insert error:', error);
+          throw error;
+        }
+        console.log('Inserted batch:', batch.length, 'songs');
       }
     }
     
     syncInProgress = false;
     pendingSync = false;
     updateSyncStatus('synced');
-    console.log('Songs synced to cloud:', localSongs.length, 'songs');
+    console.log('Songs synced to cloud successfully');
     
   } catch (e) {
     console.error('Error syncing to cloud:', e);
     syncInProgress = false;
     pendingSync = true;
     updateSyncStatus('error');
+    
+    // Si el error es por RLS, mostrar mensaje específico
+    if (e.code === '42501' || (e.message && e.message.includes('row-level security'))) {
+      console.error('⚠️ Error de RLS en user_songs. Ejecuta en Supabase SQL Editor: ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;');
+    }
   }
 }
 
 // Load songs from Supabase when logged in
 async function loadSongsFromCloud() {
-  if (!currentUser || !supabaseReady) return null;
+  if (!currentUser || !supabaseReady) {
+    console.log('Load from cloud skipped: no user or no supabase');
+    return null;
+  }
   
   updateSyncStatus('loading');
   
   try {
+    console.log('Loading songs from cloud for user:', currentUser.id);
+    
     const { data, error } = await supabaseClient
       .from('user_songs')
       .select('song_data')
-      .eq('user_id', currentUser.id)
-      .order('created_at', { ascending: false });
+      .eq('user_id', currentUser.id);
     
-    if (error) throw error;
+    if (error) {
+      console.error('Load error:', error);
+      // If table doesn't exist, return null
+      if (error.message && error.message.includes('does not exist')) {
+        console.log('Table user_songs does not exist');
+        updateSyncStatus('error');
+        return null;
+      }
+      throw error;
+    }
+    
+    console.log('Cloud response:', data);
     
     if (data && data.length > 0) {
       const cloudSongs = data.map(d => d.song_data);
+      console.log('Loaded', cloudSongs.length, 'songs from cloud');
+      
       // Update localStorage with cloud data
       save('cb_songs', cloudSongs);
       updateSyncStatus('synced');
-      console.log('Songs loaded from cloud:', cloudSongs.length, 'songs');
       return cloudSongs;
+    } else {
+      console.log('No songs found in cloud');
+      updateSyncStatus('synced');
+      return null;
     }
-    
-    updateSyncStatus('synced');
-    return null;
     
   } catch (e) {
     console.error('Error loading from cloud:', e);
@@ -1211,6 +1273,10 @@ function updateSyncStatus(status) {
       indicator.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" class="spin"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>';
       indicator.title = 'Sincronizando...';
       break;
+    case 'loading':
+      indicator.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" class="spin"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>';
+      indicator.title = 'Cargando desde la nube...';
+      break;
     case 'synced':
       indicator.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>';
       indicator.title = 'Sincronizado con la nube';
@@ -1228,65 +1294,7 @@ function updateSyncStatus(status) {
   }
 }
 
-// Sync on save song
-function saveSongWithSync() {
-  // Original saveSong logic
-  const t = document.getElementById('input-title').value.trim();
-  const a = document.getElementById('input-artist').value.trim() || 'Desconocido';
-  const l = document.getElementById('input-lyrics').value.trim();
-  const bpm = parseInt(document.getElementById('input-tempo').value) || 0;
-  const cmp = document.getElementById('input-compas').value.trim() || '';
-  
-  if (!t || !l) {
-    alert('Título y letra son obligatorios');
-    return;
-  }
-  
-  if (editingSongId) {
-    const i = songs.findIndex(s => s.id === editingSongId);
-    if (i !== -1) {
-      songs[i] = {
-        ...songs[i],
-        title: t,
-        artist: a,
-        lyrics: l,
-        originalKey: formKey,
-        tags: [...formTags],
-        tempo: bpm || songs[i].tempo || 0,
-        compas: cmp || songs[i].compas || '',
-        audio_url: songs[i].audio_url || null,
-        updatedAt: Date.now()
-      };
-    }
-  } else {
-    const dk = detectKey(l);
-    songs.unshift({
-      id: genId(),
-      title: t,
-      artist: a,
-      lyrics: l,
-      originalKey: formKey || dk,
-      currentKey: formKey || dk,
-      tags: [...formTags],
-      tempo: bpm,
-      compas: cmp,
-      audio_url: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    });
-  }
-  
-  save('cb_songs', songs);
-  editingSongId = null;
-  showPage('library');
-  
-  // Sync to cloud if logged in
-  if (currentUser && supabaseReady) {
-    syncSongsToCloud();
-  }
-}
-
-// Modified handleLogin to load songs from cloud
+// Login with cloud sync
 async function handleLoginWithSync(e) {
   e.preventDefault();
   const username = document.getElementById('login-username').value.trim();
@@ -1303,6 +1311,8 @@ async function handleLoginWithSync(e) {
   }
   
   try {
+    console.log('Attempting login for:', username);
+    
     const { data, error } = await supabaseClient
       .from('admin_users')
       .select('*')
@@ -1311,9 +1321,12 @@ async function handleLoginWithSync(e) {
       .single();
     
     if (error || !data) {
+      console.error('Login error:', error);
       showAuthError('Usuario o contraseña incorrectos');
       return;
     }
+    
+    console.log('Login successful for:', data.id);
     
     // Update last login
     await supabaseClient
@@ -1338,32 +1351,35 @@ async function handleLoginWithSync(e) {
     closeAuthModal();
     
     // Load songs from cloud
+    console.log('Loading songs from cloud...');
     const cloudSongs = await loadSongsFromCloud();
-    if (cloudSongs) {
+    
+    if (cloudSongs && cloudSongs.length > 0) {
+      console.log('Cloud songs loaded:', cloudSongs.length);
       songs = cloudSongs;
       renderLibrary();
-      showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Canciones sincronizadas.', 'success');
+      showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + cloudSongs.length + ' canciones sincronizadas.', 'success');
     } else {
+      console.log('No cloud songs, syncing local songs');
       // No cloud songs, sync local songs to cloud
       if (songs.length > 0) {
-        syncSongsToCloud();
+        await syncSongsToCloud();
       }
       showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '!', 'success');
     }
     
   } catch(e) {
+    console.error('Login error:', e);
     showAuthError('Error al conectar: ' + e.message);
   }
 }
 
-// Replace the original handleLogin with the sync version
-handleLogin = handleLoginWithSync;
-
-// Modified handleLogout to sync before logout
-function handleLogoutWithSync() {
+// Logout with sync
+async function handleLogoutWithSync() {
   // Sync songs before logging out
   if (currentUser && songs.length > 0 && supabaseReady) {
-    syncSongsToCloud();
+    console.log('Syncing songs before logout...');
+    await syncSongsToCloud();
   }
   
   currentUser = null;
@@ -1376,19 +1392,10 @@ function handleLogoutWithSync() {
   showNotification('Sesión cerrada', 'success');
 }
 
-// Replace the original handleLogout
-handleLogout = handleLogoutWithSync;
-
-// Add sync indicator to header
-function addSyncIndicator() {
-  const headerInner = document.querySelector('.header-inner');
-  if (headerInner && !document.getElementById('sync-indicator')) {
-    const indicator = document.createElement('div');
-    indicator.id = 'sync-indicator';
-    indicator.style.cssText = 'display:flex;align-items:center;margin-left:8px;';
-    headerInner.appendChild(indicator);
-  }
-}
+// Add CSS for spinning animation
+const syncStyle = document.createElement('style');
+syncStyle.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}';
+document.head.appendChild(syncStyle);
 
 // Check online status and update indicator
 function updateOnlineStatus() {
@@ -1410,11 +1417,6 @@ window.addEventListener('online', () => {
 window.addEventListener('offline', () => {
   updateSyncStatus('offline');
 });
-
-// Add CSS for spinning animation
-const syncStyle = document.createElement('style');
-syncStyle.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}';
-document.head.appendChild(syncStyle);
 
 function showConnectionStatus(){
   const status=document.getElementById('rep-connection-status');
@@ -1513,6 +1515,10 @@ function saveSong(){
   // Sync to cloud if logged in
   if(currentUser&&supabaseReady){syncSongsToCloud()}
 }
+
+// Override the original functions with sync versions
+window.handleLogin = handleLoginWithSync;
+window.handleLogout = handleLogoutWithSync;
 function editSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;editingSongId=s.id;document.getElementById('form-title').textContent='Editar canción';document.getElementById('input-title').value=s.title;document.getElementById('input-artist').value=s.artist;document.getElementById('input-lyrics').value=s.lyrics;document.getElementById('input-tempo').value=s.tempo||'';document.getElementById('input-compas').value=s.compas||'';formKey=s.originalKey;formTags=[...s.tags];renderFormTags();renderKeyGrid();showPage('add')}
 function saveRepSongToLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const existing=songs.find(x=>x.repSongId===s.id);if(existing){alert('Esta canción ya está en tu biblioteca');return}const dk=s.tono_original||'C';songs.unshift({id:genId(),title:s.titulo||'Sin título',artist:s.artista||'Desconocido',lyrics:s.letra_acordes||'',originalKey:dk,currentKey:dk,tags:s.tags||['Repertorio'],tempo:s.tempo||0,compas:s.compas||'',audio_url:s.audio_url||null,repSongId:s.id,repId:r.id,createdAt:Date.now(),updatedAt:Date.now()});save('cb_songs',songs);const btn=document.getElementById('save-rep-btn');if(btn){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';btn.style.background='rgba(34,197,94,.2)';btn.style.color='#4ade80';btn.style.borderColor='rgba(34,197,94,.3)';btn.disabled=true}if(currentUser&&supabaseReady){syncSongsToCloud()}}
 function isRepSongInLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return false;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return false;return!!songs.find(x=>x.repSongId===s.id)}
