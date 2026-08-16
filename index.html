@@ -6,9 +6,10 @@
 <meta name="theme-color" content="#f59e0b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Repertorios RL">
-<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiUkVQRVJUT1JJT1MgUkwiLCJzaG9ydF9uYW1lIjoiUkVQRVJUT1JJT1MgUkwiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzA5MDkwYiIsInRoZW1lX2NvbG9yIjoiI2Y1OWUwYiJ9">
-<title>Repertorios RL</title>
+<meta name="apple-mobile-web-app-title" content="REPERTORIOS RL">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>REPERTORIOS RL</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1275,6 +1276,39 @@ async function saveVocalEditor(){
 // INIT
 showConnectionStatus();
 loadRepertorios().then(()=>renderLibrary());
+
+// ============= PWA SERVICE WORKER =============
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('./sw.js').then(function(registration){
+      console.log('[PWA] Service Worker registered, scope:',registration.scope);
+      // Check for updates every 60 seconds
+      setInterval(function(){registration.update()},60000);
+      // Listen for updates
+      registration.addEventListener('updatefound',function(){
+        var newWorker=registration.installing;
+        if(newWorker){
+          newWorker.addEventListener('statechange',function(){
+            if(newWorker.state==='installed'&&navigator.serviceWorker.controller){
+              // New version available - notify user
+              if(confirm('Hay una nueva versión disponible. ¿Actualizar ahora?')){
+                newWorker.postMessage({type:'SKIP_WAITING'});
+                window.location.reload();
+              }
+            }
+          });
+        }
+      });
+    }).catch(function(err){
+      console.log('[PWA] Service Worker registration failed:',err);
+    });
+  });
+  // Reload when new service worker takes over
+  var refreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',function(){
+    if(!refreshing){refreshing=true;window.location.reload()}
+  });
+}
 </script>
 </body>
 </html>
