@@ -1670,6 +1670,38 @@ function saveSong(){
   if(currentUser&&supabaseReady){syncSongsToCloud()}
 }
 
+// Sync repertorio song changes to ALL users' libraries
+async function syncRepertorioToAllUsers(cancion){
+  if(!supabaseReady)return;
+  try{
+    // Find all user_songs that match this song by title + artist
+    const {data:matches,error:selErr}=await supabaseClient.from('user_songs').select('id,song_data');
+    if(selErr||!matches)return;
+    const toUpdate=matches.filter(m=>{
+      const sd=m.song_data;
+      return sd&&sd.title===cancion.titulo&&sd.artist===cancion.artista;
+    });
+    if(toUpdate.length===0)return;
+    // Update each user's song_data with the latest from canciones_repertorio
+    for(const m of toUpdate){
+      const sd=m.song_data;
+      const updated={
+        ...sd,
+        title:cancion.titulo||sd.title,
+        artist:cancion.artista||sd.artist,
+        lyrics:cancion.letra_acordes||sd.lyrics,
+        originalKey:cancion.tono_original||sd.originalKey,
+        tempo:cancion.tempo||sd.tempo,
+        compas:cancion.compas||sd.compas,
+        audio_url:cancion.audio_url||sd.audio_url,
+        updatedAt:Date.now()
+      };
+      await supabaseClient.from('user_songs').update({song_data:updated,updated_at:Date.now()}).eq('id',m.id);
+    }
+    console.log('Synced',toUpdate.length,'user libraries for:',cancion.titulo);
+  }catch(e){console.error('Sync to all users error:',e)}
+}
+
 // Override the original functions with sync versions
 window.handleLogin = handleLoginWithSync;
 window.handleLogout = handleLogoutWithSync;
@@ -1688,6 +1720,8 @@ async function syncRepertorioFromLibrary(libSong){
       await supabaseClient.from('canciones_repertorio').update(updates).eq('id',rs.id);
     }
     console.log('Synced',repSongs.length,'repertorio copies for:',libSong.title);
+    // Also sync to ALL other users' libraries
+    await syncRepertorioToAllUsers({titulo:libSong.title,artista:libSong.artist,letra_acordes:libSong.lyrics,tono_original:libSong.originalKey,tempo:libSong.tempo,compas:libSong.compas,audio_url:libSong.audio_url});
   }catch(e){console.error('Sync repertorio error:',e)}
 }
 
@@ -2175,11 +2209,13 @@ function triggerAudioUpload(songId){audioUploadSongId=songId;document.getElement
 let vocalAudioUploadCoro=null;
 let vocalAudioUploadRepId=null;
 let vocalAudioUploadSongId=null;
+let vocalAudioUploadSourceSongId=null;
 
-function triggerVocalAudioUpload(repId,songId,coro){
+function triggerVocalAudioUpload(repId,songId,coro,sourceSongId){
   if(!canEditVocals())return;
   vocalAudioUploadRepId=repId;
   vocalAudioUploadSongId=songId;
+  vocalAudioUploadSourceSongId=sourceSongId||null;
   vocalAudioUploadCoro=coro;
   document.getElementById('vocal-audio-upload-input').click();
 }
@@ -2189,10 +2225,26 @@ async function handleVocalAudioUpload(e){
   if(!file||!vocalAudioUploadRepId||!vocalAudioUploadSongId||!vocalAudioUploadCoro)return;
   if(!supabaseReady){alert('Sin conexión a Supabase');return}
   
-  // Get source_song_id from the canciones_repertorio record
-  const r=repertorios.find(x=>x.id===vocalAudioUploadRepId);
-  const cancionesRep=r?r.canciones.find(x=>x.id===vocalAudioUploadSongId):null;
-  const sourceSongId=cancionesRep?(cancionesRep.source_song_id||vocalAudioUploadSongId):vocalAudioUploadSongId;
+  // Resolve source_song_id: prefer explicit value, then DB lookup, then local cache
+  let sourceSongId=vocalAudioUploadSourceSongId;
+  if(!sourceSongId){
+    // Try DB lookup first (most reliable)
+    try{
+      const {data:crData}=await supabaseClient.from('canciones_repertorio').select('source_song_id').eq('id',vocalAudioUploadSongId).single();
+      if(crData&&crData.source_song_id)sourceSongId=crData.source_song_id;
+    }catch(e){}
+  }
+  if(!sourceSongId){
+    // Fallback to local cache
+    const r=repertorios.find(x=>x.id===vocalAudioUploadRepId);
+    const cancionesRep=r?r.canciones.find(x=>x.id===vocalAudioUploadSongId):null;
+    if(cancionesRep&&cancionesRep.source_song_id)sourceSongId=cancionesRep.source_song_id;
+  }
+  if(!sourceSongId){
+    alert('No se pudo determinar el ID de la canción. Asegúrate de que la canción esté en tu biblioteca.');
+    e.target.value='';
+    return;
+  }
   
   const ext=file.name.split('.').pop()||'mp3';
   const path='vocal-audios/'+sourceSongId+'_coro'+vocalAudioUploadCoro+'.'+ext;
@@ -2257,19 +2309,34 @@ async function handleVocalAudioUpload(e){
   vocalAudioUploadCoro=null;
   vocalAudioUploadRepId=null;
   vocalAudioUploadSongId=null;
+  vocalAudioUploadSourceSongId=null;
 }
 
-async function deleteVocalAudio(repId,songId,coro){
+async function deleteVocalAudio(repId,songId,coro,sourceSongId){
   if(!canEditVocals())return;
   if(!confirm('¿Eliminar este audio de coro?'))return;
+  
+  // Resolve source_song_id: prefer explicit, then DB, then local cache
+  let resolvedSourceId=sourceSongId;
+  if(!resolvedSourceId){
+    try{
+      const {data:crData}=await supabaseClient.from('canciones_repertorio').select('source_song_id').eq('id',songId).single();
+      if(crData&&crData.source_song_id)resolvedSourceId=crData.source_song_id;
+    }catch(e){}
+  }
+  if(!resolvedSourceId){
+    const r=repertorios.find(x=>x.id===repId);
+    if(r){
+      const cancionesRep=r.canciones.find(x=>x.id===songId);
+      if(cancionesRep&&cancionesRep.source_song_id)resolvedSourceId=cancionesRep.source_song_id;
+    }
+  }
+  if(!resolvedSourceId){resolvedSourceId=songId;}
   
   const r=repertorios.find(x=>x.id===repId);
   if(!r||!r.vocalAudios)return;
   
-  const cancionesRep=r.canciones.find(x=>x.id===songId);
-  const sourceSongId=cancionesRep?(cancionesRep.source_song_id||songId):songId;
-  
-  const existing=r.vocalAudios.find(va=>(va.source_song_id||va.cancion_repertorio_id)===sourceSongId&&va.coro_number===coro);
+  const existing=r.vocalAudios.find(va=>(va.source_song_id||va.cancion_repertorio_id)===resolvedSourceId&&va.coro_number===coro);
   if(!existing)return;
   
   try{
@@ -2511,7 +2578,7 @@ function renderVocalAudioList(){
     html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
     html+='<span style="font-size:.75rem;font-weight:600;color:#fbbf24">'+coro+'</span>';
     if(canEditVocals()){
-      html+='<button class="btn-icon" onclick="triggerVocalAudioUpload(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+')" style="color:#f59e0b" title="Subir audio"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
+      html+='<button class="btn-icon" onclick="triggerVocalAudioUpload(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+',\''+sourceSongId+'\')" style="color:#f59e0b" title="Subir audio"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
     }
     html+='</div>';
     if(audio&&audio.audio_url){
@@ -2519,7 +2586,7 @@ function renderVocalAudioList(){
       html+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
       html+='<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(audio.vocalista_name||coroName||'Audio Coro '+coro)+'</div>';
       if(canEditVocals()){
-        html+='<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+')" style="flex-shrink:0" title="Eliminar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+        html+='<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+',\''+sourceSongId+'\')" style="flex-shrink:0" title="Eliminar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
       }
       html+='</div>';
     }else{
@@ -2618,6 +2685,11 @@ async function saveVocalEditor(){
         coros_lunes:corosLun
       }).eq('id',vocalEditorSongId);
       if(error)throw error;
+      // Sync vocal changes to ALL users' libraries
+      try{
+        const {data:cr}=await supabaseClient.from('canciones_repertorio').select('*').eq('id',vocalEditorSongId).single();
+        if(cr)await syncRepertorioToAllUsers(cr);
+      }catch(syncErr){console.log('Sync to users skipped:',syncErr.message)}
       await loadRepertorios();
       renderRepertorioView();
       hideVocalEditor(); // Only close on SUCCESS
