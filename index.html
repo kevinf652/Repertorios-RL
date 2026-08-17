@@ -2046,7 +2046,7 @@ function renderRepSongView(){
   if(ntBtn)ntBtn.innerHTML=useFlats?'♭':'#';
   document.getElementById('rep-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">'+corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span>'+esc(c)+'</span></span>'}).join('')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
   document.getElementById('rep-song-key').innerHTML='<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(repCurrentKey)+'</div>'+(repCurrentKey!==s.tono_original?'<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.tono_original)+'</button>':'')+'</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
-  // Build vocal audios section - simplified, just show play buttons
+  // Build vocal audios section - show play buttons with coro names
   let vocalAudiosHtml='';
   if(r&&r.vocalAudios){
     const songAudios=r.vocalAudios.filter(va=>va.cancion_repertorio_id===viewingRepSongId);
@@ -2054,11 +2054,18 @@ function renderRepSongView(){
       vocalAudiosHtml='<div style="margin-top:12px">';
       for(let coro=1;coro<=4;coro++){
         const audio=songAudios.find(va=>va.coro_number===coro);
+        const coroName=corosForDay[coro-1]||'';
         if(audio&&audio.audio_url){
           const audioKey=viewingRepId+'_'+viewingRepSongId+'_'+coro;
           vocalAudiosHtml+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(27,27,30,.5);border-radius:6px;margin-bottom:4px;border:1px solid rgba(63,63,70,.3)">';
           vocalAudiosHtml+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80;flex-shrink:0" title="Reproducir Coro '+coro+'"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-          vocalAudiosHtml+='<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa">Coro '+coro+(audio.vocalista_name?' - '+esc(audio.vocalista_name):'')+'</div>';
+          vocalAudiosHtml+='<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa">'+(coroName?esc(coroName):'Coro '+coro)+(audio.vocalista_name?' - '+esc(audio.vocalista_name):'')+'</div>';
+          vocalAudiosHtml+='</div>';
+        }else if(coroName){
+          // Show coro name even without audio
+          vocalAudiosHtml+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(27,27,30,.3);border-radius:6px;margin-bottom:4px;border:1px solid rgba(63,63,70,.2)">';
+          vocalAudiosHtml+='<span style="width:12px;height:12px;color:#52525b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></span>';
+          vocalAudiosHtml+='<div style="flex:1;min-width:0;font-size:.7rem;color:#52525b;font-style:italic">'+esc(coroName)+'</div>';
           vocalAudiosHtml+='</div>';
         }
       }
@@ -2387,9 +2394,18 @@ function showVocalEditor(repId,songId,mode,songData){
   document.getElementById('vocal-editor-title').textContent=mode==='add'?'Asignar vocales':'Editar vocales';
   document.getElementById('vocal-editor-subtitle').textContent=mode==='add'?'Asigna los vocales por día antes de agregar la canción':'Modifica los vocales de esta canción';
   
-  // Load domingo data
-  const domMain=songData?(songData.vocalista_domingo||''):'';
-  let domCorosRaw=songData?(songData.coros_domingo||[]):[];
+  // Check if song has saved vocal assignments (for persistence across repertorios)
+  const localSong=songs.find(x=>x.id===songId);
+  const savedVocals=localSong?{
+    vocalista_domingo:localSong.vocalista_domingo||'',
+    vocalista_lunes:localSong.vocalista_lunes||'',
+    coros_domingo:localSong.coros_domingo||[],
+    coros_lunes:localSong.coros_lunes||[]
+  }:null;
+  
+  // Load domingo data - use songData if editing, or saved vocals if adding
+  const domMain=songData?(songData.vocalista_domingo||''):(savedVocals?savedVocals.vocalista_domingo:'');
+  let domCorosRaw=songData?(songData.coros_domingo||[]):(savedVocals?savedVocals.coros_domingo:[]);
   if(typeof domCorosRaw==='string')domCorosRaw=domCorosRaw?domCorosRaw.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
   if(!Array.isArray(domCorosRaw))domCorosRaw=[];
   document.getElementById('vocal-input-main-dom').value=domMain;
@@ -2399,9 +2415,9 @@ function showVocalEditor(repId,songId,mode,songData){
     if(el)el.value=domCorosRaw[i-1]||'';
   }
   
-  // Load lunes data
-  const lunMain=songData?(songData.vocalista_lunes||''):'';
-  let lunCorosRaw=songData?(songData.coros_lunes||[]):[];
+  // Load lunes data - use songData if editing, or saved vocals if adding
+  const lunMain=songData?(songData.vocalista_lunes||''):(savedVocals?savedVocals.vocalista_lunes:'');
+  let lunCorosRaw=songData?(songData.coros_lunes||[]):(savedVocals?savedVocals.coros_lunes:[]);
   if(typeof lunCorosRaw==='string')lunCorosRaw=lunCorosRaw?lunCorosRaw.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
   if(!Array.isArray(lunCorosRaw))lunCorosRaw=[];
   document.getElementById('vocal-input-main-lun').value=lunMain;
@@ -2422,13 +2438,21 @@ function renderVocalAudioList(){
   const r=repertorios.find(x=>x.id===vocalEditorRepId);
   const songAudios=r&&r.vocalAudios?r.vocalAudios.filter(va=>va.cancion_repertorio_id===vocalEditorSongId):[];
   
+  // Get coro names from editor inputs
+  const coroNames=[];
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('vocal-coro-dom-'+i);
+    coroNames.push(el?el.value.trim():'');
+  }
+  
   let html='';
   for(let coro=1;coro<=4;coro++){
     const audio=songAudios.find(va=>va.coro_number===coro);
+    const coroName=coroNames[coro-1]||'';
     const audioKey=vocalEditorRepId+'_'+vocalEditorSongId+'_'+coro;
     html+='<div style="background:rgba(27,27,30,.5);border:1px solid rgba(63,63,70,.3);border-radius:8px;padding:10px;margin-bottom:8px">';
     html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
-    html+='<span style="font-size:.75rem;font-weight:600;color:#fbbf24">Coro '+coro+'</span>';
+    html+='<span style="font-size:.75rem;font-weight:600;color:#fbbf24">'+coro+(coroName?' - '+esc(coroName):'')+'</span>';
     if(canEditVocals()){
       html+='<button class="btn-icon" onclick="triggerVocalAudioUpload(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+')" style="color:#f59e0b" title="Subir audio"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
     }
@@ -2436,13 +2460,13 @@ function renderVocalAudioList(){
     if(audio&&audio.audio_url){
       html+='<div style="display:flex;align-items:center;gap:8px">';
       html+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-      html+='<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(audio.vocalista_name||'Audio Coro '+coro)+'</div>';
+      html+='<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(audio.vocalista_name||coroName||'Audio Coro '+coro)+'</div>';
       if(canEditVocals()){
         html+='<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+')" style="flex-shrink:0" title="Eliminar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
       }
       html+='</div>';
     }else{
-      html+='<div style="font-size:.7rem;color:#52525b;font-style:italic">Sin audio</div>';
+      html+='<div style="font-size:.7rem;color:#52525b;font-style:italic">'+(coroName?'Sin audio - '+esc(coroName):'Sin audio')+'</div>';
     }
     html+='</div>';
   }
@@ -2481,6 +2505,16 @@ async function saveVocalEditor(){
   // If lunes coros are empty, use domingo coros as fallback
   if(corosLun.length===0&&corosDom.length>0){
     corosDom.forEach(c=>corosLun.push(c));
+  }
+  
+  // Save coro assignments to the local song for persistence
+  const localSong=songs.find(x=>x.id===vocalEditorSongId);
+  if(localSong){
+    localSong.vocalista_domingo=vocalDom;
+    localSong.vocalista_lunes=vocalLun;
+    localSong.coros_domingo=corosDom;
+    localSong.coros_lunes=corosLun;
+    save('cb_songs',songs);
   }
   
   // Store coros separately per day (coros_domingo, coros_lunes)
