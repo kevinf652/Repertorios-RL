@@ -10,7 +10,7 @@ Aplicación web para gestionar repertorios de worship/génesis. Permite organiza
 - **Repertorios semanales** — Crear repertorios por domingo/lunes con vocales asignados
 - **Audio vinculado** — Subir y reproducir audio directamente desde la canción
 - **Importar/Exportar** — Soporte para archivos `.txt` y `.json`
-- **Modo Admin** — Gestión completa de repertorios (contraseña: `worship2026`)
+- **Modo Admin** — Gestión completa de repertorios
 - **PWA** — Instalable como app en móvil y escritorio
 
 ## Uso
