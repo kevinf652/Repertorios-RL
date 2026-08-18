@@ -419,7 +419,8 @@ input,textarea,button{font-family:inherit}
         <span class="text-sm">Volver</span>
       </button>
       <div style="display:flex;gap:2px">
-        <button class="btn-icon" onclick="exportSong()" title="Exportar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
+        <button class="btn-icon" onclick="exportSong()" title="Exportar archivo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+        <button class="btn-icon" onclick="shareSong()" title="Compartir"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
         <button class="btn-icon" onclick="toggleListPicker()" title="Añadir a lista"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
         <button class="btn-icon" onclick="editSong()" title="Editar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
         <button class="btn-icon btn-icon-red" onclick="deleteCurrentSong()" title="Eliminar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
@@ -478,7 +479,10 @@ input,textarea,button{font-family:inherit}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
         <span class="text-sm">Listas</span>
       </button>
-      <button class="btn-icon" onclick="exportCurrentList()" title="Exportar" style="gap:4px;color:#a1a1aa">
+      <button class="btn-icon" onclick="exportCurrentList()" title="Exportar archivo" style="gap:4px;color:#a1a1aa">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button class="btn-icon" onclick="shareCurrentList()" title="Compartir" style="gap:4px;color:#a1a1aa">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
     </div>
@@ -1908,7 +1912,9 @@ async function deleteCurrentSong(){
   if(currentUser&&supabaseReady){syncSongsToCloud()}
 }
 
-function exportSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;dlJson({type:'chordbook-song',version:1,songs:[{title:s.title,artist:s.artist,lyrics:s.lyrics,originalKey:s.originalKey,tags:s.tags}]},s.title.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'.json')}
+function exportSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;dlJson({type:'chordbook-song',version:2,id:s.id,audio_url:s.audio_url||null,songs:[{id:s.id,title:s.title,artist:s.artist,lyrics:s.lyrics,originalKey:s.originalKey,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags,audio_url:s.audio_url||null}]},s.title.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'.json')}
+
+function shareSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;const data={type:'chordbook-song',version:2,id:s.id,audio_url:s.audio_url||null,songs:[{id:s.id,title:s.title,artist:s.artist,lyrics:s.lyrics,originalKey:s.originalKey,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags,audio_url:s.audio_url||null}]};const text=JSON.stringify(data);if(navigator.share){navigator.share({title:s.title+' - ChordBook',text:'Compartiendo canción: '+s.title}).catch(()=>{})}else{navigator.clipboard.writeText(text).then(()=>{showNotif('import-notification','JSON copiado al portapapeles. Compártelo por WhatsApp, email, etc.','success')}).catch(()=>{dlJson(data,s.title.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'.json')})}}
 function dlJson(d,f){const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=f;a.click();URL.revokeObjectURL(u)}
 
 // View audio player
@@ -1966,7 +1972,18 @@ document.getElementById('import-input').addEventListener('change',async function
     const ext=file.name.split('.').pop().toLowerCase(),content=await file.text();
     if(ext==='json'){
       try{const d=JSON.parse(content);
-        if(d.type==='chordbook-song'&&Array.isArray(d.songs)){d.songs.forEach(s=>{songs.unshift({id:genId(),title:s.title||'Sin título',artist:s.artist||'Desconocido',lyrics:s.lyrics||'',originalKey:s.originalKey||'C',currentKey:s.originalKey||'C',tags:s.tags||[],createdAt:Date.now(),updatedAt:Date.now()});total++})}
+        if(d.type==='chordbook-song'&&Array.isArray(d.songs)){
+          d.songs.forEach(s=>{
+            // v2: use id from JSON if present (linked import, no duplicates)
+            const songId=s.id||d.id||genId();
+            const existing=songs.find(x=>x.id===songId);
+            if(!existing){
+              const dk=s.originalKey||(s.lyrics?detectKey(s.lyrics):'C');
+              songs.unshift({id:songId,sourceId:s.id||d.id||null,sourceType:s.id?'imported':undefined,title:s.title||'Sin título',artist:s.artist||'Desconocido',lyrics:s.lyrics||'',originalKey:dk,currentKey:dk,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags||[],audio_url:s.audio_url||d.audio_url||null,createdAt:Date.now(),updatedAt:Date.now()});
+              total++;
+            }
+          })
+        }
         if(d.type==='chordbook-list'){importListData(d)}
       }catch{}
     }else if(ext==='txt'){
@@ -1990,13 +2007,13 @@ document.getElementById('import-list-input').addEventListener('change',async fun
           const lid=genId();
           const songIds=[];
           d.songs.forEach(s=>{
-            let existing=songs.find(x=>x.title===s.title&&x.artist===s.artist);
+            const songId=s.id||d.id||genId();
+            let existing=songs.find(x=>x.id===songId);
             if(!existing){
-              const id=genId();
-              const dk=detectKey(s.lyrics||'');
-              songs.push({id,title:s.title||'Sin título',artist:s.artist||'Desconocido',lyrics:s.lyrics||'',originalKey:s.originalKey||dk,currentKey:s.originalKey||dk,tags:s.tags||[],createdAt:Date.now(),updatedAt:Date.now()});
-              songIds.push(id);
-            }else{songIds.push(existing.id)}
+              const dk=s.originalKey||(s.lyrics?detectKey(s.lyrics):'C');
+              songs.push({id:songId,sourceId:s.id||d.id||null,sourceType:s.id?'imported':undefined,title:s.title||'Sin título',artist:s.artist||'Desconocido',lyrics:s.lyrics||'',originalKey:dk,currentKey:dk,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags||[],audio_url:s.audio_url||d.audio_url||null,createdAt:Date.now(),updatedAt:Date.now()});
+            }
+            songIds.push(songId);
           });
           if(songIds.length>0){lists.unshift({id:lid,name:listName,description:'',songIds,createdAt:Date.now(),updatedAt:Date.now()})}
           imported++;
@@ -2008,6 +2025,18 @@ document.getElementById('import-list-input').addEventListener('change',async fun
 });
 
 function importListData(d){
+  // Import songs first (v2: with IDs for linked import)
+  if(Array.isArray(d.songs)){
+    d.songs.forEach(s=>{
+      const songId=s.id||genId();
+      const existing=songs.find(x=>x.id===songId);
+      if(!existing){
+        const dk=s.originalKey||(s.lyrics?detectKey(s.lyrics):'C');
+        songs.push({id:songId,sourceId:s.id||null,sourceType:s.id?'imported':undefined,title:s.title||'Sin título',artist:s.artist||'Desconocido',lyrics:s.lyrics||'',originalKey:dk,currentKey:dk,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags||[],audio_url:s.audio_url||null,createdAt:Date.now(),updatedAt:Date.now()});
+      }
+    });
+  }
+  // Create or merge list
   const existing=lists.find(l=>l.name===d.list?.name);
   if(existing){
     const newIds=[...new Set([...existing.songIds,...(d.list?.songIds||[])])];
@@ -2025,15 +2054,18 @@ function renderLists(){
   if(lists.length===0){c.innerHTML='<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg></div><h2>Sin listas aún</h2><p>Crea listas para organizar tus canciones</p><button class="btn btn-amber" onclick="showNewListForm()">Crear primera lista</button></div>';return}
   c.innerHTML=lists.map(l=>{
     const sc=l.songIds.length;
-    return '<div class="card" onclick="viewList(\''+l.id+'\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><div style="flex:1"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> '+esc(l.name)+'</div>'+(l.description?'<p style="font-size:.7rem;color:#71717a;margin-left:20px">'+esc(l.description)+'</p>':'')+'<div style="display:flex;gap:6px;margin-top:6px;margin-left:20px"><span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> '+sc+' canciones</span></div></div><div style="display:flex;gap:2px"><button class="btn-icon" onclick="event.stopPropagation();exportList(\''+l.id+'\')" title="Exportar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteList(\''+l.id+'\')" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div></div></div>';
+    return '<div class="card" onclick="viewList(\''+l.id+'\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><div style="flex:1"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> '+esc(l.name)+'</div>'+(l.description?'<p style="font-size:.7rem;color:#71717a;margin-left:20px">'+esc(l.description)+'</p>':'')+'<div style="display:flex;gap:6px;margin-top:6px;margin-left:20px"><span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> '+sc+' canciones</span></div></div><div style="display:flex;gap:2px"><button class="btn-icon" onclick="event.stopPropagation();shareList(\''+l.id+'\')" title="Compartir"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button><button class="btn-icon" onclick="event.stopPropagation();exportList(\''+l.id+'\')" title="Exportar archivo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteList(\''+l.id+'\')" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div></div></div>';
   }).join('');
 }
 function showNewListForm(){document.getElementById('new-list-form').classList.remove('hidden');document.getElementById('input-list-name').focus()}
 function hideNewListForm(){document.getElementById('new-list-form').classList.add('hidden');document.getElementById('input-list-name').value='';document.getElementById('input-list-desc').value=''}
 function createList(){const n=document.getElementById('input-list-name').value.trim();if(!n)return;lists.unshift({id:genId(),name:n,description:document.getElementById('input-list-desc').value.trim(),songIds:[],createdAt:Date.now(),updatedAt:Date.now()});save('cb_lists',lists);hideNewListForm();renderLists()}
 function confirmDeleteList(id){if(confirm('¿Eliminar esta lista?')){lists=lists.filter(l=>l.id!==id);save('cb_lists',lists);renderLists()}}
-function exportList(id){const l=lists.find(x=>x.id===id);if(!l)return;const ls=songs.filter(s=>l.songIds.includes(s.id));dlJson({type:'chordbook-list',version:1,list:{name:l.name,description:l.description,songIds:l.songIds},songs:ls.map(s=>({title:s.title,artist:s.artist,lyrics:s.lyrics,originalKey:s.originalKey,tags:s.tags}))},'lista-'+l.name.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'.json')}
+function exportList(id){const l=lists.find(x=>x.id===id);if(!l)return;const ls=songs.filter(s=>l.songIds.includes(s.id));dlJson({type:'chordbook-list',version:2,list:{name:l.name,description:l.description,songIds:l.songIds},songs:ls.map(s=>({id:s.id,title:s.title,artist:s.artist,lyrics:s.lyrics,originalKey:s.originalKey,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags,audio_url:s.audio_url||null}))},'lista-'+l.name.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'.json')}
 function exportCurrentList(){exportList(viewingListId)}
+
+function shareList(id){const l=lists.find(x=>x.id===id);if(!l)return;const ls=songs.filter(s=>l.songIds.includes(s.id));const data={type:'chordbook-list',version:2,list:{name:l.name,description:l.description,songIds:l.songIds},songs:ls.map(s=>({id:s.id,title:s.title,artist:s.artist,lyrics:s.lyrics,originalKey:s.originalKey,tempo:s.tempo||0,compas:s.compas||'',tags:s.tags,audio_url:s.audio_url||null}))};const text=JSON.stringify(data);if(navigator.share){navigator.share({title:l.name+' - ChordBook',text:'Compartiendo lista: '+l.name+' ('+ls.length+' canciones)'}).catch(()=>{})}else{navigator.clipboard.writeText(text).then(()=>{showNotif('import-list-notification','JSON de lista copiado al portapapeles','success')}).catch(()=>{dlJson(data,'lista-'+l.name.replace(/[^a-z0-9]/gi,'_').toLowerCase()+'.json')})}}
+function shareCurrentList(){shareList(viewingListId)}
 
 function viewList(id){viewingListId=id;listNavIndex=0;showPage('listview')}
 function renderListView(){
