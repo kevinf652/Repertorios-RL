@@ -1251,6 +1251,15 @@ async function syncSongsToCloud() {
           updateSyncStatus('error');
           return;
         }
+        // Check for RLS errors
+        if (deleteError.code === '42501' || (deleteError.message && deleteError.message.includes('row-level security'))) {
+          console.error('⚠️ RLS bloquea DELETE en user_songs. SQL: ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;');
+          syncInProgress = false;
+          updateSyncStatus('error');
+          return;
+        }
+      } else {
+        console.log('Deleted existing songs for user:', currentUser.id);
       }
     } catch (delErr) {
       console.log('Delete catch:', delErr);
@@ -1308,7 +1317,7 @@ async function syncSongsToCloud() {
 // Load songs from Supabase when logged in
 async function loadSongsFromCloud() {
   if (!currentUser || !supabaseReady) {
-    console.log('Load from cloud skipped: no user or no supabase');
+    console.log('Load from cloud skipped: no user or no supabase. currentUser:', !!currentUser, 'supabaseReady:', supabaseReady);
     return null;
   }
   
@@ -1320,10 +1329,18 @@ async function loadSongsFromCloud() {
     const { data, error } = await supabaseClient
       .from('user_songs')
       .select('song_data')
-      .eq('user_id', currentUser.id);
+      .eq('user_id', currentUser.id)
+      .limit(10000);
     
     if (error) {
       console.error('Load error:', error);
+      // Check for RLS errors specifically
+      if (error.code === '42501' || (error.message && error.message.includes('row-level security'))) {
+        console.error('⚠️ RLS bloquea la lectura de user_songs. Ejecuta en Supabase SQL Editor:');
+        console.error('ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;');
+        updateSyncStatus('error');
+        return null;
+      }
       if (error.message && error.message.includes('does not exist')) {
         console.log('Table user_songs does not exist');
         updateSyncStatus('error');
@@ -1345,7 +1362,7 @@ async function loadSongsFromCloud() {
           }
           return parsed;
         } catch(e) {
-          console.error('Error parsing song_data:', e);
+          console.error('Error parsing song_data:', e, 'raw:', d.song_data);
           return null;
         }
       }).filter(s => s !== null);
@@ -1358,7 +1375,7 @@ async function loadSongsFromCloud() {
       updateSyncStatus('synced');
       return cloudSongs;
     } else {
-      console.log('No songs found in cloud');
+      console.log('No songs found in cloud for user:', currentUser.id);
       updateSyncStatus('synced');
       return null;
     }
@@ -1469,12 +1486,14 @@ async function handleLoginWithSync(e) {
       renderLibrary();
       showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + cloudSongs.length + ' canciones sincronizadas.', 'success');
     } else {
-      console.log('No cloud songs, syncing local songs');
+      console.log('No cloud songs found. Local songs:', songs.length);
       // No cloud songs, sync local songs to cloud
       if (songs.length > 0) {
         await syncSongsToCloud();
+        showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + songs.length + ' canciones subidas al servidor.', 'success');
+      } else {
+        showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Tu biblioteca está vacía.', 'success');
       }
-      showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '!', 'success');
     }
     
   } catch(e) {
@@ -1686,13 +1705,15 @@ function saveSong(){
   if(currentUser&&supabaseReady){syncSongsToCloud()}
 }
 
-// Sync repertorio song changes to ALL users' libraries
+// Sync repertorio song changes to ALL users' libraries (FIXED: propagation bug)
 async function syncRepertorioToAllUsers(cancion,songId){
   if(!supabaseReady)return;
   try{
     // Find all user_songs that match this song by source_song_id
-    const {data:matches,error:selErr}=await supabaseClient.from('user_songs').select('id,song_data');
-    if(selErr||!matches)return;
+    // FIXED: Added .limit(10000) to avoid Supabase default 1000-row limit
+    const {data:matches,error:selErr}=await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
+    if(selErr){console.error('syncRepertorioToAllUsers select error:',selErr);return;}
+    if(!matches||matches.length===0){console.log('syncRepertorioToAllUsers: no user_songs found');return;}
     
     let updatedCount=0;
     for(const m of matches){
@@ -1701,7 +1722,10 @@ async function syncRepertorioToAllUsers(cancion,songId){
         const sd=typeof m.song_data==='string'?JSON.parse(m.song_data):m.song_data;
         
         // Match by source_song_id (the universal identifier)
-        const matchesId=(sd.id===songId)||(sd.sourceId&&sd.sourceId===songId);
+        // FIXED: Also check sourceId field and repSongId for robust matching
+        const matchesId=(sd.id===songId)||
+                         (sd.sourceId&&sd.sourceId===songId)||
+                         (sd.repSongId&&sd.repSongId===songId);
         
         if(matchesId){
           const updated={
@@ -1712,19 +1736,21 @@ async function syncRepertorioToAllUsers(cancion,songId){
             originalKey:cancion.tono_original||sd.originalKey,
             tempo:cancion.tempo||sd.tempo,
             compas:cancion.compas||sd.compas,
-            audio_url:cancion.audio_url||sd.audio_url,
+            // FIXED: Always use cancion.audio_url if provided (even if null/undefined means "no audio")
+            // Only fall back to sd.audio_url if cancion.audio_url is literally undefined (not passed)
+            audio_url:('audio_url' in cancion)?cancion.audio_url:sd.audio_url,
             updatedAt:Date.now()
           };
-          await supabaseClient.from('user_songs').update({
+          const {error:updErr}=await supabaseClient.from('user_songs').update({
             song_data:JSON.stringify(updated),
             updated_at:Date.now()
           }).eq('id',m.id);
-          updatedCount++;
-          console.log('Updated user_song:',m.id,'for song:',songId);
+          if(updErr){console.error('syncRepertorioToAllUsers update error for',m.id,':',updErr);}
+          else{updatedCount++;console.log('Updated user_song:',m.id,'for song:',songId);}
         }
-      }catch(parseErr){}
+      }catch(parseErr){console.error('syncRepertorioToAllUsers parse error:',parseErr);}
     }
-    if(updatedCount>0)console.log('Synced',updatedCount,'user libraries for song:',songId);
+    console.log('syncRepertorioToAllUsers: checked',matches.length,'rows, updated',updatedCount,'for song:',songId);
   }catch(e){console.error('Sync to all users error:',e)}
 }
 
@@ -1735,12 +1761,25 @@ function editSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;if(
 function saveRepSongToLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const existing=songs.find(x=>x.title===s.titulo&&x.artist===s.artista);if(existing){alert('Esta canción ya está en tu biblioteca');return}const dk=s.tono_original||'C';songs.unshift({id:s.source_song_id||genId(),sourceId:s.source_song_id||s.id,sourceType:'repertorio',title:s.titulo||'Sin título',artist:s.artista||'Desconocido',lyrics:s.letra_acordes||'',originalKey:dk,currentKey:dk,tags:s.tags||['Repertorio'],tempo:s.tempo||0,compas:s.compas||'',audio_url:s.audio_url||null,repSongId:s.id,repId:r.id,createdAt:Date.now(),updatedAt:Date.now()});save('cb_songs',songs);const btn=document.getElementById('save-rep-btn');if(btn){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';btn.style.background='rgba(34,197,94,.2)';btn.style.color='#4ade80';btn.style.borderColor='rgba(34,197,94,.3)';btn.disabled=true}if(currentUser&&supabaseReady){syncSongsToCloud()}}
 function isRepSongInLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return false;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return false;return!!songs.find(x=>x.title===s.titulo&&x.artist===s.artista)}
 
-// Sync admin library edits to all repertorio copies
+// Sync admin library edits to all repertorio copies (FIXED: propagation bug)
 async function syncRepertorioFromLibrary(libSong){
   if(!supabaseReady)return;
   try{
-    const {data:repSongs,error}=await supabaseClient.from('canciones_repertorio').select('*').eq('titulo',libSong.title).eq('artista',libSong.artist);
-    if(error||!repSongs||repSongs.length===0)return;
+    // FIXED: Also try to match by source_song_id for more reliable matching
+    let repSongs=[];
+    // First try: match by source_song_id (most reliable)
+    try{
+      const {data:byId,error:e1}=await supabaseClient.from('canciones_repertorio').select('*').eq('source_song_id',libSong.id);
+      if(!e1&&byId&&byId.length>0)repSongs=byId;
+    }catch(e){}
+    // Second try: match by title + artist (fallback)
+    if(repSongs.length===0){
+      try{
+        const {data:byTitle,error:e2}=await supabaseClient.from('canciones_repertorio').select('*').eq('titulo',libSong.title).eq('artista',libSong.artist);
+        if(!e2&&byTitle)repSongs=byTitle;
+      }catch(e){}
+    }
+    if(repSongs.length===0)return;
     const updates={titulo:libSong.title,artista:libSong.artist,tono_original:libSong.originalKey,tempo:libSong.tempo||0,compas:libSong.compas||'',letra_acordes:libSong.lyrics,audio_url:libSong.audio_url||null};
     for(const rs of repSongs){
       await supabaseClient.from('canciones_repertorio').update(updates).eq('id',rs.id);
@@ -1751,11 +1790,17 @@ async function syncRepertorioFromLibrary(libSong){
   }catch(e){console.error('Sync repertorio error:',e)}
 }
 
-// Sync user library copies when admin edits a song
+// Sync user library copies when admin edits a song (FIXED: also check sourceId)
 function syncUserCopies(libSong){
   let changed=false;
   songs.forEach(s=>{
-    if(s.id!==libSong.id&&s.title===libSong.title&&s.artist===libSong.artist){
+    // FIXED: Also match by sourceId for repertorio-sourced songs
+    const isSameSong=(s.id!==libSong.id)&&(
+      (s.title===libSong.title&&s.artist===libSong.artist)||
+      (s.sourceId&&s.sourceId===libSong.id)||
+      (s.id===libSong.id)
+    );
+    if(isSameSong){
       s.lyrics=libSong.lyrics;
       s.originalKey=libSong.originalKey;
       s.tempo=libSong.tempo;
@@ -2353,8 +2398,8 @@ async function removeSongAudio(songId){
   // Update ALL references by source_song_id in Supabase
   try{
     await supabaseClient.from('canciones_repertorio').update({audio_url:null}).eq('source_song_id',songId);
-    // Also update user_songs
-    const {data:userSongs}=await supabaseClient.from('user_songs').select('id,song_data');
+    // Also update user_songs (FIXED: added .limit(10000))
+    const {data:userSongs}=await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
     if(userSongs){
       for(const us of userSongs){
         try{
@@ -3138,6 +3183,9 @@ CREATE INDEX idx_user_songs_user_id ON user_songs(user_id);
 
 -- Índice para buscar por ID de canción
 CREATE INDEX idx_user_songs_song_id ON user_songs((song_data->>'id'));
+
+-- IMPORTANTE: Deshabilitar RLS para que el Anon key pueda leer/escribir
+ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;
 */
 
 // ============= SQL PARA AGREGAR source_song_id a canciones_repertorio =============
@@ -3145,6 +3193,12 @@ CREATE INDEX idx_user_songs_song_id ON user_songs((song_data->>'id'));
 /*
 ALTER TABLE canciones_repertorio ADD COLUMN source_song_id TEXT;
 CREATE INDEX idx_canciones_rep_source ON canciones_repertorio(source_song_id);
+*/
+
+// ============= SQL URGENTE: DESHABILITAR RLS EN user_songs =============
+// Si las canciones no se sincronizan al iniciar sesión, ejecuta esto en Supabase SQL Editor:
+/*
+ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;
 */
 
 // ============= NOTIFICATION FUNCTION =============
