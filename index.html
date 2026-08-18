@@ -426,6 +426,11 @@ input,textarea,button{font-family:inherit}
       </div>
     </div>
   </div>
+  <div id="view-nav" class="nav-arrows hidden">
+    <button class="nav-arrows-btn" id="view-prev-btn" onclick="viewNav(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button>
+    <div class="nav-arrows-info" id="view-nav-info"></div>
+    <button class="nav-arrows-btn" id="view-next-btn" onclick="viewNav(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>
+  </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div id="view-song-info" style="margin-bottom:10px"></div>
     <div id="view-list-picker" class="list-picker hidden"></div>
@@ -482,11 +487,6 @@ input,textarea,button{font-family:inherit}
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
     </div>
-  </div>
-  <div id="listview-nav" class="nav-arrows hidden">
-    <button class="nav-arrows-btn" id="list-prev-btn" onclick="listNav(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button>
-    <div class="nav-arrows-info" id="list-nav-info"></div>
-    <button class="nav-arrows-btn" id="list-next-btn" onclick="listNav(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div id="listview-header"></div>
@@ -554,6 +554,11 @@ input,textarea,button{font-family:inherit}
         <span id="rep-song-admin-actions"></span>
       </div>
     </div>
+  </div>
+  <div id="rep-song-nav" class="nav-arrows hidden">
+    <button class="nav-arrows-btn" id="rep-song-prev-btn" onclick="repSongNav(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button>
+    <div class="nav-arrows-info" id="rep-song-nav-info"></div>
+    <button class="nav-arrows-btn" id="rep-song-next-btn" onclick="repSongNav(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div id="rep-song-info"></div>
@@ -822,6 +827,7 @@ let viewReturnTo=null;
 let formTags=[];
 let formKey='C';
 let listNavIndex=0;
+let repSongNavIndex=0;
 let supabaseReady=false;
 let supabaseClient=null;
 
@@ -1816,6 +1822,20 @@ function syncUserCopies(libSong){
 function viewSong(id){viewingSongId=id;viewReturnTo=null;showPage('view')}
 function renderView(){
   const s=songs.find(x=>x.id===viewingSongId);if(!s)return;
+  // Show nav bar if coming from a list
+  const nav=document.getElementById('view-nav');
+  if(viewReturnTo==='listview'&&viewingListId){
+    const l=lists.find(x=>x.id===viewingListId);
+    if(l){
+      const listSongs=l.songIds.map(sid=>songs.find(x=>x.id===sid)).filter(Boolean);
+      if(listSongs.length>1){
+        nav.classList.remove('hidden');
+        document.getElementById('view-nav-info').textContent=(listNavIndex+1)+' / '+listSongs.length;
+        document.getElementById('view-prev-btn').disabled=listNavIndex<=0;
+        document.getElementById('view-next-btn').disabled=listNavIndex>=listSongs.length-1;
+      }else{nav.classList.add('hidden')}
+    }else{nav.classList.add('hidden')}
+  }else{nav.classList.add('hidden')}
   const ntBtn=document.getElementById('lib-notation-toggle');if(ntBtn)ntBtn.innerHTML=useFlats?'♭':'#';
   const metaParts=[];
   if(s.tempo)metaParts.push(s.tempo+' BPM');
@@ -2071,8 +2091,6 @@ function renderListView(){
   const listSongs=l.songIds.map(sid=>songs.find(s=>s.id===sid)).filter(Boolean);
   const missingSongs=l.songIds.filter(sid=>!songs.find(s=>s.id===sid));
   document.getElementById('listview-header').innerHTML='<div style="display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;background:rgba(245,158,11,.2);border-radius:10px;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><div><h1 style="font-size:1.1rem;font-weight:700;color:#fff">'+esc(l.name)+'</h1>'+(l.description?'<p style="font-size:.7rem;color:#71717a">'+esc(l.description)+'</p>':'')+'<p style="font-size:.7rem;color:#71717a">'+listSongs.length+' canciones</p></div></div>';
-  const nav=document.getElementById('listview-nav');
-  if(listSongs.length>1){nav.classList.remove('hidden');document.getElementById('list-nav-info').textContent=(listNavIndex+1)+' / '+listSongs.length;document.getElementById('list-prev-btn').disabled=listNavIndex<=0;document.getElementById('list-next-btn').disabled=listNavIndex>=listSongs.length-1;}else{nav.classList.add('hidden')}
   const mc=document.getElementById('listview-missing');
   if(missingSongs.length>0){mc.innerHTML='<div class="missing-songs"><div class="missing-songs-title">⚠ '+missingSongs.length+' canciones no están en tu biblioteca</div>'+missingSongs.map(sid=>'<div class="missing-song-item"><span>Song ID: '+sid.substring(0,8)+'...</span><button class="missing-song-add" onclick="addMissingToList(\''+l.id+'\',\''+sid+'\')">Añadir placeholder</button></div>').join('')+'</div>';}else{mc.innerHTML=''}
   const container=document.getElementById('listview-songs');
@@ -2080,7 +2098,9 @@ function renderListView(){
   container.innerHTML=listSongs.map(s=>{const pv=s.lyrics.split('\n').slice(0,3).join(' / ');return '<div class="card" onclick="viewSongFromList(\''+s.id+'\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> '+esc(s.title)+'</div><div class="card-artist">'+esc(s.artist)+'</div><div class="card-preview">'+esc(pv)+'</div><div class="card-meta"><span class="tag tag-key">'+dn(s.originalKey)+'</span>'+s.tags.slice(0,2).map(t=>'<span class="tag tag-zinc">'+esc(t)+'</span>').join('')+'</div></div><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();removeFromList(\''+s.id+'\')" title="Quitar" style="align-self:flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div></div>';}).join('');
 }
 function listNav(dir){const l=lists.find(x=>x.id===viewingListId);if(!l)return;const listSongs=l.songIds.map(sid=>songs.find(s=>s.id===sid)).filter(Boolean);const newIdx=listNavIndex+dir;if(newIdx>=0&&newIdx<listSongs.length){listNavIndex=newIdx;viewingSongId=listSongs[newIdx].id;viewReturnTo='listview';showPage('view')}}
+function viewNav(dir){listNav(dir)}
 function viewSongFromList(id){const l=lists.find(x=>x.id===viewingListId);if(l){listNavIndex=l.songIds.indexOf(id);if(listNavIndex===-1)listNavIndex=0}viewingSongId=id;viewReturnTo='listview';showPage('view')}
+function repSongNav(dir){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);const newIdx=repSongNavIndex+dir;if(newIdx>=0&&newIdx<songsForDay.length){repSongNavIndex=newIdx;viewingRepSongId=songsForDay[newIdx].id;repShowChords=true;showPage('rep-song')}}
 function addMissingToList(listId,songId){const id=genId();songs.push({id,title:'Canción importada',artist:'Desconocido',lyrics:'',originalKey:'C',currentKey:'C',tags:['importada'],createdAt:Date.now(),updatedAt:Date.now()});const l=lists.find(x=>x.id===listId);if(l){l.songIds=l.songIds.map(sid=>sid===songId?id:sid)}save('cb_songs',songs);save('cb_lists',lists);renderListView()}
 function removeFromList(sid){const l=lists.find(x=>x.id===viewingListId);if(!l)return;l.songIds=l.songIds.filter(id=>id!==sid);save('cb_lists',lists);renderListView()}
 
@@ -2256,13 +2276,24 @@ function renderRepertorioView(){
   }).join('')+(canManageReps()?'<div style="text-align:center;padding:16px 0"><button class="btn btn-amber" onclick="addSongToRepertorio(\''+r.id+'\',\''+repDay+'\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Agregar canción</button></div>':'');
 }
 
-function viewRepSong(rid,sid){if(repAudioEl){repAudioEl.pause();repAudioEl=null;repAudioPlaying=false}stopAudioProgress();viewingRepId=rid;viewingRepSongId=sid;repShowChords=true;showPage('rep-song')}
+function viewRepSong(rid,sid){if(repAudioEl){repAudioEl.pause();repAudioEl=null;repAudioPlaying=false}stopAudioProgress();viewingRepId=rid;viewingRepSongId=sid;repShowChords=true;const r=repertorios.find(x=>x.id===rid);if(r){const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);const idx=songsForDay.findIndex(x=>x.id===sid);if(idx>=0)repSongNavIndex=idx}showPage('rep-song')}
 function goBackFromRepSong(){stopAudioProgress();if(repAudioEl){repAudioEl.pause();repAudioEl=null;repAudioPlaying=false}showPage('repertorio')}
 function setRepSongView(showChords){repShowChords=showChords;document.getElementById('toggle-lyrics').className=showChords?'inactive':'active';document.getElementById('toggle-chords').className=showChords?'active':'inactive';renderRepSongLyrics()}
 
 function renderRepSongView(){
   const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;
   const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;
+  // Show nav bar for repertorio songs
+  const nav=document.getElementById('rep-song-nav');
+  const songsForDay=r.canciones.filter(x=>x.dia==='ambos'||x.dia===repDay).sort((a,b)=>a.orden-b.orden);
+  if(songsForDay.length>1){
+    nav.classList.remove('hidden');
+    const curIdx=songsForDay.findIndex(x=>x.id===viewingRepSongId);
+    if(curIdx>=0)repSongNavIndex=curIdx;
+    document.getElementById('rep-song-nav-info').textContent=(repSongNavIndex+1)+' / '+songsForDay.length;
+    document.getElementById('rep-song-prev-btn').disabled=repSongNavIndex<=0;
+    document.getElementById('rep-song-next-btn').disabled=repSongNavIndex>=songsForDay.length-1;
+  }else{nav.classList.add('hidden')}
   repCurrentKey=s.tono_original;
   var corosForDay=(repDay==='domingo'?(s.coros_domingo||[]):(s.coros_lunes||s.coros_domingo||[]));
   if(typeof corosForDay==='string')corosForDay=corosForDay?corosForDay.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
