@@ -11,21 +11,8 @@ Aplicación web para gestionar repertorios de worship/génesis. Permite organiza
 - **Audio vinculado** — Subir y reproducir audio directamente desde la canción
 - **Importar/Exportar** — Soporte para archivos `.txt` y `.json`
 - **Modo Admin** — Gestión completa de repertorios
+- **Roles** - Director musical, puede editar acordes. Director de voces edita voces de coros
 - **PWA** — Instalable como app en móvil y escritorio
-
-## Uso
-
-1. Abre `index.html` en tu navegador
-2. Para acceder a funciones de admin, toca "Admin" en la pestaña Repertorios
-3. La contraseña por defecto es `worship2026`
-
-## Despliegue en GitHub Pages
-
-1. Crea un repositorio en GitHub
-2. Sube el archivo `index.html`
-3. Ve a **Settings > Pages**
-4. Selecciona la rama `main` y la carpeta `/ (root)`
-5. Tu app estará disponible en `https://tu-usuario.github.io/tu-repo/`
 
 ## Tecnologías
 
