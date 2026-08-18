@@ -2363,10 +2363,14 @@ async function removeSongAudio(songId){
     }
   }catch(e){console.log('Supabase update skipped:',e.message)}
   
+  // Reload repertorios so Historial reflects the removal
+  try{await loadRepertorios()}catch(e){console.log("Reload repertorios error:",e.message)}
   // Re-render
   if(viewingSongId===songId){renderView()}
   else{renderLibrary()}
   
+  // Also re-render repertorio view if it is currently open
+  if(viewingRepId){renderRepertorioView()}
   showNotif('import-notification','Audio desvinculado de "'+s.title+'"','success');
 }
 
@@ -2780,6 +2784,9 @@ async function handleAudioUpload(e){
       }
     }catch(dbErr){console.log('DB update error:',dbErr.message)}
     
+    // Reload repertorios so Historial shows the updated audio
+    try{await loadRepertorios()}catch(e){console.log('Reload repertorios error:',e.message)}
+    
     if(fill)fill.style.width='100%';
     
     await new Promise(r=>setTimeout(r,500));
@@ -2787,6 +2794,9 @@ async function handleAudioUpload(e){
     // Re-render
     if(viewingSongId===audioUploadSongId){renderView()}
     else{renderLibrary()}
+    
+    // Also re-render repertorio view if it's currently open
+    if(viewingRepId){renderRepertorioView()}
     
     showNotif('import-notification','Audio vinculado a "'+songTitle+'"','success');
     
