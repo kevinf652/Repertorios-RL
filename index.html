@@ -1818,6 +1818,24 @@ async function confirmDeleteSong(id){
     await supabaseClient.from('canciones_repertorio').delete().eq('source_song_id',songId);
   }catch(e){console.log('Delete from canciones_repertorio skipped:',e.message)}
   
+  // Update user_songs: remove audio_url from song_data for this song
+  try{
+    const {data:userSongs}=await supabaseClient.from('user_songs').select('id,song_data');
+    if(userSongs){
+      for(const us of userSongs){
+        try{
+          const sd=typeof us.song_data==='string'?JSON.parse(us.song_data):us.song_data;
+          if(sd&&(sd.id===songId||(sd.sourceId&&sd.sourceId===songId))){
+            sd.audio_url=null;
+            await supabaseClient.from('user_songs')
+              .update({song_data:JSON.stringify(sd),updated_at:Date.now()})
+              .eq('id',us.id);
+          }
+        }catch(parseErr){}
+      }
+    }
+  }catch(e){console.log('Update user_songs skipped:',e.message)}
+  
   songs=songs.filter(s=>s.id!==id);
   lists.forEach(l=>l.songIds=l.songIds.filter(sid=>sid!==id));
   save('cb_songs',songs);save('cb_lists',lists);
@@ -1848,6 +1866,24 @@ async function deleteCurrentSong(){
   try{
     await supabaseClient.from('canciones_repertorio').delete().eq('source_song_id',songId);
   }catch(e){console.log('Delete from canciones_repertorio skipped:',e.message)}
+  
+  // Update user_songs: remove audio_url from song_data for this song
+  try{
+    const {data:userSongs}=await supabaseClient.from('user_songs').select('id,song_data');
+    if(userSongs){
+      for(const us of userSongs){
+        try{
+          const sd=typeof us.song_data==='string'?JSON.parse(us.song_data):us.song_data;
+          if(sd&&(sd.id===songId||(sd.sourceId&&sd.sourceId===songId))){
+            sd.audio_url=null;
+            await supabaseClient.from('user_songs')
+              .update({song_data:JSON.stringify(sd),updated_at:Date.now()})
+              .eq('id',us.id);
+          }
+        }catch(parseErr){}
+      }
+    }
+  }catch(e){console.log('Update user_songs skipped:',e.message)}
   
   songs=songs.filter(s=>s.id!==viewingSongId);
   lists.forEach(l=>l.songIds=l.songIds.filter(sid=>sid!==viewingSongId));
@@ -2782,6 +2818,25 @@ async function handleAudioUpload(e){
       }catch(syncErr){
         console.error('syncRepertorioToAllUsers failed:',syncErr);
       }
+      
+      // Update user_songs: set audio_url in song_data for all users referencing this song
+      try{
+        const {data:userSongs}=await supabaseClient.from('user_songs').select('id,song_data');
+        if(userSongs){
+          for(const us of userSongs){
+            try{
+              const sd=typeof us.song_data==='string'?JSON.parse(us.song_data):us.song_data;
+              if(sd&&(sd.id===songId||(sd.sourceId&&sd.sourceId===songId))){
+                sd.audio_url=audioUrl;
+                await supabaseClient.from('user_songs')
+                  .update({song_data:JSON.stringify(sd),updated_at:Date.now()})
+                  .eq('id',us.id);
+              }
+            }catch(parseErr){}
+          }
+          console.log('Updated user_songs audio_url for song:',songId);
+        }
+      }catch(e){console.log('Update user_songs audio_url skipped:',e.message)}
     }catch(dbErr){console.log('DB update error:',dbErr.message)}
     
     // Reload repertorios so Historial shows the updated audio
