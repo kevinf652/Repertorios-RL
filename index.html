@@ -131,7 +131,7 @@ input,textarea,button{font-family:inherit}
 .rep-vocal-main{font-size:.7rem;color:#fbbf24;display:flex;align-items:center;gap:3px}
 .rep-vocal-chorus{font-size:.7rem;color:#71717a}
 .rep-song-meta{display:flex;gap:8px;margin-top:4px;flex-wrap:wrap}
-.toggle-btn{display:flex;gap:8px;margin-bottom:12px}
+.toggle-btn{display:flex;gap:8px;margin-top:12px;margin-bottom:12px}
 .toggle-btn button{flex:1;padding:10px;border-radius:10px;font-size:.8rem;font-weight:500;border:none;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
 .toggle-btn .active{background:#f59e0b;color:#000}
 .toggle-btn .inactive{background:#27272a;color:#a1a1aa}
@@ -140,8 +140,10 @@ input,textarea,button{font-family:inherit}
 .audio-play-btn{width:44px;height:44px;background:#f59e0b;border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .audio-play-btn:active{transform:scale(.9)}
 .audio-progress{flex:1}
-.audio-bar{height:6px;background:#3f3f46;border-radius:3px;overflow:hidden}
-.audio-bar-fill{height:100%;background:#f59e0b;transition:width .1s}
+.audio-bar{height:6px;background:#3f3f46;border-radius:3px;overflow:visible;cursor:pointer;position:relative;padding:8px 0}
+.audio-bar::before{content:'';position:absolute;top:-8px;left:0;right:0;bottom:-8px}
+.audio-bar-fill{height:100%;background:linear-gradient(90deg,#f59e0b,#fbbf24);transition:width .1s;border-radius:3px;position:relative}
+.audio-bar-fill::after{content:'';position:absolute;right:-4px;top:-1px;width:8px;height:8px;background:#fbbf24;border-radius:50%;box-shadow:0 0 6px rgba(245,158,11,.5);transition:opacity .2s}
 .audio-time{display:flex;justify-content:space-between;margin-top:4px;font-size:.65rem;color:#71717a}
 .rep-day-badge{display:inline-block;font-size:.65rem;padding:2px 8px;border-radius:4px;margin-top:4px}
 .rep-day-badge.dom{background:rgba(59,130,246,.2);color:#60a5fa}
@@ -162,6 +164,22 @@ input,textarea,button{font-family:inherit}
 .install-float:active{transform:scale(.9)}
 .install-float:hover{box-shadow:0 6px 20px rgba(245,158,11,.5)}
 .install-float.hidden-inst{display:none}
+
+/* ============= VOCAL NOTES INLINE STYLES ============= */
+.section-note-wrap{display:inline;position:relative}
+.section-note-input{display:inline-block;min-width:120px;max-width:280px;padding:1px 6px;margin-left:4px;border:none;border-bottom:1px dashed rgba(245,158,11,.4);background:rgba(245,158,11,.05);color:#fbbf24;font-size:.7rem;font-family:inherit;font-style:italic;outline:none;transition:all .2s;border-radius:3px 3px 0 0;vertical-align:baseline;line-height:1.4}
+.section-note-input:focus{border-bottom-color:#f59e0b;background:rgba(245,158,11,.1);box-shadow:0 1px 4px rgba(245,158,11,.15)}
+.section-note-input::placeholder{color:rgba(245,158,11,.35);font-style:italic}
+.section-note-display{display:inline-block;margin-left:4px;font-size:.7rem;color:#fbbf24;font-style:italic;opacity:.8}
+.section-note-status{font-size:.55rem;color:#71717a;position:absolute;right:0;top:-10px;white-space:nowrap;pointer-events:none}
+.lib-notes-row{display:flex;align-items:center;gap:6px;justify-content:flex-end;flex:1}
+.lib-notes-btn{padding:4px 10px;border-radius:8px;font-size:.7rem;font-weight:500;border:1px solid rgba(63,63,70,.5);background:rgba(39,39,46,.8);color:#a1a1aa;cursor:pointer;transition:all .2s;white-space:nowrap}
+.lib-notes-btn:hover{border-color:rgba(245,158,11,.3);color:#fbbf24}
+.lib-notes-btn.active{background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.4);color:#fbbf24}
+.lib-notes-panel{margin-top:8px;padding:10px;background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:10px}
+.lib-notes-section{margin-bottom:6px}.lib-notes-section:last-child{margin-bottom:0}
+.lib-notes-section-label{font-size:.7rem;font-weight:600;margin-bottom:3px}
+.lib-notes-section-text{font-size:.75rem;color:#d4d4d8;line-height:1.5;padding:4px 8px;background:rgba(39,39,42,.4);border-radius:6px}
 .ios-install-modal{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)}
 .install-ios-box{background:#27272a;border:1px solid #3f3f46;border-radius:16px;padding:24px;width:320px;margin:0 16px}
 .install-ios-box h3{font-size:1rem;font-weight:700;color:#fff;margin-bottom:8px}
@@ -838,6 +856,112 @@ try{
     console.log('Supabase connected');
   }
 }catch(e){console.error('Supabase init error:',e)}
+
+// ============= SONG CREATION/MODIFICATION NOTE =============
+function getSongNoteHtml(s){
+  if(!s)return'';
+  var html='<div style="margin-top:10px;padding:8px 10px;background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:8px;font-size:.7rem;color:#71717a;line-height:1.6">';
+  var createdDate=s.createdAt?new Date(s.createdAt).toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'}):'';
+  var createdBy=s.createdBy||'';
+  var modifiedDate=s.updatedAt&&s.updatedAt!==s.createdAt?new Date(s.updatedAt).toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'}):'';
+  // Support both library fields (modifiedBy/updatedAt) and repertorio DB fields (modificado_por/fecha_modificacion)
+  var modifiedBy=s.modifiedBy||s.modificado_por||'';
+  if(!modifiedDate&&s.fecha_modificacion){modifiedDate=new Date(s.fecha_modificacion).toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}
+  if(createdDate&&createdBy){html+='<div>📅 Fecha de creación: '+createdDate+' — Creado por: <span style="color:#a1a1aa">'+esc(createdBy)+'</span></div>'}
+  else if(createdDate){html+='<div>📅 Fecha de creación: '+createdDate+'</div>'}
+  if(modifiedDate&&modifiedBy){html+='<div>✏️ Última modificación: '+modifiedDate+' — Modificado por: <span style="color:#a1a1aa">'+esc(modifiedBy)+'</span></div>'}
+  html+='</div>';
+  return html;
+}
+
+// ============= VOCAL NOTES (INLINE PER SECTION) =============
+var vocalNotesCache={};var vocalNotesTimers={};
+async function loadSectionNotes(sourceSongId,dia){var cacheKey=sourceSongId+'_'+dia;if(vocalNotesCache[cacheKey]!==undefined)return vocalNotesCache[cacheKey];if(!supabaseReady||!sourceSongId){vocalNotesCache[cacheKey]={};return{}}try{var result=await supabaseClient.from('vocal_notes').select('notas').eq('source_song_id',sourceSongId).eq('dia',dia).maybeSingle();var raw=(result.data&&result.data.notas)?result.data.notas:'';var parsed={};if(raw){try{parsed=JSON.parse(raw)}catch(e){parsed={'_raw':raw}}}vocalNotesCache[cacheKey]=parsed;return parsed}catch(e){console.log('loadSectionNotes error:',e.message);vocalNotesCache[cacheKey]={};return{}}}
+async function saveSectionNote(sourceSongId,dia,sectionName,noteText){var cacheKey=sourceSongId+'_'+dia;var notes=await loadSectionNotes(sourceSongId,dia);if(noteText){notes[sectionName]=noteText}else{delete notes[sectionName]}vocalNotesCache[cacheKey]=notes;if(!supabaseReady||!sourceSongId)return;var userName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';var notasStr=JSON.stringify(notes);try{var existing=await supabaseClient.from('vocal_notes').select('id').eq('source_song_id',sourceSongId).eq('dia',dia).maybeSingle();if(existing.data&&existing.data.id){await supabaseClient.from('vocal_notes').update({notas:notasStr,updated_at:Date.now()}).eq('id',existing.data.id)}else{await supabaseClient.from('vocal_notes').insert({source_song_id:sourceSongId,dia:dia,notas:notasStr,created_by:userName,created_at:Date.now(),updated_at:Date.now()})}}catch(e){console.error('saveSectionNote error:',e.message)}}
+function onSectionNoteInput(sourceSongId,dia,sectionName,input){var cacheKey=sourceSongId+'_'+dia+'_'+sectionName;var notes=vocalNotesCache[sourceSongId+'_'+dia]||{};if(input.value){notes[sectionName]=input.value}else{delete notes[sectionName]}vocalNotesCache[sourceSongId+'_'+dia]=notes;var statusEl=input.parentNode.querySelector('.section-note-status');if(statusEl){statusEl.textContent='Guardando...';statusEl.style.color='#fbbf24'}if(vocalNotesTimers[cacheKey])clearTimeout(vocalNotesTimers[cacheKey]);vocalNotesTimers[cacheKey]=setTimeout(async function(){await saveSectionNote(sourceSongId,dia,sectionName,input.value);if(statusEl){statusEl.textContent='\u2713';statusEl.style.color='#4ade80';setTimeout(function(){statusEl.textContent=''},1500)}},800)}
+function toggleVocalNotesLib(sourceSongId,dia,btnEl){var panelId='vn-lib-panel-'+sourceSongId;var existing=document.getElementById(panelId);if(existing){existing.remove();btnEl.classList.remove('active');return}document.querySelectorAll('.lib-notes-btn').forEach(function(b){b.classList.remove('active')});btnEl.classList.add('active');loadSectionNotes(sourceSongId,dia).then(function(notes){var panel=document.createElement('div');panel.id=panelId;panel.className='lib-notes-panel';var keys=Object.keys(notes);if(!keys.length){panel.innerHTML='<p style="font-size:.75rem;color:#71717a;text-align:center">No hay notas vocales</p>'}else{var html='';keys.forEach(function(k){html+='<div class="lib-notes-section"><div class="lib-notes-section-label" style="color:#fbbf24">'+esc(k)+'</div><div class="lib-notes-section-text">'+esc(notes[k])+'</div></div>'});panel.innerHTML=html}btnEl.parentNode.parentNode.insertBefore(panel,btnEl.parentNode.nextSibling)})}
+// ============= GLOBAL AUDIO MANAGEMENT =============
+function stopAllAudio(){
+  // Stop view page audio
+  if(viewAudioEl){viewAudioEl.pause();viewAudioEl.currentTime=0;viewAudioEl=null;viewAudioPlaying=false;stopViewAudioProgress()}
+  // Stop repertorio song audio
+  if(repAudioEl){repAudioEl.pause();repAudioEl.currentTime=0;repAudioEl=null;repAudioPlaying=false;stopAudioProgress()}
+  // Stop all vocal audio players
+  Object.keys(vocalAudioPlayers).forEach(function(k){try{vocalAudioPlayers[k].pause();vocalAudioPlayers[k].currentTime=0}catch(e){}});
+  vocalAudioPlayers={};vocalAudioCurrentKey=null;stopVocalAudioProgress();
+  // Update buttons
+  updateViewAudioBtn();updateAudioBtn();updateVocalAudioButtons();
+}
+
+// Update all vocal audio play/pause button icons
+function updateVocalAudioButtons(){
+  document.querySelectorAll('[data-vocal-key]').forEach(function(btn){
+    var key=btn.getAttribute('data-vocal-key');
+    if(vocalAudioCurrentKey===key){
+      btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+      btn.style.color='#f59e0b';
+    }else{
+      btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+      btn.style.color='#4ade80';
+    }
+  });
+  // Update global vocal audio player bar
+  updateVocalAudioPlayerBar();
+}
+
+// ============= VOCAL AUDIO PLAYER BAR =============
+let vocalAudioInterval=null;
+function startVocalAudioProgress(){
+  stopVocalAudioProgress();
+  vocalAudioInterval=setInterval(function(){
+    var audio=vocalAudioPlayers[vocalAudioCurrentKey];
+    if(!audio)return;
+    var pct=audio.duration?(audio.currentTime/audio.duration)*100:0;
+    var fill=document.getElementById('vocal-audio-fill');
+    if(fill)fill.style.width=pct+'%';
+    var cur=document.getElementById('vocal-audio-current');
+    if(cur)cur.textContent=formatTime(audio.currentTime);
+    var dur=document.getElementById('vocal-audio-duration');
+    if(dur)dur.textContent=audio.duration?formatTime(audio.duration):'--:--';
+  },250);
+}
+function stopVocalAudioProgress(){
+  if(vocalAudioInterval){clearInterval(vocalAudioInterval);vocalAudioInterval=null}
+}
+function seekVocalAudio(e){
+  var audio=vocalAudioPlayers[vocalAudioCurrentKey];
+  if(!audio||!audio.duration)return;
+  var bar=e.currentTarget;
+  var rect=bar.getBoundingClientRect();
+  var pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  audio.currentTime=pct*audio.duration;
+}
+function seekVocalAudioTouch(e){
+  var audio=vocalAudioPlayers[vocalAudioCurrentKey];
+  if(!audio||!audio.duration)return;
+  var bar=e.currentTarget;
+  var rect=bar.getBoundingClientRect();
+  var touch=e.touches[0];
+  var pct=Math.max(0,Math.min(1,(touch.clientX-rect.left)/rect.width));
+  audio.currentTime=pct*audio.duration;
+}
+function updateVocalAudioPlayerBar(){
+  var bar=document.getElementById('vocal-audio-player-bar');
+  if(!bar)return;
+  if(vocalAudioCurrentKey&&vocalAudioPlayers[vocalAudioCurrentKey]){
+    bar.style.display='flex';
+    startVocalAudioProgress();
+  }else{
+    bar.style.display='none';
+    stopVocalAudioProgress();
+  }
+}
+function toggleVocalAudioFromBar(){
+  var audio=vocalAudioPlayers[vocalAudioCurrentKey];
+  if(!audio)return;
+  if(!audio.paused){audio.pause();updateVocalAudioButtons()}
+  else{audio.play().catch(function(e){console.error(e)});updateVocalAudioButtons()}
+}
 
 // ============= URL NORMALIZATION =============
 // Fixes double path issues in vocal audio URLs
@@ -1641,11 +1765,8 @@ if(isIOS()&&!isStandalone()){setTimeout(()=>{const btn=document.getElementById('
 
 
 function showPage(name){
-  // Stop all audio when navigating away
-  if(name!=='view' && viewAudioEl){viewAudioEl.pause();viewAudioEl.currentTime=0;viewAudioEl=null;viewAudioPlaying=false;stopViewAudioProgress()}
-  if(name!=='rep-song' && repAudioEl){repAudioEl.pause();repAudioEl.currentTime=0;repAudioEl=null;repAudioPlaying=false;stopAudioProgress()}
-  // Stop all vocal audio players
-  Object.keys(vocalAudioPlayers).forEach(k=>{vocalAudioPlayers[k].pause();vocalAudioPlayers[k].currentTime=0});vocalAudioPlayers={};vocalAudioCurrentKey=null;
+  // Stop all audio when navigating
+  stopAllAudio();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   const pg=document.getElementById('page-'+name);if(pg)pg.classList.add('active');
@@ -1697,14 +1818,16 @@ function saveSong(){
   if(editingSongId){
     const i=songs.findIndex(s=>s.id===editingSongId);
     if(i!==-1){
-      songs[i]={...songs[i],title:t,artist:a,lyrics:l,originalKey:formKey,tags:[...formTags],tempo:bpm||songs[i].tempo||0,compas:cmp||songs[i].compas||'',audio_url:songs[i].audio_url||null,updatedAt:Date.now()};
+      var userName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';
+      songs[i]={...songs[i],title:t,artist:a,lyrics:l,originalKey:formKey,tags:[...formTags],tempo:bpm||songs[i].tempo||0,compas:cmp||songs[i].compas||'',audio_url:songs[i].audio_url||null,updatedAt:Date.now(),modifiedBy:userName||songs[i].modifiedBy||''};
       // Sync edits to all repertorio and user copies
       syncRepertorioFromLibrary(songs[i]);
     }
   }
   else{
-    const dk=detectKey(l);
-    songs.unshift({id:genId(),title:t,artist:a,lyrics:l,originalKey:formKey||dk,currentKey:formKey||dk,tags:[...formTags],tempo:bpm,compas:cmp,audio_url:null,createdAt:Date.now(),updatedAt:Date.now()})
+    var dk=detectKey(l);
+    var creatorName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';
+    songs.unshift({id:genId(),title:t,artist:a,lyrics:l,originalKey:formKey||dk,currentKey:formKey||dk,tags:[...formTags],tempo:bpm,compas:cmp,audio_url:null,createdAt:Date.now(),updatedAt:Date.now(),createdBy:creatorName||''})
   }
   save('cb_songs',songs);editingSongId=null;showPage('library');
   // Sync to cloud if logged in
@@ -1745,6 +1868,7 @@ async function syncRepertorioToAllUsers(cancion,songId){
             // FIXED: Always use cancion.audio_url if provided (even if null/undefined means "no audio")
             // Only fall back to sd.audio_url if cancion.audio_url is literally undefined (not passed)
             audio_url:('audio_url' in cancion)?cancion.audio_url:sd.audio_url,
+            modifiedBy:cancion.modificado_por||cancion.modifiedBy||sd.modifiedBy||'',
             updatedAt:Date.now()
           };
           const {error:updErr}=await supabaseClient.from('user_songs').update({
@@ -1764,7 +1888,7 @@ async function syncRepertorioToAllUsers(cancion,songId){
 window.handleLogin = handleLoginWithSync;
 window.handleLogout = handleLogoutWithSync;
 function editSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;if(!canEditRepSongs()&&s.tags&&s.tags.includes('Repertorio')){alert('Solo admin o directores musicales pueden editar canciones de repertorio');return}editingSongId=s.id;document.getElementById('form-title').textContent='Editar canción';document.getElementById('input-title').value=s.title;document.getElementById('input-artist').value=s.artist;document.getElementById('input-lyrics').value=s.lyrics;document.getElementById('input-tempo').value=s.tempo||'';document.getElementById('input-compas').value=s.compas||'';formKey=s.originalKey;formTags=[...s.tags];renderFormTags();renderKeyGrid();showPage('add')}
-function saveRepSongToLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const existing=songs.find(x=>x.title===s.titulo&&x.artist===s.artista);if(existing){alert('Esta canción ya está en tu biblioteca');return}const dk=s.tono_original||'C';songs.unshift({id:s.source_song_id||genId(),sourceId:s.source_song_id||s.id,sourceType:'repertorio',title:s.titulo||'Sin título',artist:s.artista||'Desconocido',lyrics:s.letra_acordes||'',originalKey:dk,currentKey:dk,tags:s.tags||['Repertorio'],tempo:s.tempo||0,compas:s.compas||'',audio_url:s.audio_url||null,repSongId:s.id,repId:r.id,createdAt:Date.now(),updatedAt:Date.now()});save('cb_songs',songs);const btn=document.getElementById('save-rep-btn');if(btn){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';btn.style.background='rgba(34,197,94,.2)';btn.style.color='#4ade80';btn.style.borderColor='rgba(34,197,94,.3)';btn.disabled=true}if(currentUser&&supabaseReady){syncSongsToCloud()}}
+function saveRepSongToLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const existing=songs.find(x=>x.title===s.titulo&&x.artist===s.artista);if(existing){alert('Esta canción ya está en tu biblioteca');return}const dk=s.tono_original||'C';var libCreatorName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';songs.unshift({id:s.source_song_id||genId(),sourceId:s.source_song_id||s.id,sourceType:'repertorio',title:s.titulo||'Sin título',artist:s.artista||'Desconocido',lyrics:s.letra_acordes||'',originalKey:dk,currentKey:dk,tags:s.tags||['Repertorio'],tempo:s.tempo||0,compas:s.compas||'',audio_url:s.audio_url||null,repSongId:s.id,repId:r.id,createdAt:Date.now(),updatedAt:Date.now(),createdBy:libCreatorName||''});save('cb_songs',songs);const btn=document.getElementById('save-rep-btn');if(btn){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';btn.style.background='rgba(34,197,94,.2)';btn.style.color='#4ade80';btn.style.borderColor='rgba(34,197,94,.3)';btn.disabled=true}if(currentUser&&supabaseReady){syncSongsToCloud()}}
 function isRepSongInLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return false;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return false;return!!songs.find(x=>x.title===s.titulo&&x.artist===s.artista)}
 
 // Sync admin library edits to all repertorio copies (FIXED: propagation bug)
@@ -1786,7 +1910,7 @@ async function syncRepertorioFromLibrary(libSong){
       }catch(e){}
     }
     if(repSongs.length===0)return;
-    const updates={titulo:libSong.title,artista:libSong.artist,tono_original:libSong.originalKey,tempo:libSong.tempo||0,compas:libSong.compas||'',letra_acordes:libSong.lyrics,audio_url:libSong.audio_url||null};
+    const updates={titulo:libSong.title,artista:libSong.artist,tono_original:libSong.originalKey,tempo:libSong.tempo||0,compas:libSong.compas||'',letra_acordes:libSong.lyrics,audio_url:libSong.audio_url||null,fecha_modificacion:Date.now(),modificado_por:libSong.modifiedBy||''};
     for(const rs of repSongs){
       await supabaseClient.from('canciones_repertorio').update(updates).eq('id',rs.id);
     }
@@ -1841,19 +1965,19 @@ function renderView(){
   if(s.tempo)metaParts.push(s.tempo+' BPM');
   if(s.compas)metaParts.push(s.compas);
   document.getElementById('view-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff">'+esc(s.title)+'</h1><p style="font-size:.8rem;color:#a1a1aa">'+esc(s.artist)+'</p>'+(metaParts.length>0?'<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">'+metaParts.map(m=>'<span class="tag tag-zinc">'+m+'</span>').join('')+'</div>':'');
-  document.getElementById('view-key-selector').innerHTML='<button class="key-btn" onclick="changeKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="lib-notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(s.currentKey)+'</div>'+(s.currentKey!==s.originalKey?'<button class="key-original" onclick="resetKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.originalKey)+'</button>':'')+'</div><button class="key-btn" onclick="changeKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
+  var _vnSrc=s.sourceId||s.id;document.getElementById('view-key-selector').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+'<button class="key-btn" onclick="changeKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="lib-notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(s.currentKey)+'</div>'+(s.currentKey!==s.originalKey?'<button class="key-original" onclick="resetKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.originalKey)+'</button>':'')+'</div><button class="key-btn" onclick="changeKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>'+'<div class="lib-notes-row">'+(_vnSrc&&supabaseReady?'<button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'domingo\',this)">\u{1f4dd} Doms</button><button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'lunes\',this)">\u{1f4dd} Lunes</button>':'')+'</div></div>';
   const il=lists.filter(l=>l.songIds.includes(s.id));
   document.getElementById('view-song-location').innerHTML=il.length>0?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> En listas: '+il.map(l=>l.name).join(', '):'';
   // Audio section in view page
   const audioSection=document.getElementById('view-audio-section');
   if(s.audio_url){
-    audioSection.innerHTML='<div class="audio-player" id="view-audio-player"><button class="audio-play-btn" onclick="toggleViewAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar"><div class="audio-bar-fill" id="view-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-current">0:00</span><span id="view-audio-duration">--:--</span></div></div>'+(canUploadAudio()?'<button class="btn-icon" onclick="triggerAudioUpload(\''+s.id+'\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\''+s.id+'\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
+    audioSection.innerHTML='<div class="audio-player" id="view-audio-player"><button class="audio-play-btn" onclick="toggleViewAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekViewAudio(event)" ontouchmove="seekViewAudioTouch(event)"><div class="audio-bar-fill" id="view-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-current">0:00</span><span id="view-audio-duration">--:--</span></div></div>'+(canUploadAudio()?'<button class="btn-icon" onclick="triggerAudioUpload(\''+s.id+'\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\''+s.id+'\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
   }else{
     audioSection.innerHTML=''+(canUploadAudio()?'<div class="upload-zone" onclick="triggerAudioUpload(\''+s.id+'\')" id="view-upload-zone"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir audio de esta canción</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — el audio quedará vinculado a la canción</p></div>':'')+'';
   }
   const semi=getS(s.originalKey,s.currentKey);
   document.getElementById('view-lyrics').innerHTML=s.lyrics.split('\n').map(line=>{const t=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t)){let h='<div class="lyrics-line">'+t.replace(/\[([^\]]+)\]/g,(m,p1)=>'<span class="chord">'+displayChord(p1)+'</span>');h=h.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');return h+'</div>'}if(/\([^)]+\)/.test(line))return'<div class="lyrics-line">'+line.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>')+'</div>';return'<div class="lyrics-line">'+(line||'&nbsp;')+'</div>'}).join('');
-  document.getElementById('view-tags').innerHTML=s.tags.map(t=>'<span class="tag tag-zinc">'+esc(t)+'</span>').join('');
+  document.getElementById('view-tags').innerHTML=s.tags.map(t=>'<span class="tag tag-zinc">'+esc(t)+'</span>').join('')+getSongNoteHtml(s);
   // Hide edit/delete buttons for non-admin users on repertorio songs
   const isRepSong=s.tags&&s.tags.includes('Repertorio');
   const editBtn=document.querySelector('#page-view .btn-icon[title="Editar"]');
@@ -2100,7 +2224,7 @@ function renderListView(){
 function listNav(dir){const l=lists.find(x=>x.id===viewingListId);if(!l)return;const listSongs=l.songIds.map(sid=>songs.find(s=>s.id===sid)).filter(Boolean);const newIdx=listNavIndex+dir;if(newIdx>=0&&newIdx<listSongs.length){listNavIndex=newIdx;viewingSongId=listSongs[newIdx].id;viewReturnTo='listview';showPage('view')}}
 function viewNav(dir){listNav(dir)}
 function viewSongFromList(id){const l=lists.find(x=>x.id===viewingListId);if(l){listNavIndex=l.songIds.indexOf(id);if(listNavIndex===-1)listNavIndex=0}viewingSongId=id;viewReturnTo='listview';showPage('view')}
-function repSongNav(dir){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);const newIdx=repSongNavIndex+dir;if(newIdx>=0&&newIdx<songsForDay.length){repSongNavIndex=newIdx;viewingRepSongId=songsForDay[newIdx].id;repShowChords=true;showPage('rep-song')}}
+function repSongNav(dir){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);const newIdx=repSongNavIndex+dir;if(newIdx>=0&&newIdx<songsForDay.length){stopAllAudio();repSongNavIndex=newIdx;viewingRepSongId=songsForDay[newIdx].id;repShowChords=true;showPage('rep-song')}}
 function addMissingToList(listId,songId){const id=genId();songs.push({id,title:'Canción importada',artist:'Desconocido',lyrics:'',originalKey:'C',currentKey:'C',tags:['importada'],createdAt:Date.now(),updatedAt:Date.now()});const l=lists.find(x=>x.id===listId);if(l){l.songIds=l.songIds.map(sid=>sid===songId?id:sid)}save('cb_songs',songs);save('cb_lists',lists);renderListView()}
 function removeFromList(sid){const l=lists.find(x=>x.id===viewingListId);if(!l)return;l.songIds=l.songIds.filter(id=>id!==sid);save('cb_lists',lists);renderListView()}
 
@@ -2220,6 +2344,7 @@ function renderRepertorios(){
   const archived=repertorios.filter(r=>r.estado==='archivado');
   document.getElementById('rep-count').textContent=active.length+' activos';
   document.getElementById('rep-admin-btn').innerHTML=repAdmin?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Gestionar':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Admin';
+  document.getElementById('rep-admin-btn').style.display=repAdmin?'none':'';
   const c=document.getElementById('rep-list');
   if(repTab==='active'){
     const fc=document.getElementById('rep-filters');
@@ -2240,8 +2365,22 @@ function renderRepertorios(){
   }
 }
 
-function viewRepertorio(id){viewingRepId=id;repDay='domingo';showPage('repertorio')}
-function switchRepDay(day){repDay=day;document.getElementById('rep-day-dom').className='rep-tab '+(day==='domingo'?'active':'');document.getElementById('rep-day-lun').className='rep-tab '+(day==='lunes'?'active':'');renderRepertorioView()}
+function viewRepertorio(id){viewingRepId=id;var savedDay=load('cb_rep_day_'+id,null);repDay=savedDay||'domingo';document.getElementById('rep-day-dom').className='rep-tab '+(repDay==='domingo'?'active':'');document.getElementById('rep-day-lun').className='rep-tab '+(repDay==='lunes'?'active':'');showPage('repertorio')}
+function switchRepDay(day){repDay=day;save('cb_rep_day_'+viewingRepId,day);document.getElementById('rep-day-dom').className='rep-tab '+(day==='domingo'?'active':'');document.getElementById('rep-day-lun').className='rep-tab '+(day==='lunes'?'active':'');renderRepertorioView()}
+
+// Save dirige name for a specific day
+function saveDirige(repId,day,name){
+  if(!supabaseReady)return;
+  var field=day==='domingo'?'dirige_domingo':'dirige_lunes';
+  var updateObj={};updateObj[field]=name;
+  supabaseClient.from('repertorios').update(updateObj).eq('id',repId).then(function(result){
+    if(result.error){console.error('Save dirige error:',result.error);return}
+    // Update local cache
+    var r=repertorios.find(x=>x.id===repId);
+    if(r)r[field]=name;
+    showNotification('Dirige actualizado','success');
+  }).catch(function(e){console.error('Save dirige error:',e)});
+}
 
 // Renumber songs in a repertorio after add/delete
 async function renumberRepSongs(repId){
@@ -2261,11 +2400,16 @@ async function renumberRepSongs(repId){
 
 function renderRepertorioView(){
   const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;
-  document.getElementById('rep-view-header').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px">'+fmtDate(r.fecha_domingo)+'</h1><p style="font-size:.8rem;color:#a1a1aa">'+fmtDate(r.fecha_lunes)+'</p>';
+  document.getElementById('rep-view-header').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px">'+fmtDate(repDay==='domingo'?r.fecha_domingo:r.fecha_lunes)+'</h1><p style="font-size:.8rem;color:#71717a">'+fmtDate(repDay==='domingo'?r.fecha_lunes:r.fecha_domingo)+'</p>';
   const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);
   const c=document.getElementById('rep-view-songs');
-  if(songsForDay.length===0){c.innerHTML='<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><h2>No hay canciones para este día</h2><p>'+(canManageReps()?'Agrega canciones con el botón de abajo':'El admin aún no ha asignado canciones')+'</p>'+(canManageReps()?'<button class="btn btn-amber" style="margin-top:10px" onclick="addSongToRepertorio(\''+r.id+'\',\''+repDay+'\')">+ Agregar canción</button>':'')+'</div>';return}
-  c.innerHTML=songsForDay.map(s=>{
+  // Build Dirige section
+  var canEditDir=canEditVocals();
+  var dirigeName=repDay==='domingo'?(r.dirige_domingo||''):(r.dirige_lunes||'');
+  var dirigeField=canEditDir?'<input class="input" style="max-width:250px;padding:5px 8px;font-size:.85rem" value="'+esc(dirigeName)+'" placeholder="Nombre del dirige" onchange="saveDirige(\''+r.id+'\',\''+repDay+'\',this.value)"/>':'<span style="font-size:.9rem;color:#fbbf24;font-weight:600">'+(dirigeName?esc(dirigeName):'<span style="color:#52525b;font-weight:400;font-style:italic">Sin asignar</span>')+'</span>';
+  var dirigeHtml='<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(39,39,42,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;margin-bottom:12px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-size:.8rem;color:#a1a1aa">Dirige:</span>'+dirigeField+'</div>';
+  if(songsForDay.length===0){c.innerHTML=dirigeHtml+'<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><h2>No hay canciones para este día</h2><p>'+(canManageReps()?'Agrega canciones con el botón de abajo':'El admin aún no ha asignado canciones')+'</p>'+(canManageReps()?'<button class="btn btn-amber" style="margin-top:10px" onclick="addSongToRepertorio(\''+r.id+'\',\''+repDay+'\')">+ Agregar canción</button>':'')+'</div>';return}
+  c.innerHTML=dirigeHtml+songsForDay.map(s=>{
     var corosForDay=(repDay==='domingo'?(s.coros_domingo||[]):(s.coros_lunes||s.coros_domingo||[]));
     if(typeof corosForDay==='string')corosForDay=corosForDay?corosForDay.split(',').map(function(x){return x.trim()}).filter(Boolean):[];
     if(!Array.isArray(corosForDay))corosForDay=[];
@@ -2276,8 +2420,8 @@ function renderRepertorioView(){
   }).join('')+(canManageReps()?'<div style="text-align:center;padding:16px 0"><button class="btn btn-amber" onclick="addSongToRepertorio(\''+r.id+'\',\''+repDay+'\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Agregar canción</button></div>':'');
 }
 
-function viewRepSong(rid,sid){if(repAudioEl){repAudioEl.pause();repAudioEl=null;repAudioPlaying=false}stopAudioProgress();viewingRepId=rid;viewingRepSongId=sid;repShowChords=true;const r=repertorios.find(x=>x.id===rid);if(r){const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);const idx=songsForDay.findIndex(x=>x.id===sid);if(idx>=0)repSongNavIndex=idx}showPage('rep-song')}
-function goBackFromRepSong(){stopAudioProgress();if(repAudioEl){repAudioEl.pause();repAudioEl=null;repAudioPlaying=false}showPage('repertorio')}
+function viewRepSong(rid,sid){stopAllAudio();viewingRepId=rid;viewingRepSongId=sid;repShowChords=true;const r=repertorios.find(x=>x.id===rid);if(r){const songsForDay=r.canciones.filter(s=>s.dia==='ambos'||s.dia===repDay).sort((a,b)=>a.orden-b.orden);const idx=songsForDay.findIndex(x=>x.id===sid);if(idx>=0)repSongNavIndex=idx}showPage('rep-song')}
+function goBackFromRepSong(){stopAllAudio();showPage('repertorio')}
 function setRepSongView(showChords){repShowChords=showChords;document.getElementById('toggle-lyrics').className=showChords?'inactive':'active';document.getElementById('toggle-chords').className=showChords?'active':'inactive';renderRepSongLyrics()}
 
 function renderRepSongView(){
@@ -2308,7 +2452,11 @@ function renderRepSongView(){
   // Update notation toggle
   const ntBtn=document.getElementById('notation-toggle');
   if(ntBtn)ntBtn.innerHTML=useFlats?'♭':'#';
-  document.getElementById('rep-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">'+corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span>'+esc(c)+'</span></span>'}).join('')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
+  // Day display above song title
+  const dayName=repDay==='domingo'?'Domingo':'Lunes';
+  const dayColor=repDay==='domingo'?'#60a5fa':'#c084fc';
+  const dayEmoji=repDay==='domingo'?'🌞':'🌙';
+  document.getElementById('rep-song-info').innerHTML='<div style="text-align:center;margin-bottom:8px"><span style="font-size:.85rem;font-weight:700;color:'+dayColor+';display:inline-flex;align-items:center;gap:4px;padding:4px 14px;background:'+(repDay==='domingo'?'rgba(59,130,246,.15)':'rgba(168,85,247,.15)')+';border:1px solid '+(repDay==='domingo'?'rgba(59,130,246,.3)':'rgba(168,85,247,.3)')+';border-radius:8px">'+dayEmoji+' '+dayName+'</span></div><h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">'+corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span>'+esc(c)+'</span></span>'}).join('')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
   document.getElementById('rep-song-key').innerHTML='<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(repCurrentKey)+'</div>'+(repCurrentKey!==s.tono_original?'<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.tono_original)+'</button>':'')+'</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
   // Build vocal audios section - 2 columns: Domingo and Lunes
   let vocalAudiosHtml='';
@@ -2333,7 +2481,7 @@ function renderRepSongView(){
         const audioKey=viewingRepId+'_'+viewingRepSongId+'_domingo_'+coro;
         vocalAudiosHtml+='<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;background:rgba(245,158,11,.05);border-radius:6px;margin-bottom:3px;border:1px solid rgba(63,63,70,.2)">';
         vocalAudiosHtml+='<span style="min-width:18px;font-size:.6rem;color:#fbbf24;font-weight:700;background:rgba(245,158,11,.15);padding:1px 4px;border-radius:3px;text-align:center">'+coro+'</span>';
-        if(audio&&audio.audio_url){vocalAudiosHtml+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';}
+        if(audio&&audio.audio_url){vocalAudiosHtml+='<button class="btn-icon" data-vocal-key="'+audioKey+'" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';}
         vocalAudiosHtml+='<div style="flex:1;min-width:0;font-size:.65rem;color:'+(coroName?'#d4d4d8':'#52525b')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(coroName?esc(coroName):(audio&&audio.audio_url?'Audio':'—'))+'</div>';
         vocalAudiosHtml+='</div>';
       }
@@ -2349,7 +2497,7 @@ function renderRepSongView(){
         const audioKey=viewingRepId+'_'+viewingRepSongId+'_lunes_'+coro;
         vocalAudiosHtml+='<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;background:rgba(192,132,252,.05);border-radius:6px;margin-bottom:3px;border:1px solid rgba(63,63,70,.2)">';
         vocalAudiosHtml+='<span style="min-width:18px;font-size:.6rem;color:#c084fc;font-weight:700;background:rgba(192,132,252,.15);padding:1px 4px;border-radius:3px;text-align:center">'+coro+'</span>';
-        if(audio&&audio.audio_url){vocalAudiosHtml+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';}
+        if(audio&&audio.audio_url){vocalAudiosHtml+='<button class="btn-icon" data-vocal-key="'+audioKey+'" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';}
         vocalAudiosHtml+='<div style="flex:1;min-width:0;font-size:.65rem;color:'+(coroName?'#d4d4d8':'#52525b')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(coroName?esc(coroName):(audio&&audio.audio_url?'Audio':'—'))+'</div>';
         vocalAudiosHtml+='</div>';
       }
@@ -2358,7 +2506,7 @@ function renderRepSongView(){
     }
   }
   
-  document.getElementById('rep-song-audio').innerHTML=(s.audio_url?'<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>':'<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>')+(vocalAudiosHtml?'<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>'+vocalAudiosHtml+'</div>':'');
+  document.getElementById('rep-song-audio').innerHTML=(s.audio_url?'<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchmove="seekRepAudioTouch(event)"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>':'<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>')+(vocalAudiosHtml?'<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>'+vocalAudiosHtml+'<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchmove="seekVocalAudioTouch(event)"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div>':'');
   document.getElementById('toggle-lyrics').className=repShowChords?'inactive':'active';
   document.getElementById('toggle-chords').className=repShowChords?'active':'inactive';
   // Admin actions
@@ -2379,26 +2527,8 @@ function deleteRepSong(repId,songId){
   const s=r.canciones.find(x=>x.id===songId);
   if(!s)return;
   if(!confirm('¿Eliminar "'+s.titulo+'" de este repertorio?'))return;
-  // First delete associated vocal audios from storage
-  const sourceId=s.source_song_id||songId;
-  (async function(){
-    try{
-      const {data:vaData}=await supabaseClient.from('vocal_audios').select('id,audio_path,audio_url,dia,coro_number').eq('cancion_repertorio_id',songId);
-      if(vaData){
-        for(const va of vaData){
-          // Try deletion using audio_url (has actual timestamped filename)
-          if(va.audio_url){
-            try{await fetch(R2_WORKER_URL+'/file/'+extractR2Key(va.audio_url),{method:'DELETE'});}catch(e){}
-          }
-          // Also try audio_path as fallback
-          if(va.audio_path){
-            try{await fetch(R2_WORKER_URL+'/file/'+extractR2Key(va.audio_path),{method:'DELETE'});}catch(e){}
-          }
-        }
-        await supabaseClient.from('vocal_audios').delete().eq('cancion_repertorio_id',songId);
-      }
-    }catch(e){console.log('Vocal audio cleanup error:',e.message)}
-  })();
+  // NOTE: Vocal audios are NOT deleted here - they persist by source_song_id
+  // They are only deleted when the user explicitly deletes a vocal audio from the "asignar voces" view
   supabaseClient.from('canciones_repertorio').delete().eq('id',songId).then(async function(result){
     if(result.error){alert('Error: '+result.error.message);return}
     await loadRepertorios();
@@ -2413,19 +2543,40 @@ function deleteRepSong(repId,songId){
 }
 function changeRepKey(d){const r=repertorios.find(x=>x.id===viewingRepId);const s=r?.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const currentIdx=NOTE_MAP[repCurrentKey]??0;const newIdx=(currentIdx+d+12)%12;repCurrentKey=useFlats?FLATS[newIdx]:SHARPS[newIdx];document.getElementById('rep-song-key').innerHTML='<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(repCurrentKey)+'</div>'+(repCurrentKey!==s.tono_original?'<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.tono_original)+'</button>':'')+'</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';renderRepSongLyrics()}
 function resetRepKey(){const r=repertorios.find(x=>x.id===viewingRepId);const s=r?.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;repCurrentKey=s.tono_original;changeRepKey(0)}
-function renderRepSongLyrics(){
+async function renderRepSongLyrics(){
   const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;
   const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;
   const semi=getS(s.tono_original,repCurrentKey);
   const c=document.getElementById('rep-song-lyrics');
-  if(repShowChords){c.innerHTML=s.letra_acordes.split('\n').map(line=>{const t=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t)){let h='<div class="lyrics-line">'+t.replace(/\[([^\]]+)\]/g,(m,p1)=>'<span class="chord">'+displayChord(p1)+'</span>');h=h.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');return h+'</div>'}if(/\([^)]+\)/.test(line))return'<div class="lyrics-line">'+line.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>')+'</div>';return'<div class="lyrics-line">'+(line||'&nbsp;')+'</div>'}).join('')}
-  else{c.innerHTML=s.letra_acordes.split('\n').map(line=>{let cleaned=line.replace(/\[[^\]]+\]\s*/g,'').trim();if(/\([^)]+\)/.test(cleaned))return'<div class="lyrics-line">'+cleaned.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>')+'</div>';return'<div class="lyrics-line">'+(cleaned||'&nbsp;')+'</div>'}).join('')}
-}
+  if(repShowChords){c.innerHTML=s.letra_acordes.split('\n').map(line=>{const t=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t)){let h='<div class="lyrics-line">'+t.replace(/\[([^\]]+)\]/g,(m,p1)=>'<span class="chord">'+displayChord(p1)+'</span>');h=h.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');return h+'</div>'}if(/\([^)]+\)/.test(line))return'<div class="lyrics-line">'+line.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>')+'</div>';return'<div class="lyrics-line">'+(line||'&nbsp;')+'</div>'}).join('')+getSongNoteHtml(s)}
+  else{var lyricsHtml='';var srcId=s.source_song_id||viewingRepSongId;var sectionNotes={};if(srcId){sectionNotes=await loadSectionNotes(srcId,repDay)}s.letra_acordes.split('\n').forEach(function(line){var t2=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t2)){var h2='<div class="lyrics-line">'+t2.replace(/\[([^\]]+)\]/g,(m,p1)=>'<span class="chord">'+displayChord(p1)+'</span>');if(/\(([^)]+)\)/.test(t2)){var secMatch=t2.match(/\(([^)]+)\)/);var secName=secMatch?secMatch[1]:'';var noteVal=(sectionNotes[secName]||'').replace(/"/g,'&quot;');h2=h2.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');if(srcId&&canEditVocals()){h2+='<span class="section-note-wrap"><input class="section-note-input" value="'+noteVal+'" placeholder="nota..." oninput="onSectionNoteInput(\''+srcId+'\',\''+repDay+'\',\''+secName.replace(/'/g,"\\'")+'\',this)"><span class="section-note-status"></span></span>'}else if(sectionNotes[secName]){h2+='<span class="section-note-display">'+esc(sectionNotes[secName])+'</span>'}}lyricsHtml+=h2+'</div>'}else if(/\(([^)]+)\)/.test(t2)){var secMatch2=t2.match(/\(([^)]+)\)/);var secName2=secMatch2?secMatch2[1]:'';var noteVal2=(sectionNotes[secName2]||'').replace(/"/g,'&quot;');var h3='<div class="lyrics-line">'+t2.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');if(srcId&&canEditVocals()){h3+='<span class="section-note-wrap"><input class="section-note-input" value="'+noteVal2+'" placeholder="nota..." oninput="onSectionNoteInput(\''+srcId+'\',\''+repDay+'\',\''+secName2.replace(/'/g,"\\'")+'\',this)"><span class="section-note-status"></span></span>'}else if(sectionNotes[secName2]){h3+='<span class="section-note-display">'+esc(sectionNotes[secName2])+'</span>'}lyricsHtml+=h3+'</div>'}else{lyricsHtml+='<div class="lyrics-line">'+(t2||'&nbsp;')+'</div>'}});lyricsHtml+=getSongNoteHtml(s);c.innerHTML=lyricsHtml}}
 let repAudioEl=null;let repAudioPlaying=false;let repAudioInterval=null;
 function toggleRepAudio(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s||!s.audio_url)return;const audioUrl=normalizeVocalAudioUrl(s.audio_url);if(!repAudioEl){repAudioEl=new Audio();repAudioEl.crossOrigin='anonymous';repAudioEl.preload='auto';repAudioEl.src=audioUrl;repAudioEl.addEventListener('ended',()=>{repAudioPlaying=false;updateAudioBtn()});repAudioEl.addEventListener('loadedmetadata',()=>{const dur=document.getElementById('rep-audio-duration');if(dur)dur.textContent=formatTime(repAudioEl.duration)});repAudioEl.addEventListener('error',()=>{console.error('Rep audio error, URL:',audioUrl);if(s.id){const r2Url=R2_WORKER_URL+'/file/songs/'+s.id+'.mp3';repAudioEl.src=r2Url;}else{alert('Error al cargar el audio');repAudioPlaying=false;updateAudioBtn()}})}if(repAudioPlaying){repAudioEl.pause();repAudioPlaying=false}else{repAudioEl.play().catch(e=>{console.error('Audio play error:',e)});repAudioPlaying=true}updateAudioBtn()}
 function updateAudioBtn(){const btn=document.querySelector('.audio-play-btn');if(!btn)return;btn.innerHTML=repAudioPlaying?'<svg width="18" height="18" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>':'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>';if(repAudioPlaying){startAudioProgress()}else{stopAudioProgress()}}
 function startAudioProgress(){stopAudioProgress();repAudioInterval=setInterval(()=>{if(!repAudioEl)return;const pct=repAudioEl.duration?(repAudioEl.currentTime/repAudioEl.duration)*100:0;const fill=document.getElementById('rep-audio-fill');if(fill)fill.style.width=pct+'%';const cur=document.getElementById('rep-audio-current');if(cur)cur.textContent=formatTime(repAudioEl.currentTime);},250)}
 function stopAudioProgress(){if(repAudioInterval){clearInterval(repAudioInterval);repAudioInterval=null}}
+
+// ============= AUDIO SEEKING =============
+function seekAudio(audioEl,e){
+  if(!audioEl||!audioEl.duration)return;
+  var bar=e.currentTarget;
+  var rect=bar.getBoundingClientRect();
+  var pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  audioEl.currentTime=pct*audioEl.duration;
+}
+function seekViewAudio(e){seekAudio(viewAudioEl,e)}
+function seekRepAudio(e){seekAudio(repAudioEl,e)}
+// Touch support for seeking
+function seekAudioTouch(audioEl,e){
+  if(!audioEl||!audioEl.duration)return;
+  var bar=e.currentTarget;
+  var rect=bar.getBoundingClientRect();
+  var touch=e.touches[0];
+  var pct=Math.max(0,Math.min(1,(touch.clientX-rect.left)/rect.width));
+  audioEl.currentTime=pct*audioEl.duration;
+}
+function seekViewAudioTouch(e){seekAudioTouch(viewAudioEl,e)}
+function seekRepAudioTouch(e){seekAudioTouch(repAudioEl,e)}
 
 // ============= AUDIO UPLOAD (IMPROVED) =============
 let audioUploadSongId=null;
@@ -2681,6 +2832,21 @@ function playVocalAudio(key,url){
   // Normalize URL first
   url=normalizeVocalAudioUrl(url);
   
+  // If clicking the same key that's playing, pause it (toggle)
+  if(vocalAudioCurrentKey===key&&vocalAudioPlayers[key]){
+    if(!vocalAudioPlayers[key].paused){
+      vocalAudioPlayers[key].pause();
+      stopVocalAudioProgress();
+      updateVocalAudioButtons();
+      return true;
+    }else{
+      vocalAudioPlayers[key].play().catch(function(e){console.error('Resume error:',e)});
+      startVocalAudioProgress();
+      updateVocalAudioButtons();
+      return true;
+    }
+  }
+  
   // Stop any currently playing vocal audio
   if(vocalAudioCurrentKey&&vocalAudioPlayers[vocalAudioCurrentKey]){
     vocalAudioPlayers[vocalAudioCurrentKey].pause();
@@ -2689,11 +2855,9 @@ function playVocalAudio(key,url){
     vocalAudioCurrentKey=null;
   }
   
-  // If clicking the same key, just stop (toggle)
-  if(vocalAudioCurrentKey===key){
-    vocalAudioCurrentKey=null;
-    return false;
-  }
+  // Also stop rep audio and view audio when playing vocal
+  if(repAudioEl){repAudioEl.pause();repAudioPlaying=false;stopAudioProgress();updateAudioBtn()}
+  if(viewAudioEl){viewAudioEl.pause();viewAudioPlaying=false;stopViewAudioProgress();updateViewAudioBtn()}
   
   const audio=new Audio();
   audio.crossOrigin='anonymous';
@@ -2731,6 +2895,8 @@ function playVocalAudio(key,url){
   audio.addEventListener('ended',function(){
     delete vocalAudioPlayers[key];
     vocalAudioCurrentKey=null;
+    stopVocalAudioProgress();
+    updateVocalAudioButtons();
   });
   
   audio.src=url;
@@ -2739,6 +2905,8 @@ function playVocalAudio(key,url){
   
   audio.play().then(function(){
     console.log('Playing vocal audio:',url);
+    updateVocalAudioButtons();
+    startVocalAudioProgress();
   }).catch(function(e){
     console.error('Play error:',e);
     delete vocalAudioPlayers[key];
@@ -3047,7 +3215,7 @@ function renderVocalAudioList(day){
     html+='</div>';
     if(audio&&audio.audio_url){
       html+='<div style="display:flex;align-items:center;gap:8px">';
-      html+='<button class="btn-icon" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+      html+='<button class="btn-icon" data-vocal-key="'+audioKey+'" onclick="playVocalAudio(\''+audioKey+'\',\''+audio.audio_url+'\')" style="color:#4ade80" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
       html+='<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(audio.vocalista_name||coroName||'Audio Coro '+coro)+'</div>';
       if(canEditVocals()){
         html+='<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\''+vocalEditorRepId+'\',\''+vocalEditorSongId+'\','+coro+',\''+sourceSongId+'\',\''+day+'\')" style="flex-shrink:0" title="Eliminar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
