@@ -122,6 +122,54 @@ try{
   }
 }catch(e){console.error('Supabase init error:',e)}
 
+// ============= SUPABASE REALTIME SUBSCRIPTIONS =============
+function setupRealtimeSubscriptions(){
+  if(!supabaseReady||!supabaseClient)return;
+  console.log('Setting up Supabase Realtime subscriptions...');
+
+  // 1. Subscribe to vocal_notes changes
+  supabaseClient.channel('vocal-notes-changes')
+    .on('postgres_changes',{event:'*',schema:'public',table:'vocal_notes'},function(payload){
+      console.log('Realtime vocal_notes change:',payload.eventType);
+      vocalNotesCache={};
+      if(viewingSongId)renderView();
+      if(viewingRepSongId)renderRepSongLyrics();
+    })
+    .subscribe();
+
+  // 2. Subscribe to repertorios changes
+  supabaseClient.channel('repertorios-changes')
+    .on('postgres_changes',{event:'*',schema:'public',table:'repertorios'},function(payload){
+      console.log('Realtime repertorios change:',payload.eventType);
+      loadRepertorios().then(function(){
+        var repPage=document.getElementById('page-repertorios');
+        if(repPage&&repPage.classList.contains('active'))renderRepertorios();
+        var repViewPage=document.getElementById('page-repertorio');
+        if(repViewPage&&repViewPage.classList.contains('active'))renderRepertorioView();
+        var repSongPage=document.getElementById('page-rep-song');
+        if(repSongPage&&repSongPage.classList.contains('active'))renderRepSongLyrics();
+      });
+    })
+    .subscribe();
+
+  // 3. Subscribe to canciones_repertorio changes (adding/removing songs)
+  supabaseClient.channel('canciones-rep-changes')
+    .on('postgres_changes',{event:'*',schema:'public',table:'canciones_repertorio'},function(payload){
+      console.log('Realtime canciones_repertorio change:',payload.eventType);
+      loadRepertorios().then(function(){
+        var repPage=document.getElementById('page-repertorios');
+        if(repPage&&repPage.classList.contains('active'))renderRepertorios();
+        var repViewPage=document.getElementById('page-repertorio');
+        if(repViewPage&&repViewPage.classList.contains('active'))renderRepertorioView();
+      });
+    })
+    .subscribe();
+
+  console.log('Realtime subscriptions active');
+}
+
+setTimeout(setupRealtimeSubscriptions,2000);
+
 // ============= SONG CREATION/MODIFICATION NOTE =============
 function getSongNoteHtml(s){
   if(!s)return'';
@@ -134,7 +182,7 @@ function getSongNoteHtml(s){
   if(!modifiedDate&&s.fecha_modificacion){modifiedDate=new Date(s.fecha_modificacion).toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}
   if(createdDate&&createdBy){html+='<div>📅 Fecha de creación: '+createdDate+' — Creado por: <span style="color:#a1a1aa">'+esc(createdBy)+'</span></div>'}
   else if(createdDate){html+='<div>📅 Fecha de creación: '+createdDate+'</div>'}
-  if(modifiedDate&&modifiedBy){html+='<div>✏️ Última modificación: '+modifiedDate+' — Por: <span style="color:#a1a1aa">'+esc(modifiedBy)+'</span></div>'}
+  if(modifiedDate&&modifiedBy){html+='<div>✏️ Última modificación: '+modifiedDate+' — Modificado por: <span style="color:#a1a1aa">'+esc(modifiedBy)+'</span></div>'}
   html+='</div>';
   return html;
 }
@@ -144,7 +192,7 @@ var vocalNotesCache={};var vocalNotesTimers={};
 async function loadSectionNotes(sourceSongId,dia){var cacheKey=sourceSongId+'_'+dia;if(vocalNotesCache[cacheKey]!==undefined)return vocalNotesCache[cacheKey];if(!supabaseReady||!sourceSongId){vocalNotesCache[cacheKey]={};return{}}try{var result=await supabaseClient.from('vocal_notes').select('notas').eq('source_song_id',sourceSongId).eq('dia',dia).maybeSingle();var raw=(result.data&&result.data.notas)?result.data.notas:'';var parsed={};if(raw){try{parsed=JSON.parse(raw)}catch(e){parsed={'_raw':raw}}}vocalNotesCache[cacheKey]=parsed;return parsed}catch(e){console.log('loadSectionNotes error:',e.message);vocalNotesCache[cacheKey]={};return{}}}
 async function saveSectionNote(sourceSongId,dia,sectionName,noteText){var cacheKey=sourceSongId+'_'+dia;var notes=await loadSectionNotes(sourceSongId,dia);if(noteText){notes[sectionName]=noteText}else{delete notes[sectionName]}vocalNotesCache[cacheKey]=notes;if(!supabaseReady||!sourceSongId)return;var userName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';var notasStr=JSON.stringify(notes);try{var existing=await supabaseClient.from('vocal_notes').select('id').eq('source_song_id',sourceSongId).eq('dia',dia).maybeSingle();if(existing.data&&existing.data.id){await supabaseClient.from('vocal_notes').update({notas:notasStr,updated_at:Date.now()}).eq('id',existing.data.id)}else{await supabaseClient.from('vocal_notes').insert({source_song_id:sourceSongId,dia:dia,notas:notasStr,created_by:userName,created_at:Date.now(),updated_at:Date.now()})}}catch(e){console.error('saveSectionNote error:',e.message)}}
 function onSectionNoteInput(sourceSongId,dia,sectionName,input){var cacheKey=sourceSongId+'_'+dia+'_'+sectionName;var notes=vocalNotesCache[sourceSongId+'_'+dia]||{};if(input.value){notes[sectionName]=input.value}else{delete notes[sectionName]}vocalNotesCache[sourceSongId+'_'+dia]=notes;var statusEl=input.parentNode.querySelector('.section-note-status');if(statusEl){statusEl.textContent='Guardando...';statusEl.style.color='#fbbf24'}if(vocalNotesTimers[cacheKey])clearTimeout(vocalNotesTimers[cacheKey]);vocalNotesTimers[cacheKey]=setTimeout(async function(){await saveSectionNote(sourceSongId,dia,sectionName,input.value);if(statusEl){statusEl.textContent='\u2713';statusEl.style.color='#4ade80';setTimeout(function(){statusEl.textContent=''},1500)}},800)}
-function toggleVocalNotesLib(sourceSongId,dia,btnEl){if(libVocalMode===dia){libVocalMode=null}else{libVocalMode=dia}renderView()}
+function toggleVocalNotesLib(sourceSongId,dia,btnEl){if(libVocalMode===dia){libVocalMode=null}else{libVocalMode=dia}vocalNotesCache={};renderView()}
 // ============= GLOBAL AUDIO MANAGEMENT =============
 function stopAllAudio(){
   // Stop view page audio
@@ -1153,7 +1201,7 @@ async function syncRepertorioToAllUsers(cancion,songId){
 window.handleLogin = handleLoginWithSync;
 window.handleLogout = handleLogoutWithSync;
 function editSong(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;if(!canEditRepSongs()&&s.tags&&s.tags.includes('Repertorio')){alert('Solo admin o directores musicales pueden editar canciones de repertorio');return}editingSongId=s.id;document.getElementById('form-title').textContent='Editar canción';document.getElementById('input-title').value=s.title;document.getElementById('input-artist').value=s.artist;document.getElementById('input-lyrics').value=s.lyrics;document.getElementById('input-tempo').value=s.tempo||'';document.getElementById('input-compas').value=s.compas||'';formKey=s.originalKey;formTags=[...s.tags];renderFormTags();renderKeyGrid();showPage('add')}
-function saveRepSongToLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const existing=songs.find(x=>x.title===s.titulo&&x.artist===s.artista);if(existing){alert('Esta canción ya está en tu biblioteca');return}const dk=s.tono_original||'C';var libCreatorName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';songs.unshift({id:s.source_song_id||genId(),sourceId:s.source_song_id||s.id,sourceType:'repertorio',title:s.titulo||'Sin título',artist:s.artista||'Desconocido',lyrics:s.letra_acordes||'',originalKey:dk,currentKey:dk,tags:s.tags||['Repertorio'],tempo:s.tempo||0,compas:s.compas||'',audio_url:s.audio_url||null,repSongId:s.id,repId:r.id,createdAt:Date.now(),updatedAt:Date.now(),createdBy:libCreatorName||''});save('cb_songs',songs);const btn=document.getElementById('save-rep-btn');if(btn){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';btn.style.background='rgba(34,197,94,.2)';btn.style.color='#4ade80';btn.style.borderColor='rgba(34,197,94,.3)';btn.disabled=true}if(currentUser&&supabaseReady){syncSongsToCloud()}}
+function saveRepSongToLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return;const existing=songs.find(x=>x.title===s.titulo&&x.artist===s.artista);if(existing){alert('Esta canción ya está en tu biblioteca');return}const dk=s.tono_original||'C';var libCreatorName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';songs.unshift({id:s.source_song_id||genId(),sourceId:s.source_song_id||s.id,repSongId:s.id,sourceType:'repertorio',title:s.titulo||'Sin título',artist:s.artista||'Desconocido',lyrics:s.letra_acordes||'',originalKey:dk,currentKey:dk,tags:s.tags||['Repertorio'],tempo:s.tempo||0,compas:s.compas||'',audio_url:s.audio_url||null,repSongId:s.id,repId:r.id,createdAt:Date.now(),updatedAt:Date.now(),createdBy:libCreatorName||''});save('cb_songs',songs);const btn=document.getElementById('save-rep-btn');if(btn){btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';btn.style.background='rgba(34,197,94,.2)';btn.style.color='#4ade80';btn.style.borderColor='rgba(34,197,94,.3)';btn.disabled=true}if(currentUser&&supabaseReady){syncSongsToCloud()}}
 function isRepSongInLibrary(){const r=repertorios.find(x=>x.id===viewingRepId);if(!r)return false;const s=r.canciones.find(x=>x.id===viewingRepSongId);if(!s)return false;return!!songs.find(x=>x.title===s.titulo&&x.artist===s.artista)}
 
 // Sync admin library edits to all repertorio copies (FIXED: propagation bug)
@@ -1230,7 +1278,7 @@ async function renderView(){
   if(s.tempo)metaParts.push(s.tempo+' BPM');
   if(s.compas)metaParts.push(s.compas);
   document.getElementById('view-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff">'+esc(s.title)+'</h1><p style="font-size:.8rem;color:#a1a1aa">'+esc(s.artist)+'</p>'+(metaParts.length>0?'<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">'+metaParts.map(m=>'<span class="tag tag-zinc">'+m+'</span>').join('')+'</div>':'');
-  var _vnSrc=s.sourceId||s.id;document.getElementById('view-key-selector').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+'<button class="key-btn" onclick="changeKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="lib-notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(s.currentKey)+'</div>'+(s.currentKey!==s.originalKey?'<button class="key-original" onclick="resetKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.originalKey)+'</button>':'')+'</div><button class="key-btn" onclick="changeKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>'+'<div class="lib-notes-row">'+(_vnSrc&&supabaseReady?'<button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'domingo\',this)">\u{1f4dd} Domingo</button><button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'lunes\',this)">\u{1f4dd} Lunes</button>':'')+'</div></div>';
+  var _vnSrc=s.sourceId||s.id;document.getElementById('view-key-selector').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+'<button class="key-btn" onclick="changeKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="lib-notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(s.currentKey)+'</div>'+(s.currentKey!==s.originalKey?'<button class="key-original" onclick="resetKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.originalKey)+'</button>':'')+'</div><button class="key-btn" onclick="changeKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>'+'<div class="lib-notes-row">'+(_vnSrc?'<button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'domingo\',this)">\u{1f4dd} Domingo</button><button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'lunes\',this)">\u{1f4dd} Lunes</button>':'')+'</div></div>';
 if(libVocalMode){document.querySelectorAll('.lib-notes-btn').forEach(function(b){b.classList.remove('active');if(b.getAttribute('onclick')&&b.getAttribute('onclick').indexOf(libVocalMode)!==-1)b.classList.add('active')})}
   const il=lists.filter(l=>l.songIds.includes(s.id));
   document.getElementById('view-song-location').innerHTML=il.length>0?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> En listas: '+il.map(l=>l.name).join(', '):'';
@@ -1658,6 +1706,28 @@ async function renumberRepSongs(repId){
     }
   }
 }
+async function moveRepSong(repId, songId, direction) {
+  if (!canManageReps() || !supabaseReady) return;
+  const r = repertorios.find(x => x.id === repId);
+  if (!r) return;
+  const songsSorted = r.canciones.sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  const idx = songsSorted.findIndex(x => x.id === songId);
+  if (idx < 0) return;
+  const targetIdx = idx + direction;
+  if (targetIdx < 0 || targetIdx >= songsSorted.length) return;
+  const tmpOrden = songsSorted[idx].orden;
+  songsSorted[idx].orden = songsSorted[targetIdx].orden;
+  songsSorted[targetIdx].orden = tmpOrden;
+  try {
+    await supabaseClient.from('canciones_repertorio').update({orden: songsSorted[idx].orden}).eq('id', songsSorted[idx].id);
+    await supabaseClient.from('canciones_repertorio').update({orden: songsSorted[targetIdx].orden}).eq('id', songsSorted[targetIdx].id);
+    await loadRepertorios();
+    renderRepertorioView();
+  } catch (e) {
+    alert('Error al mover: ' + e.message);
+  }
+}
+
 // renderRepVocesView removed - chorus audio is now shown in rep-song view
 
 function renderRepertorioView(){
@@ -1678,7 +1748,7 @@ function renderRepertorioView(){
     // Build numbered coros display
     const corosDisplay=corosForDay.length>0?corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span style="color:#a1a1aa;font-size:.7rem">'+esc(c)+'</span></span>'}).join(''):'';
 
-    return '<div class="rep-song-card" onclick="viewRepSong(\''+r.id+'\',\''+s.id+'\')"><div class="rep-song-order">'+s.orden+'</div><div class="rep-song-info"><div class="rep-song-title">'+esc(s.titulo)+'</div><div class="rep-song-artist">'+esc(s.artista)+'</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: '+esc((repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar')))+'</span>'+(corosForDay.length>0?'<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">'+corosDisplay+'</span>':'')+'</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>'+(s.dia!=='ambos'?'<span class="rep-day-badge '+(s.dia==='domingo'?'dom':'lun')+'">Solo '+(s.dia==='domingo'?'Domingo':'Lunes')+'</span>':'')+'</div>'+(canEditVocals()?'<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\''+r.id+'\',\''+s.id+'\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>':'')+(canManageReps()?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\''+r.id+'\',\''+s.id+'\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
+    return '<div class="rep-song-card" onclick="viewRepSong(\''+r.id+'\',\''+s.id+'\')"><div class="rep-song-order">'+s.orden+'</div><div class="rep-song-info"><div class="rep-song-title">'+esc(s.titulo)+'</div><div class="rep-song-artist">'+esc(s.artista)+'</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: '+esc((repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar')))+'</span>'+(corosForDay.length>0?'<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">'+corosDisplay+'</span>':'')+'</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>'+(s.dia!=='ambos'?'<span class="rep-day-badge '+(s.dia==='domingo'?'dom':'lun')+'">Solo '+(s.dia==='domingo'?'Domingo':'Lunes')+'</span>':'')+'</div>'+(canManageReps()?'<div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0;align-self:center"><button class="btn-icon" onclick="event.stopPropagation();moveRepSong(\''+r.id+'\',\''+s.id+'\',-1)" title="Subir" style="color:#71717a;font-size:.65rem;line-height:1">▲</button><button class="btn-icon" onclick="event.stopPropagation();moveRepSong(\''+r.id+'\',\''+s.id+'\',1)" title="Bajar" style="color:#71717a;font-size:.65rem;line-height:1">▼</button></div>':'')+(canEditVocals()?'<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\''+r.id+'\',\''+s.id+'\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>':'')+(canManageReps()?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\''+r.id+'\',\''+s.id+'\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
   }).join('')+(canManageReps()?'<div style="text-align:center;padding:16px 0"><button class="btn btn-amber" onclick="addSongToRepertorio(\''+r.id+'\',\''+repDay+'\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Agregar canción</button></div>':'');
 }
 
