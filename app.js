@@ -134,7 +134,7 @@ function getSongNoteHtml(s){
   if(!modifiedDate&&s.fecha_modificacion){modifiedDate=new Date(s.fecha_modificacion).toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}
   if(createdDate&&createdBy){html+='<div>📅 Fecha de creación: '+createdDate+' — Creado por: <span style="color:#a1a1aa">'+esc(createdBy)+'</span></div>'}
   else if(createdDate){html+='<div>📅 Fecha de creación: '+createdDate+'</div>'}
-  if(modifiedDate&&modifiedBy){html+='<div>✏️ Última modificación: '+modifiedDate+' — Modificado por: <span style="color:#a1a1aa">'+esc(modifiedBy)+'</span></div>'}
+  if(modifiedDate&&modifiedBy){html+='<div>✏️ Última modificación: '+modifiedDate+' — Por: <span style="color:#a1a1aa">'+esc(modifiedBy)+'</span></div>'}
   html+='</div>';
   return html;
 }
