@@ -1020,6 +1020,7 @@ async function handleLoginWithSync(e) {
       } else {
         showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Tu biblioteca está vacía.', 'success');
       }
+      renderLibrary(); // oculta el aviso de invitado sin esperar a otra navegación
     }
     
   } catch(e) {
@@ -1045,6 +1046,7 @@ async function handleLogoutWithSync() {
   updateUserUI();
   document.getElementById('user-dropdown').classList.remove('active');
   showNotification('Sesión cerrada', 'success');
+  renderLibrary(); // muestra de nuevo el aviso de invitado si la biblioteca está visible
 }
 
 // Add CSS for spinning animation
@@ -1182,7 +1184,26 @@ function goBackFromView(){
   else{showPage('library')}
 }
 
+// Aviso breve para quien usa la app sin cuenta: sus cambios quedan solo en este
+// navegador. Se oculta automáticamente en cuanto hay sesión iniciada.
+function renderGuestLibraryBanner(){
+  const listEl=document.getElementById('song-list');
+  if(!listEl)return;
+  let banner=document.getElementById('guest-library-banner');
+  if(currentUser){
+    if(banner)banner.remove();
+    return;
+  }
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='guest-library-banner';
+    banner.style.cssText='margin-bottom:10px;padding:8px 10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:.72rem;color:#fbbf24;line-height:1.5';
+    banner.innerHTML='🔓 Estás sin cuenta: tu biblioteca solo se guarda en este dispositivo. Mira <a href="#" onclick="event.preventDefault();showPage(\'repertorios\')" style="color:#fbbf24;text-decoration:underline">Repertorios</a> para lo último, o <a href="#" onclick="event.preventDefault();showAuthModal(\'register\')" style="color:#fbbf24;text-decoration:underline">regístrate</a> para guardarla automáticamente.';
+    listEl.parentNode.insertBefore(banner,listEl);
+  }
+}
 function renderLibrary(){
+  renderGuestLibraryBanner();
   const q=(document.getElementById('search-input').value||'').toLowerCase();
   let filtered=q?songs.filter(s=>s.title.toLowerCase().includes(q)||s.artist.toLowerCase().includes(q)):[...songs];
   // Sort alphabetically by title
