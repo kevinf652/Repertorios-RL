@@ -97,6 +97,7 @@ function canManageReps(){return isAdmin()}
 let viewingRepId=null;
 let viewingRepSongId=null;
 let repDay='domingo';
+let libVocalMode=null; // null, 'domingo', or 'lunes'
 let repShowChords=true;
 let repCurrentKey='';
 let repTab='active';
@@ -143,7 +144,7 @@ var vocalNotesCache={};var vocalNotesTimers={};
 async function loadSectionNotes(sourceSongId,dia){var cacheKey=sourceSongId+'_'+dia;if(vocalNotesCache[cacheKey]!==undefined)return vocalNotesCache[cacheKey];if(!supabaseReady||!sourceSongId){vocalNotesCache[cacheKey]={};return{}}try{var result=await supabaseClient.from('vocal_notes').select('notas').eq('source_song_id',sourceSongId).eq('dia',dia).maybeSingle();var raw=(result.data&&result.data.notas)?result.data.notas:'';var parsed={};if(raw){try{parsed=JSON.parse(raw)}catch(e){parsed={'_raw':raw}}}vocalNotesCache[cacheKey]=parsed;return parsed}catch(e){console.log('loadSectionNotes error:',e.message);vocalNotesCache[cacheKey]={};return{}}}
 async function saveSectionNote(sourceSongId,dia,sectionName,noteText){var cacheKey=sourceSongId+'_'+dia;var notes=await loadSectionNotes(sourceSongId,dia);if(noteText){notes[sectionName]=noteText}else{delete notes[sectionName]}vocalNotesCache[cacheKey]=notes;if(!supabaseReady||!sourceSongId)return;var userName=currentUser?(currentUser.nombre?currentUser.nombre+' '+(currentUser.apellido||''):currentUser.id):'';var notasStr=JSON.stringify(notes);try{var existing=await supabaseClient.from('vocal_notes').select('id').eq('source_song_id',sourceSongId).eq('dia',dia).maybeSingle();if(existing.data&&existing.data.id){await supabaseClient.from('vocal_notes').update({notas:notasStr,updated_at:Date.now()}).eq('id',existing.data.id)}else{await supabaseClient.from('vocal_notes').insert({source_song_id:sourceSongId,dia:dia,notas:notasStr,created_by:userName,created_at:Date.now(),updated_at:Date.now()})}}catch(e){console.error('saveSectionNote error:',e.message)}}
 function onSectionNoteInput(sourceSongId,dia,sectionName,input){var cacheKey=sourceSongId+'_'+dia+'_'+sectionName;var notes=vocalNotesCache[sourceSongId+'_'+dia]||{};if(input.value){notes[sectionName]=input.value}else{delete notes[sectionName]}vocalNotesCache[sourceSongId+'_'+dia]=notes;var statusEl=input.parentNode.querySelector('.section-note-status');if(statusEl){statusEl.textContent='Guardando...';statusEl.style.color='#fbbf24'}if(vocalNotesTimers[cacheKey])clearTimeout(vocalNotesTimers[cacheKey]);vocalNotesTimers[cacheKey]=setTimeout(async function(){await saveSectionNote(sourceSongId,dia,sectionName,input.value);if(statusEl){statusEl.textContent='\u2713';statusEl.style.color='#4ade80';setTimeout(function(){statusEl.textContent=''},1500)}},800)}
-function toggleVocalNotesLib(sourceSongId,dia,btnEl){var panelId='vn-lib-panel-'+sourceSongId;var existing=document.getElementById(panelId);if(existing){existing.remove();btnEl.classList.remove('active');return}document.querySelectorAll('.lib-notes-btn').forEach(function(b){b.classList.remove('active')});btnEl.classList.add('active');loadSectionNotes(sourceSongId,dia).then(function(notes){var panel=document.createElement('div');panel.id=panelId;panel.className='lib-notes-panel';var keys=Object.keys(notes);if(!keys.length){panel.innerHTML='<p style="font-size:.75rem;color:#71717a;text-align:center">No hay notas vocales</p>'}else{var html='';keys.forEach(function(k){html+='<div class="lib-notes-section"><div class="lib-notes-section-label" style="color:#fbbf24">'+esc(k)+'</div><div class="lib-notes-section-text">'+esc(notes[k])+'</div></div>'});panel.innerHTML=html}btnEl.parentNode.parentNode.insertBefore(panel,btnEl.parentNode.nextSibling)})}
+function toggleVocalNotesLib(sourceSongId,dia,btnEl){if(libVocalMode===dia){libVocalMode=null}else{libVocalMode=dia}document.querySelectorAll('.lib-notes-btn').forEach(function(b){b.classList.remove('active')});if(libVocalMode){btnEl.classList.add('active')}renderView()}
 // ============= GLOBAL AUDIO MANAGEMENT =============
 function stopAllAudio(){
   // Stop view page audio
@@ -1064,7 +1065,7 @@ function renderLibrary(){
   c.innerHTML=filtered.map(s=>{
     const pv=s.lyrics.split('\n').slice(0,3).join(' / ');
     const il=lists.filter(l=>l.songIds.includes(s.id)).length;
-    return '<div class="card" onclick="viewSong(\''+s.id+'\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> '+esc(s.title)+(s.tags.includes('Repertorio')&&!canEditRepSongs()?' 🔒':'')+'</div><div class="card-artist">'+esc(s.artist)+'</div><div class="card-preview">'+esc(pv)+'</div><div class="card-meta"><span class="tag tag-key">'+dn(s.originalKey)+'</span>'+(s.tempo?'<span class="tag tag-zinc">'+s.tempo+' BPM</span>':'')+(s.compas?'<span class="tag tag-zinc">'+s.compas+'</span>':'')+s.tags.slice(0,2).map(t=>'<span class="tag tag-zinc">'+esc(t)+'</span>').join('')+(il>0?'<span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> '+il+'</span>':'')+(s.audio_url?'<span class="tag" style="background:rgba(34,197,94,.2);color:#4ade80">🎵 Audio</span>':'')+'</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">'+(canUploadAudio()?'<button class="btn-icon" onclick="event.stopPropagation();triggerAudioUpload(\''+s.id+'\')" data-audio-upload="'+s.id+'" title="'+(s.audio_url?'Cambiar audio':'Subir audio')+'" style="color:'+(s.audio_url?'#4ade80':'#71717a')+'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>':'')+(canEditRepSongs()||!s.tags.includes('Repertorio')?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteSong(\''+s.id+'\')" title="Eliminar" style="opacity:0;transition:opacity .2s;align-self:flex-start" onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div></div></div>';
+    return '<div class="card" onclick="viewSong(\''+s.id+'\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> '+esc(s.title)+(s.tags.includes('Repertorio')&&!canEditRepSongs()?' 🔒':'')+'</div><div class="card-artist">'+esc(s.artist)+'</div><div class="card-preview">'+esc(pv)+'</div><div class="card-meta"><span class="tag tag-key">'+dn(s.originalKey)+'</span>'+(s.tempo?'<span class="tag tag-zinc">'+s.tempo+' BPM</span>':'')+(s.compas?'<span class="tag tag-zinc">'+s.compas+'</span>':'')+s.tags.slice(0,2).map(t=>'<span class="tag tag-zinc">'+esc(t)+'</span>').join('')+(il>0?'<span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> '+il+'</span>':'')+(s.audio_url?'<span class="tag" style="background:rgba(34,197,94,.2);color:#4ade80">🎵 Audio</span>':'')+'</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">'+(canUploadAudio()?'<button class="btn-icon" onclick="event.stopPropagation();triggerAudioUpload(\''+s.id+'\')" data-audio-upload="'+s.id+'" title="'+(s.audio_url?'Cambiar audio':'Subir audio')+'" style="color:'+(s.audio_url?'#4ade80':'#71717a')+'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>':'')+'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteSong(\''+s.id+'\')" title="Eliminar de biblioteca" style="flex-shrink:0;align-self:flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>'+'</div></div></div>';
   }).join('');
 }
 
@@ -1208,7 +1209,7 @@ function syncUserCopies(libSong){
 }
 
 function viewSong(id){viewingSongId=id;viewReturnTo=null;showPage('view')}
-function renderView(){
+async function renderView(){
   const s=songs.find(x=>x.id===viewingSongId);if(!s)return;
   // Show nav bar if coming from a list
   const nav=document.getElementById('view-nav');
@@ -1229,7 +1230,7 @@ function renderView(){
   if(s.tempo)metaParts.push(s.tempo+' BPM');
   if(s.compas)metaParts.push(s.compas);
   document.getElementById('view-song-info').innerHTML='<h1 style="font-size:1.1rem;font-weight:700;color:#fff">'+esc(s.title)+'</h1><p style="font-size:.8rem;color:#a1a1aa">'+esc(s.artist)+'</p>'+(metaParts.length>0?'<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">'+metaParts.map(m=>'<span class="tag tag-zinc">'+m+'</span>').join('')+'</div>':'');
-  var _vnSrc=s.sourceId||s.id;document.getElementById('view-key-selector').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+'<button class="key-btn" onclick="changeKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="lib-notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(s.currentKey)+'</div>'+(s.currentKey!==s.originalKey?'<button class="key-original" onclick="resetKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.originalKey)+'</button>':'')+'</div><button class="key-btn" onclick="changeKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>'+'<div class="lib-notes-row">'+(_vnSrc&&supabaseReady?'<button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'domingo\',this)">\u{1f4dd} Doms</button><button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'lunes\',this)">\u{1f4dd} Lunes</button>':'')+'</div></div>';
+  var _vnSrc=s.sourceId||s.id;document.getElementById('view-key-selector').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+'<button class="key-btn" onclick="changeKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="lib-notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(s.currentKey)+'</div>'+(s.currentKey!==s.originalKey?'<button class="key-original" onclick="resetKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.originalKey)+'</button>':'')+'</div><button class="key-btn" onclick="changeKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>'+'<div class="lib-notes-row">'+(_vnSrc&&supabaseReady?'<button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'domingo\',this)">\u{1f4dd} Domingo</button><button class="lib-notes-btn" onclick="toggleVocalNotesLib(\''+_vnSrc+'\',\'lunes\',this)">\u{1f4dd} Lunes</button>':'')+'</div></div>';
   const il=lists.filter(l=>l.songIds.includes(s.id));
   document.getElementById('view-song-location').innerHTML=il.length>0?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> En listas: '+il.map(l=>l.name).join(', '):'';
   // Audio section in view page
@@ -1240,43 +1241,40 @@ function renderView(){
     audioSection.innerHTML=''+(canUploadAudio()?'<div class="upload-zone" onclick="triggerAudioUpload(\''+s.id+'\')" id="view-upload-zone"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir audio de esta canción</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — el audio quedará vinculado a la canción</p></div>':'')+'';
   }
   const semi=getS(s.originalKey,s.currentKey);
-  document.getElementById('view-lyrics').innerHTML=s.lyrics.split('\n').map(line=>{const t=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t)){let h='<div class="lyrics-line">'+t.replace(/\[([^\]]+)\]/g,(m,p1)=>'<span class="chord">'+displayChord(p1)+'</span>');h=h.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');h=h.replace(/\s*\{\d+\}/g,'');return h+'</div>'}if(/\([^)]+\)/.test(line)){var _dl=line.replace(/\s*\{\d+\}/g,'');return'<div class="lyrics-line">'+_dl.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>')+'</div>'}return'<div class="lyrics-line">'+(line||'&nbsp;')+'</div>'}).join('');
+  var _vnSrc2=s.sourceId||s.id;var _vocalNotes={};if(libVocalMode&&_vnSrc2){_vocalNotes=await loadSectionNotes(_vnSrc2,libVocalMode)}if(libVocalMode){var _libLines=[];s.lyrics.split('\n').forEach(function(line){var t=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t)){var stripped=t.replace(/\s*\[[^\]]+\]\s*/g,' ').trim();if(!stripped){return}var h2='<div class="lyrics-line">';if(/\(([^)]+)\)/.test(stripped)){var secMatch=t.match(/\(([^)]+)\)/);var secName=secMatch?secMatch[1]:'';var idMatch=t.match(/\)\s*\{(\d+)\}/);var secId=idMatch?idMatch[1]:'';var noteKey=secId?secName+'_'+secId:secName;var noteVal=(_vocalNotes[noteKey]||'').replace(/"/g,'&quot;');var displayLine=stripped.replace(/\s*\{\d+\}/g,'');h2+=displayLine.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');if(_vocalNotes[noteKey]){h2+='<span class="section-note-display">'+esc(_vocalNotes[noteKey])+'</span>'}}else{h2+=stripped}_libLines.push(h2+'</div>')}else if(/\(([^)]+)\)/.test(t)){var secMatch2=t.match(/\(([^)]+)\)/);var secName2=secMatch2?secMatch2[1]:'';var idMatch2=t.match(/\)\s*\{(\d+)\}/);var secId2=idMatch2?idMatch2[1]:'';var noteKey2=secId2?secName2+'_'+secId2:secName2;var noteVal2=(_vocalNotes[noteKey2]||'').replace(/"/g,'&quot;');var displayLine2=t.replace(/\s*\{\d+\}/g,'');var h3='<div class="lyrics-line">'+displayLine2.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');if(_vocalNotes[noteKey2]){h3+='<span class="section-note-display">'+esc(_vocalNotes[noteKey2])+'</span>'}_libLines.push(h3+'</div>')}else{_libLines.push('<div class="lyrics-line">'+(t||'&nbsp;')+'</div>')}});document.getElementById('view-lyrics').innerHTML=_libLines.join('')}else{document.getElementById('view-lyrics').innerHTML=s.lyrics.split('\n').map(line=>{const t=semi!==0?transposeLine(line,semi):line;if(/\[[^\]]+\]/.test(t)){let h='<div class="lyrics-line">'+t.replace(/\[([^\]]+)\]/g,(m,p1)=>'<span class="chord">'+displayChord(p1)+'</span>');h=h.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>');h=h.replace(/\s*\{\d+\}/g,'');return h+'</div>'}if(/\([^)]+\)/.test(line)){var _dl=line.replace(/\s*\{\d+\}/g,'');return'<div class="lyrics-line">'+_dl.replace(/\(([^)]+)\)/g,'<span class="lyrics-section">$1</span>')+'</div>'}return'<div class="lyrics-line">'+(line||'&nbsp;')+'</div>'}).join('')}
   document.getElementById('view-tags').innerHTML=s.tags.map(t=>'<span class="tag tag-zinc">'+esc(t)+'</span>').join('')+getSongNoteHtml(s);
-  // Hide edit/delete buttons for non-admin users on repertorio songs
+  // Hide edit button for non-admin users on repertorio songs (delete is always visible - users can remove from their library)
   const isRepSong=s.tags&&s.tags.includes('Repertorio');
   const editBtn=document.querySelector('#page-view .btn-icon[title="Editar"]');
-  const delBtn=document.querySelector('#page-view .btn-icon[title="Eliminar"]');
   if(editBtn)editBtn.style.display=(!canEditRepSongs()&&isRepSong)?'none':'';
-  if(delBtn)delBtn.style.display=(!canEditRepSongs()&&isRepSong)?'none':'';
 }
 function changeKey(delta){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;const currentIdx=NOTE_MAP[s.currentKey]??0;const newIdx=(currentIdx+delta+12)%12;s.currentKey=useFlats?FLATS[newIdx]:SHARPS[newIdx];save('cb_songs',songs);renderView()}
 function resetKey(){const s=songs.find(x=>x.id===viewingSongId);if(!s)return;s.currentKey=s.originalKey;save('cb_songs',songs);renderView()}
 async function confirmDeleteSong(id){
   const s=songs.find(x=>x.id===id);
-  if(s&&!canEditRepSongs()&&s.tags&&s.tags.includes('Repertorio')){alert('Solo admin o directores musicales pueden eliminar canciones de repertorio');return}
-  if(!confirm('¿Eliminar esta canción?')){return}
+  if(!confirm('¿Eliminar esta canción de tu biblioteca?')){return}
   
   const songId=s?s.id:id;
   
-  // CLEANUP: Delete audio from R2 for this song ID
-  // Try all possible extensions
-  const extensions=['mp3','wav','ogg','m4a','aac','flac','webm'];
-  for(const ext of extensions){
-    try{
-      await fetch(R2_WORKER_URL+'/file/songs/'+songId+'.'+ext,{method:'DELETE'});
-    }catch(e){}
-  }
-  // Also delete from current audio_url if different path
-  if(s&&s.audio_url){
-    try{
-      await fetch(R2_WORKER_URL+'/file/'+extractR2Key(s.audio_url),{method:'DELETE'});
-    }catch(e){}
+  // CLEANUP: Delete audio from R2 ONLY if this is NOT a repertorio song
+  // Repertorio songs have their own audio managed separately
+  if(!s||!s.tags||!s.tags.includes('Repertorio')){
+    const extensions=['mp3','wav','ogg','m4a','aac','flac','webm'];
+    for(const ext of extensions){
+      try{
+        await fetch(R2_WORKER_URL+'/file/songs/'+songId+'.'+ext,{method:'DELETE'});
+      }catch(e){}
+    }
+    if(s&&s.audio_url){
+      try{
+        await fetch(R2_WORKER_URL+'/file/'+extractR2Key(s.audio_url),{method:'DELETE'});
+      }catch(e){}
+    }
   }
   
-  // Delete from Supabase canciones_repertorio
-  try{
-    await supabaseClient.from('canciones_repertorio').delete().eq('source_song_id',songId);
-  }catch(e){console.log('Delete from canciones_repertorio skipped:',e.message)}
+  // CRITICAL FIX: Do NOT delete from canciones_repertorio here
+  // Deleting from library should NEVER affect repertorios
+  // Only remove from local songs array and lists
   
   songs=songs.filter(s=>s.id!==id);
   lists.forEach(l=>l.songIds=l.songIds.filter(sid=>sid!==id));
@@ -1286,28 +1284,27 @@ async function confirmDeleteSong(id){
 }
 async function deleteCurrentSong(){
   const s=songs.find(x=>x.id===viewingSongId);
-  if(s&&!canEditRepSongs()&&s.tags&&s.tags.includes('Repertorio')){alert('Solo admin o directores musicales pueden eliminar canciones de repertorio');return}
-  if(!confirm('¿Eliminar esta canción?')){return}
+  if(!confirm('¿Eliminar esta canción de tu biblioteca?')){return}
   
   const songId=s?s.id:viewingSongId;
   
-  // CLEANUP: Delete audio from R2 for this song ID
-  const extensions=['mp3','wav','ogg','m4a','aac','flac','webm'];
-  for(const ext of extensions){
-    try{
-      await fetch(R2_WORKER_URL+'/file/songs/'+songId+'.'+ext,{method:'DELETE'});
-    }catch(e){}
-  }
-  if(s&&s.audio_url){
-    try{
-      await fetch(R2_WORKER_URL+'/file/'+extractR2Key(s.audio_url),{method:'DELETE'});
-    }catch(e){}
+  // CLEANUP: Delete audio from R2 ONLY if this is NOT a repertorio song
+  if(!s||!s.tags||!s.tags.includes('Repertorio')){
+    const extensions=['mp3','wav','ogg','m4a','aac','flac','webm'];
+    for(const ext of extensions){
+      try{
+        await fetch(R2_WORKER_URL+'/file/songs/'+songId+'.'+ext,{method:'DELETE'});
+      }catch(e){}
+    }
+    if(s&&s.audio_url){
+      try{
+        await fetch(R2_WORKER_URL+'/file/'+extractR2Key(s.audio_url),{method:'DELETE'});
+      }catch(e){}
+    }
   }
   
-  // Delete from Supabase canciones_repertorio
-  try{
-    await supabaseClient.from('canciones_repertorio').delete().eq('source_song_id',songId);
-  }catch(e){console.log('Delete from canciones_repertorio skipped:',e.message)}
+  // CRITICAL FIX: Do NOT delete from canciones_repertorio here
+  // Deleting from library should NEVER affect repertorios
   
   songs=songs.filter(s=>s.id!==viewingSongId);
   lists.forEach(l=>l.songIds=l.songIds.filter(sid=>sid!==viewingSongId));
@@ -1680,7 +1677,7 @@ function renderRepertorioView(){
     // Build numbered coros display
     const corosDisplay=corosForDay.length>0?corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span style="color:#a1a1aa;font-size:.7rem">'+esc(c)+'</span></span>'}).join(''):'';
 
-    return '<div class="rep-song-card" onclick="viewRepSong(\''+r.id+'\',\''+s.id+'\')"><div class="rep-song-order">'+s.orden+'</div><div class="rep-song-info"><div class="rep-song-title">'+esc(s.titulo)+'</div><div class="rep-song-artist">'+esc(s.artista)+'</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc((repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar')))+'</span>'+(corosForDay.length>0?'<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">'+corosDisplay+'</span>':'')+'</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>'+(s.dia!=='ambos'?'<span class="rep-day-badge '+(s.dia==='domingo'?'dom':'lun')+'">Solo '+(s.dia==='domingo'?'Domingo':'Lunes')+'</span>':'')+'</div>'+(canEditVocals()?'<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\''+r.id+'\',\''+s.id+'\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>':'')+(canManageReps()?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\''+r.id+'\',\''+s.id+'\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
+    return '<div class="rep-song-card" onclick="viewRepSong(\''+r.id+'\',\''+s.id+'\')"><div class="rep-song-order">'+s.orden+'</div><div class="rep-song-info"><div class="rep-song-title">'+esc(s.titulo)+'</div><div class="rep-song-artist">'+esc(s.artista)+'</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: '+esc((repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar')))+'</span>'+(corosForDay.length>0?'<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">'+corosDisplay+'</span>':'')+'</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>'+(s.dia!=='ambos'?'<span class="rep-day-badge '+(s.dia==='domingo'?'dom':'lun')+'">Solo '+(s.dia==='domingo'?'Domingo':'Lunes')+'</span>':'')+'</div>'+(canEditVocals()?'<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\''+r.id+'\',\''+s.id+'\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>':'')+(canManageReps()?'<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\''+r.id+'\',\''+s.id+'\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')+'</div>';
   }).join('')+(canManageReps()?'<div style="text-align:center;padding:16px 0"><button class="btn btn-amber" onclick="addSongToRepertorio(\''+r.id+'\',\''+repDay+'\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Agregar canción</button></div>':'');
 }
 
@@ -1720,7 +1717,7 @@ function renderRepSongView(){
   const dayName=repDay==='domingo'?'Domingo':'Lunes';
   const dayColor=repDay==='domingo'?'#60a5fa':'#c084fc';
   const dayEmoji=repDay==='domingo'?'🌞':'🌙';
-  document.getElementById('rep-song-info').innerHTML='<div style="text-align:center;margin-bottom:8px"><span style="font-size:.85rem;font-weight:700;color:'+dayColor+';display:inline-flex;align-items:center;gap:4px;padding:4px 14px;background:'+(repDay==='domingo'?'rgba(59,130,246,.15)':'rgba(168,85,247,.15)')+';border:1px solid '+(repDay==='domingo'?'rgba(59,130,246,.3)':'rgba(168,85,247,.3)')+';border-radius:8px">'+dayEmoji+' '+dayName+'</span></div><h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">'+corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span>'+esc(c)+'</span></span>'}).join('')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
+  document.getElementById('rep-song-info').innerHTML='<div style="text-align:center;margin-bottom:8px"><span style="font-size:.85rem;font-weight:700;color:'+dayColor+';display:inline-flex;align-items:center;gap:4px;padding:4px 14px;background:'+(repDay==='domingo'?'rgba(59,130,246,.15)':'rgba(168,85,247,.15)')+';border:1px solid '+(repDay==='domingo'?'rgba(59,130,246,.3)':'rgba(168,85,247,.3)')+';border-radius:8px">'+dayEmoji+' '+dayName+'</span></div><h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">'+esc(s.titulo)+'</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">'+esc(s.artista)+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: '+esc(repDay==='domingo'?(s.vocalista_domingo||'Por asignar'):(s.vocalista_lunes||s.vocalista_domingo||'Por asignar'))+'</span>'+(corosForDay.length>0?'<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">'+corosForDay.map(function(c,i){return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">'+(i+1)+'</span><span>'+esc(c)+'</span></span>'}).join('')+'</span>':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> '+dn(s.tono_original)+'</span>'+(s.compas?'<span class="rep-meta-item">'+s.compas+'</span>':'')+(s.tempo?'<span class="rep-meta-item">'+s.tempo+' BPM</span>':'')+'</div>';
   document.getElementById('rep-song-key').innerHTML='<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">'+(useFlats?'\u266D':'#')+'</button><div class="key-display"><div class="key-note">'+dn(repCurrentKey)+'</div>'+(repCurrentKey!==s.tono_original?'<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: '+dn(s.tono_original)+'</button>':'')+'</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
   // Build vocal audios section - 2 columns: Domingo and Lunes
   let vocalAudiosHtml='';
@@ -1738,7 +1735,7 @@ function renderRepSongView(){
       if(repDay==='domingo'){
       vocalAudiosHtml+='<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px">';
       vocalAudiosHtml+='<div style="display:flex;align-items:center;gap:4px;margin-bottom:8px"><span style="font-size:.75rem;font-weight:600;color:#fbbf24">🌞 Domingo</span>';
-      if(s.vocalista_domingo)vocalAudiosHtml+='<span style="font-size:.6rem;color:#71717a">· '+esc(s.vocalista_domingo)+'</span>';
+      if(s.vocalista_domingo)vocalAudiosHtml+='<span style="font-size:.6rem;color:#71717a">· Principal: '+esc(s.vocalista_domingo)+'</span>';
       vocalAudiosHtml+='</div>';
       vocalAudiosHtml+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
       for(let coro=1;coro<=4;coro++){
@@ -1758,7 +1755,7 @@ function renderRepSongView(){
       if(repDay==='lunes'){
       vocalAudiosHtml+='<div style="background:rgba(27,27,30,.4);border:1px solid rgba(192,132,252,.2);border-radius:10px;padding:10px">';
       vocalAudiosHtml+='<div style="display:flex;align-items:center;gap:4px;margin-bottom:8px"><span style="font-size:.75rem;font-weight:600;color:#c084fc">🌙 Lunes</span>';
-      if(s.vocalista_lunes)vocalAudiosHtml+='<span style="font-size:.6rem;color:#71717a">· '+esc(s.vocalista_lunes)+'</span>';
+      if(s.vocalista_lunes)vocalAudiosHtml+='<span style="font-size:.6rem;color:#71717a">· Principal: '+esc(s.vocalista_lunes)+'</span>';
       vocalAudiosHtml+='</div>';
       vocalAudiosHtml+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
       for(let coro=1;coro<=4;coro++){

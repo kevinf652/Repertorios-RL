@@ -151,6 +151,19 @@ input,textarea,button{font-family:inherit}
 .install-float:hover{box-shadow:0 6px 20px rgba(245,158,11,.5)}
 .install-float.hidden-inst{display:none}
 
+/* ============= MOBILE RESPONSIVE ============= */
+@media(max-width:640px){
+  .hide-mobile{display:none!important}
+  .header-inner{gap:4px}
+  .header-inner>div:last-child{gap:4px}
+  .btn{padding:5px 8px;font-size:.75rem}
+  .btn svg{flex-shrink:0}
+  .user-btn{padding:4px 8px;font-size:.7rem}
+  .user-btn span{display:none}
+  .user-avatar{width:28px;height:28px;font-size:.75rem}
+  .header-title{font-size:1rem}
+}
+
 /* ============= VOCAL NOTES INLINE STYLES ============= */
 .section-note-wrap{display:inline;position:relative}
 .section-note-input{display:inline-block;min-width:120px;max-width:280px;padding:1px 6px;margin-left:4px;border:none;border-bottom:1px dashed rgba(245,158,11,.4);background:rgba(245,158,11,.05);color:#fbbf24;font-size:.7rem;font-family:inherit;font-style:italic;outline:none;transition:all .2s;border-radius:3px 3px 0 0;vertical-align:baseline;line-height:1.4}
@@ -161,7 +174,7 @@ input,textarea,button{font-family:inherit}
 .lib-notes-row{display:flex;align-items:center;gap:6px;justify-content:flex-end;flex:1}
 .lib-notes-btn{padding:4px 10px;border-radius:8px;font-size:.7rem;font-weight:500;border:1px solid rgba(63,63,70,.5);background:rgba(39,39,46,.8);color:#a1a1aa;cursor:pointer;transition:all .2s;white-space:nowrap}
 .lib-notes-btn:hover{border-color:rgba(245,158,11,.3);color:#fbbf24}
-.lib-notes-btn.active{background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.4);color:#fbbf24}
+.lib-notes-btn.active{background:rgba(245,158,11,.55);border-color:rgba(245,158,11,.14);color:#fbbf24}
 .lib-notes-panel{margin-top:8px;padding:10px;background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:10px}
 .lib-notes-section{margin-bottom:6px}.lib-notes-section:last-child{margin-bottom:0}
 .lib-notes-section-label{font-size:.7rem;font-weight:600;margin-bottom:3px}
