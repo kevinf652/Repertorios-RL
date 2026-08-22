@@ -13,20 +13,6 @@ Aplicación web para gestionar repertorios de worship/génesis. Permite organiza
 - **Modo Admin** — Gestión completa de repertorios (contraseña: `worship2026`)
 - **PWA** — Instalable como app en móvil y escritorio
 
-## Uso
-
-1. Abre `index.html` en tu navegador
-2. Para acceder a funciones de admin, toca "Admin" en la pestaña Repertorios
-3. La contraseña por defecto es `worship2026`
-
-## Despliegue en GitHub Pages
-
-1. Crea un repositorio en GitHub
-2. Sube el archivo `index.html`
-3. Ve a **Settings > Pages**
-4. Selecciona la rama `main` y la carpeta `/ (root)`
-5. Tu app estará disponible en `https://tu-usuario.github.io/tu-repo/`
-
 ## Tecnologías
 
 - HTML5, CSS3, JavaScript vanilla
