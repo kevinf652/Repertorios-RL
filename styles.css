@@ -121,29 +121,83 @@ input,textarea,button{font-family:inherit}
 .toggle-btn .active{background:#f59e0b;color:#000}
 .toggle-btn .inactive{background:#27272a;color:#a1a1aa}
 .toggle-btn .inactive:hover{background:#3f3f46;color:#fff}
-.audio-player{background:rgba(39,39,42,.5);border:1px solid rgba(63,63,70,.5);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;align-items:center;gap:12px}
-.audio-play-btn{width:44px;height:44px;background:#f59e0b;border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
-.audio-play-btn:active{transform:scale(.9)}
-.audio-play-btn:not(:has(svg[fill="#000"]))
-.audio-progress .audio-bar-fill::after {opacity: 1;}
-.audio-progress{flex:1}
-.audio-bar{height:6px;background:#3f3f46;border-radius:3px;overflow:visible;cursor:pointer;position:relative;padding:8px 0}
-.audio-bar::before{content:'';position:absolute;top:-8px;left:0;right:0;bottom:-8px}
+/* Reemplaza toda la sección de audio */
+.audio-player {
+    background: rgba(39,39,42,.5);
+    border: 1px solid rgba(63,63,70,.5);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.audio-play-btn {
+    width: 44px;
+    height: 44px;
+    background: #f59e0b;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .2s;
+    flex-shrink: 0;
+}
+.audio-play-btn:active {
+    transform: scale(.9);
+}
+
+.audio-progress {
+    flex: 1;
+    min-width: 0;
+}
+
+.audio-bar {
+    height: 8px;
+    background: #3f3f46;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    padding: 6px 0;
+    touch-action: none;
+}
+
 .audio-bar-fill {
     height: 100%;
     background: linear-gradient(90deg, #f59e0b, #fbbf24);
-    transition: width 0.15s ease-out;
-    border-radius: 3px;
+    border-radius: 4px;
+    transition: width 0.1s ease;
     position: relative;
+    width: 0%;
     min-width: 0;
-    will-change: width;
 }
 
-/* El punto (bolita) al final de la barra */
-.audio-bar-fill::after {content: '';position: absolute;right: -5px;top: 50%;transform: translateY(-50%);width: 12px;height: 12px;background: #fbbf24;border-radius: 50%;box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);border: 2px solid #09090b;transition: opacity 0.2s;opacity: 1;}
-.audio-bar:hover .audio-bar-fill::after,
-.audio-player:hover .audio-bar-fill::after {opacity: 1;}
-.audio-time{display:flex;justify-content:space-between;margin-top:4px;font-size:.65rem;color:#71717a}
+.audio-bar-fill::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    background: #fbbf24;
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+    border: 2px solid #09090b;
+    opacity: 1;
+}
+
+.audio-time {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: .65rem;
+    color: #71717a;
+    font-family: monospace;
+}
 .rep-day-badge{display:inline-block;font-size:.65rem;padding:2px 8px;border-radius:4px;margin-top:4px}
 .rep-day-badge.dom{background:rgba(59,130,246,.2);color:#60a5fa}
 .rep-day-badge.lun{background:rgba(168,85,247,.2);color:#c084fc}
