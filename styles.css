@@ -53,7 +53,7 @@ input,textarea,button{font-family:inherit}
 .key-original:hover{color:#fbbf24}
 .lyrics-container{background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:12px}
 .lyrics-line{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;line-height:1.5;color:#e4e4e7;white-space:pre-wrap}
-.chord{color:#fbbf24;font-weight:700;background:rgba(251,191,36,.1);padding:0 1ch}
+.chord{color:#fbbf24;font-weight:700;background:rgba(251,191,36,.1);margin:0 1ch;padding:0 2px;border-radius:3px}
 .lyrics-section{color:#c084fc;font-weight:700;font-style:italic;font-size:.75rem;display:inline-block;margin-top:4px;padding: 0 1ch}
 .list-picker{background:rgba(39,39,42,.5);border:1px solid rgba(63,63,70,.5);border-radius:10px;padding:10px;margin-bottom:12px}
 .list-picker-title{font-size:.7rem;color:#71717a;margin-bottom:6px}
