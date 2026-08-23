@@ -1992,4 +1992,1512 @@ function shareSong() {
     const data = { type: 'chordbook-song', version: 2, id: s.id, audio_url: s.audio_url || null, songs: [{ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null, createdBy: s.createdBy || '', createdAt: s.createdAt || Date.now() }] };
     const text = JSON.stringify(data);
     if (navigator.share) {
-        navigator.share({ title: s.title + ' - ChordBook', text: '🎵 ' + s.title + ' - ' + s.artist
+        navigator.share({ title: s.title + ' - ChordBook', text: '🎵 ' + s.title + ' - ' + s.artist }).then(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') }).catch(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') })
+    } else {
+        navigator.clipboard.writeText(text).then(() => { showNotif('import-notification', 'JSON copiado. Pégalo donde quieras para compartir.', 'success') }).catch(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') })
+    }
+}
+
+function dlJson(d, f) {
+    const b = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }),
+        u = URL.createObjectURL(b),
+        a = document.createElement('a');
+    a.href = u;
+    a.download = f;
+    a.click();
+    URL.revokeObjectURL(u)
+}
+
+// ============= LIST FUNCTIONS =============
+function renderLists() {
+    document.getElementById('list-count').textContent = lists.length + ' listas';
+    const c = document.getElementById('list-list');
+    if (lists.length === 0) {
+        c.innerHTML = '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg></div><h2>Sin listas aún</h2><p>Crea listas para organizar tus canciones</p><button class="btn btn-amber" onclick="showNewListForm()">Crear primera lista</button></div>';
+        return
+    }
+    c.innerHTML = lists.map(l => {
+        const sc = l.songIds.length;
+        return '<div class="card" onclick="viewList(\'' + l.id + '\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><div style="flex:1"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> ' + esc(l.name) + '</div>' + (l.description ? '<p style="font-size:.7rem;color:#71717a;margin-left:20px">' + esc(l.description) + '</p>' : '') + '<div style="display:flex;gap:6px;margin-top:6px;margin-left:20px"><span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + sc + ' canciones</span></div></div><div style="display:flex;gap:2px"><button class="btn-icon" onclick="event.stopPropagation();shareList(\'' + l.id + '\')" title="Exportar / Compartir"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteList(\'' + l.id + '\')" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div></div></div>';
+    }).join('');
+}
+
+function showNewListForm() {
+    document.getElementById('new-list-form').classList.remove('hidden');
+    document.getElementById('input-list-name').focus()
+}
+
+function hideNewListForm() {
+    document.getElementById('new-list-form').classList.add('hidden');
+    document.getElementById('input-list-name').value = '';
+    document.getElementById('input-list-desc').value = ''
+}
+
+function createList() {
+    const n = document.getElementById('input-list-name').value.trim();
+    if (!n) return;
+    lists.unshift({ id: genId(), name: n, description: document.getElementById('input-list-desc').value.trim(), songIds: [], createdAt: Date.now(), updatedAt: Date.now() });
+    save('cb_lists', lists);
+    hideNewListForm();
+    renderLists()
+}
+
+function confirmDeleteList(id) {
+    if (confirm('¿Eliminar esta lista?')) { lists = lists.filter(l => l.id !== id);
+        save('cb_lists', lists);
+        renderLists() }
+}
+
+function exportList(id) {
+    const l = lists.find(x => x.id === id);
+    if (!l) return;
+    const ls = songs.filter(s => l.songIds.includes(s.id));
+    dlJson({ type: 'chordbook-list', version: 2, list: { name: l.name, description: l.description, songIds: l.songIds }, songs: ls.map(s => ({ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null, createdBy: s.createdBy || '', createdAt: s.createdAt || Date.now() })) }, 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
+}
+
+function exportCurrentList() { exportList(viewingListId) }
+
+function shareList(id) {
+    const l = lists.find(x => x.id === id);
+    if (!l) return;
+    const ls = songs.filter(s => l.songIds.includes(s.id));
+    const data = { type: 'chordbook-list', version: 2, list: { name: l.name, description: l.description, songIds: l.songIds }, songs: ls.map(s => ({ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null, createdBy: s.createdBy || '', createdAt: s.createdAt || Date.now() })) };
+    const text = JSON.stringify(data);
+    const fname = 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json';
+    if (navigator.share) {
+        navigator.share({ title: l.name + ' - ChordBook', text: '📋 Lista: ' + l.name + ' (' + ls.length + ' canciones)' }).then(() => { dlJson(data, fname) }).catch(() => { dlJson(data, fname) })
+    } else {
+        navigator.clipboard.writeText(text).then(() => { showNotif('import-list-notification', 'JSON de lista copiado. Pégalo donde quieras.', 'success') }).catch(() => { dlJson(data, fname) })
+    }
+}
+
+function shareCurrentList() { shareList(viewingListId) }
+
+function viewList(id) { viewingListId = id;
+    listNavIndex = 0;
+    showPage('listview') }
+
+function renderListView() {
+    const l = lists.find(x => x.id === viewingListId);
+    if (!l) return;
+
+    // Show pending import banner if the list has pending songs
+    if (l.pendingImport) {
+        const banner = document.getElementById('pending-import-banner');
+        if (!banner) {
+            const container = document.getElementById('listview-songs');
+            if (container) {
+                const b = document.createElement('div');
+                b.id = 'pending-import-banner';
+                b.style.cssText = 'margin-bottom:12px;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:.8rem;color:#fbbf24;display:flex;align-items:center;gap:10px';
+                b.innerHTML = '<span style="font-size:20px">📋</span><span>Esta lista tiene canciones que no están en tu biblioteca. <strong>Puedes añadirlas una por una</strong> usando los botones de abajo.</span>';
+                container.parentNode.insertBefore(b, container);
+            }
+        }
+    } else {
+        const banner = document.getElementById('pending-import-banner');
+        if (banner) banner.remove();
+    }
+
+    const listSongs = l.songIds.map(sid => songs.find(s => s.id === sid)).filter(Boolean);
+    const missingSongs = l.songIds.filter(sid => !songs.find(s => s.id === sid));
+
+    document.getElementById('listview-header').innerHTML = '<div style="display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;background:rgba(245,158,11,.2);border-radius:10px;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><div><h1 style="font-size:1.1rem;font-weight:700;color:#fff">' + esc(l.name) + '</h1>' + (l.description ? '<p style="font-size:.7rem;color:#71717a">' + esc(l.description) + '</p>' : '') + '<p style="font-size:.7rem;color:#71717a">' + listSongs.length + ' canciones</p></div></div>';
+
+    const mc = document.getElementById('listview-missing');
+    if (missingSongs.length > 0) {
+        resolveMissingListSongs(missingSongs);
+        mc.innerHTML = '<div class="missing-songs"><div class="missing-songs-title">⚠ ' + missingSongs.length + ' canciones no están en tu biblioteca</div>' + missingSongs.map(sid => {
+            const preview = cloudSongPreviewCache[sid];
+            if (preview === undefined) {
+                return '<div class="missing-song-item"><span>Buscando canción...</span></div>';
+            } else if (preview) {
+                return '<div class="missing-song-item"><span>' + esc(preview.title || 'Sin título') + ' — ' + esc(preview.artist || 'Desconocido') + (preview.createdBy ? ' <span style="color:#71717a">(Creado por ' + esc(preview.createdBy) + ')</span>' : '') + '</span><div style="display:flex;gap:6px"><button class="missing-song-add" style="background:transparent;border:1px solid #f59e0b;color:#f59e0b" onclick="showCloudSongPreviewModal(\'' + sid + '\')">Ver</button><button class="missing-song-add" onclick="addCloudSongToLibraryFromList(\'' + l.id + '\',\'' + sid + '\')">Añadir a mi biblioteca</button></div></div>';
+            } else {
+                return '<div class="missing-song-item"><span>Canción no encontrada (nadie la tiene guardada)</span></div>';
+            }
+        }).join('') + '</div>';
+    } else { mc.innerHTML = '' }
+
+    const container = document.getElementById('listview-songs');
+    if (listSongs.length === 0) {
+        container.innerHTML = '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><h2>Lista vacía</h2><p>Añade canciones desde la biblioteca</p><button class="btn btn-amber" onclick="showPage(\'library\')">Ir a biblioteca</button></div>';
+        return
+    }
+    container.innerHTML = listSongs.map(s => {
+        const pv = s.lyrics.split('\n').slice(0, 3).join(' / ');
+        return '<div class="card" onclick="viewSongFromList(\'' + s.id + '\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + esc(s.title) + '</div><div class="card-artist">' + esc(s.artist) + '</div><div class="card-preview">' + esc(pv) + '</div><div class="card-meta"><span class="tag tag-key">' + dn(s.originalKey) + '</span>' + s.tags.slice(0, 2).map(t => '<span class="tag tag-zinc">' + esc(t) + '</span>').join('') + '</div></div><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();removeFromList(\'' + s.id + '\')" title="Quitar" style="align-self:flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div></div>';
+    }).join('');
+}
+
+function listNav(dir) {
+    const l = lists.find(x => x.id === viewingListId);
+    if (!l) return;
+    const listSongs = l.songIds.map(sid => songs.find(s => s.id === sid)).filter(Boolean);
+    const newIdx = listNavIndex + dir;
+    if (newIdx >= 0 && newIdx < listSongs.length) { listNavIndex = newIdx;
+        viewingSongId = listSongs[newIdx].id;
+        viewReturnTo = 'listview';
+        showPage('view') }
+}
+
+function viewNav(dir) { listNav(dir) }
+
+function viewSongFromList(id) {
+    const l = lists.find(x => x.id === viewingListId);
+    if (l) { listNavIndex = l.songIds.indexOf(id); if (listNavIndex === -1) listNavIndex = 0 }
+    viewingSongId = id;
+    viewReturnTo = 'listview';
+    showPage('view')
+}
+
+function removeFromList(sid) {
+    const l = lists.find(x => x.id === viewingListId);
+    if (!l) return;
+    l.songIds = l.songIds.filter(id => id !== sid);
+    save('cb_lists', lists);
+    renderListView()
+}
+
+function toggleListPicker() {
+    document.getElementById('view-list-picker').classList.toggle('hidden');
+    renderListPicker()
+}
+
+function renderListPicker() {
+    const s = songs.find(x => x.id === viewingSongId);
+    if (!s) return;
+    const p = document.getElementById('view-list-picker');
+    if (lists.length === 0) { p.innerHTML = '<div class="list-picker-title">No hay listas creadas</div>'; return }
+    p.innerHTML = '<div class="list-picker-title">Añadir a lista:</div><div style="display:flex;flex-wrap:wrap;gap:6px">' + lists.map(l => {
+        const isIn = l.songIds.includes(s.id);
+        return '<button class="list-chip ' + (isIn ? 'in' : 'out') + '" onclick="toggleSongInList(\'' + l.id + '\')">' + (isIn ? '✓ ' : '') + esc(l.name) + '</button>'
+    }).join('') + '</div>'
+}
+
+function toggleSongInList(lid) {
+    const l = lists.find(x => x.id === lid),
+        s = songs.find(x => x.id === viewingSongId);
+    if (!l || !s) return;
+    if (l.songIds.includes(s.id)) { l.songIds = l.songIds.filter(id => id !== s.id) } else { l.songIds.push(s.id) }
+    save('cb_lists', lists);
+    renderListPicker();
+    renderView()
+}
+
+// ============= CLOUD SONG RESOLVE FUNCTIONS =============
+async function resolveMissingListSongs(ids) {
+    const toFetch = ids.filter(id => cloudSongPreviewCache[id] === undefined);
+    if (toFetch.length === 0) return;
+    if (!supabaseReady) { toFetch.forEach(id => cloudSongPreviewCache[id] = null);
+        renderListView(); return }
+    try {
+        const { data: matches, error } = await supabaseClient.from('user_songs').select('song_data').limit(10000);
+        const byId = {};
+        if (!error && matches) {
+            matches.forEach(m => {
+                try {
+                    const sd = typeof m.song_data === 'string' ? JSON.parse(m.song_data) : m.song_data;
+                    if (sd && sd.id && !byId[sd.id]) byId[sd.id] = sd;
+                } catch (e) {}
+            });
+        }
+        toFetch.forEach(id => { cloudSongPreviewCache[id] = byId[id] || null });
+    } catch (e) { console.error('resolveMissingListSongs error:', e);
+        toFetch.forEach(id => cloudSongPreviewCache[id] = null) }
+    renderListView();
+}
+
+function addCloudSongToLibraryFromList(listId, songId) {
+    const preview = cloudSongPreviewCache[songId];
+    if (!preview) { alert('No se pudo obtener esta canción.'); return }
+    const existing = songs.find(x => x.id === songId);
+    if (!existing) {
+        songs.push({
+            id: songId,
+            sourceId: preview.sourceId || songId,
+            sourceType: 'lista',
+            title: preview.title || 'Sin título',
+            artist: preview.artist || 'Desconocido',
+            lyrics: preview.lyrics || '',
+            originalKey: preview.originalKey || 'C',
+            currentKey: preview.originalKey || 'C',
+            tags: preview.tags || [],
+            tempo: preview.tempo || 0,
+            compas: preview.compas || '',
+            audio_url: preview.audio_url || null,
+            createdAt: preview.createdAt || Date.now(),
+            updatedAt: Date.now(),
+            createdBy: preview.createdBy || ''
+        });
+        save('cb_songs', songs);
+        if (currentUser && supabaseReady) { syncSongsToCloud() }
+    }
+    renderListView();
+}
+
+// ============= IMPORT FUNCTIONS =============
+document.getElementById('import-input').addEventListener('change', async function(e) {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    let total = 0;
+    for (const file of Array.from(files)) {
+        const ext = file.name.split('.').pop().toLowerCase(),
+            content = await file.text();
+        if (ext === 'json') {
+            try {
+                const d = JSON.parse(content);
+                if (d.type === 'chordbook-song' && Array.isArray(d.songs)) {
+                    d.songs.forEach(s => {
+                        const songId = s.id || d.id || genId();
+                        const existing = songs.find(x => x.id === songId);
+                        if (!existing) {
+                            const dk = s.originalKey || (s.lyrics ? detectKey(s.lyrics) : 'C');
+                            songs.unshift({ id: songId, sourceId: s.id || d.id || null, sourceType: s.id ? 'imported' : undefined, title: s.title || 'Sin título', artist: s.artist || 'Desconocido', lyrics: s.lyrics || '', originalKey: dk, currentKey: dk, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags || [], audio_url: s.audio_url || d.audio_url || null, createdAt: s.createdAt || Date.now(), updatedAt: Date.now(), createdBy: s.createdBy || '' });
+                            total++;
+                        }
+                    })
+                }
+                if (d.type === 'chordbook-list') { importListData(d) }
+            } catch (e) {}
+        } else if (ext === 'txt') {
+            const parsed = parseSongFilename(file.name);
+            const dk = parsed.key ? (NOTE_MAP[parsed.key] !== undefined ? dn(parsed.key) : parsed.key) : (detectKey(content));
+            songs.unshift({ id: genId(), title: parsed.title, artist: parsed.artist, lyrics: content.trim(), originalKey: dk, currentKey: dk, tempo: parsed.bpm || 0, compas: '', tags: [], createdAt: Date.now(), updatedAt: Date.now() });
+            total++;
+        }
+    }
+    save('cb_songs', songs);
+    e.target.value = '';
+    showNotif('import-notification', total + ' canciones importadas', 'success');
+    renderLibrary();
+    if (currentUser && supabaseReady) { syncSongsToCloud() }
+});
+
+// ============= IMPORT LIST (MEJORADO) =============
+document.getElementById('import-list-input').addEventListener('change', async function(e) {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+
+    let imported = 0;
+    let hasPending = false;
+
+    for (const file of Array.from(files)) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext === 'json') {
+            try {
+                const content = await file.text();
+                const d = JSON.parse(content);
+
+                if (d.type === 'chordbook-list') {
+                    const listName = d.list?.name || file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ').trim() || 'Lista importada';
+                    const listDescription = d.list?.description || '';
+                    const fileSongs = d.songs || [];
+
+                    // 1️⃣ Detectar canciones nuevas
+                    const newSongs = fileSongs.filter(s => {
+                        const songId = s.id || genId();
+                        return !songs.find(x => x.id === songId);
+                    });
+
+                    // 2️⃣ Si hay canciones nuevas, mostrar modal
+                    if (newSongs.length > 0) {
+                        showImportConfirmModal(
+                            newSongs,
+                            { name: listName, description: listDescription, id: d.list?.id },
+                            fileSongs
+                        );
+                        imported++;
+                        hasPending = true;
+                    } else {
+                        // 3️⃣ Si no hay canciones nuevas, crear lista directamente
+                        const allSongIds = fileSongs.map(s => s.id || genId());
+                        const existingList = lists.find(l => l.name === listName);
+
+                        if (existingList) {
+                            const newIds = allSongIds.filter(id => !existingList.songIds.includes(id));
+                            existingList.songIds = [...existingList.songIds, ...newIds];
+                            existingList.updatedAt = Date.now();
+                            if (newIds.length > 0) {
+                                showNotification(`📋 Lista "${listName}" actualizada (+${newIds.length} canciones)`, 'success');
+                            } else {
+                                showNotification(`📋 Lista "${listName}" ya estaba actualizada`, 'success');
+                            }
+                        } else {
+                            lists.unshift({
+                                id: genId(),
+                                name: listName,
+                                description: listDescription,
+                                songIds: allSongIds,
+                                createdAt: Date.now(),
+                                updatedAt: Date.now()
+                            });
+                            showNotification(`📋 Lista "${listName}" creada (${allSongIds.length} canciones)`, 'success');
+                        }
+                        save('cb_lists', lists);
+                        imported++;
+                    }
+
+                } else if (d.type === 'chordbook-song' && Array.isArray(d.songs)) {
+                    const listName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ').trim() || 'Lista importada';
+                    const fileSongs = d.songs || [];
+                    const newSongs = fileSongs.filter(s => {
+                        const songId = s.id || genId();
+                        return !songs.find(x => x.id === songId);
+                    });
+
+                    if (newSongs.length > 0) {
+                        showImportConfirmModal(
+                            newSongs,
+                            { name: listName, description: 'Importada desde canción' },
+                            fileSongs
+                        );
+                        imported++;
+                        hasPending = true;
+                    } else {
+                        const allSongIds = fileSongs.map(s => s.id || genId());
+                        const existingList = lists.find(l => l.name === listName);
+
+                        if (existingList) {
+                            const newIds = allSongIds.filter(id => !existingList.songIds.includes(id));
+                            existingList.songIds = [...existingList.songIds, ...newIds];
+                            existingList.updatedAt = Date.now();
+                        } else {
+                            lists.unshift({
+                                id: genId(),
+                                name: listName,
+                                description: 'Importada desde canción',
+                                songIds: allSongIds,
+                                createdAt: Date.now(),
+                                updatedAt: Date.now()
+                            });
+                        }
+                        save('cb_lists', lists);
+                        imported++;
+                    }
+                }
+            } catch (err) {
+                console.error('Error importando archivo:', err);
+                showNotification(`❌ Error al importar ${file.name}: ${err.message}`, 'error');
+            }
+        }
+    }
+
+    e.target.value = '';
+
+    if (imported === 0 && !document.getElementById('import-confirm-modal')) {
+        showNotification('No se encontraron archivos válidos para importar', 'error');
+    }
+
+    if (currentUser && supabaseReady && imported > 0 && !hasPending) {
+        syncSongsToCloud();
+    }
+});
+
+function importListData(d) {
+    if (Array.isArray(d.songs)) {
+        d.songs.forEach(s => {
+            const songId = s.id || genId();
+            const existing = songs.find(x => x.id === songId);
+            if (!existing) {
+                const dk = s.originalKey || (s.lyrics ? detectKey(s.lyrics) : 'C');
+                songs.push({ id: songId, sourceId: s.id || null, sourceType: s.id ? 'imported' : undefined, title: s.title || 'Sin título', artist: s.artist || 'Desconocido', lyrics: s.lyrics || '', originalKey: dk, currentKey: dk, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags || [], audio_url: s.audio_url || null, createdAt: s.createdAt || Date.now(), updatedAt: Date.now(), createdBy: s.createdBy || '' });
+            }
+        });
+    }
+    const existing = lists.find(l => l.name === d.list?.name);
+    if (existing) {
+        const newIds = [...new Set([...existing.songIds, ...(d.list?.songIds || [])])];
+        existing.songIds = newIds;
+        existing.updatedAt = Date.now();
+    } else {
+        lists.unshift({ id: genId(), name: d.list?.name || 'Lista importada', description: d.list?.description || '', songIds: d.list?.songIds || [], createdAt: Date.now(), updatedAt: Date.now() });
+    }
+}
+
+// ============= REPERTORIO FUNCTIONS =============
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+function fmtDate(ds) { const d = new Date(ds + 'T12:00:00'); return DAY_NAMES[d.getDay()] + ' ' + d.getDate() + '/' + MONTH_NAMES[d.getMonth()] }
+function fmtShortDate(ds) { const d = new Date(ds + 'T12:00:00'); return d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0, 3) }
+
+function showRepLogin() {
+    document.getElementById('login-modal').classList.remove('hidden');
+    document.getElementById('login-password').focus()
+}
+
+function hideRepLogin() {
+    document.getElementById('login-modal').classList.add('hidden');
+    document.getElementById('login-password').value = '';
+    document.getElementById('login-error').classList.add('hidden')
+}
+
+function doRepLogin() {
+    if (document.getElementById('login-password').value === 'worship2026') { repAdmin = true;
+        hideRepLogin();
+        renderRepertorios() } else { document.getElementById('login-error').classList.remove('hidden');
+        setTimeout(() => document.getElementById('login-error').classList.add('hidden'), 3000) }
+}
+
+async function createRepertorio() {
+    if (!repAdmin || !supabaseReady) return;
+    const titulo = prompt('Nombre del repertorio (ej: 24/25 Agosto):');
+    if (!titulo) return;
+    const fecha = prompt('Fecha del domingo (YYYY-MM-DD):', '2026-08-24');
+    if (!fecha) return;
+    const d = new Date(fecha + 'T12:00:00');
+    const dom = d.toISOString().split('T')[0];
+    const lun = new Date(d.getTime() + 86400000).toISOString().split('T')[0];
+    const id = 'r' + Date.now().toString(36);
+    try {
+        const { error } = await supabaseClient.from('repertorios').insert({ id, titulo, fecha_domingo: dom, fecha_lunes: lun, mes: d.getMonth() + 1, año: d.getFullYear(), estado: 'activo', created_at: Date.now() });
+        if (error) throw error;
+        await loadRepertorios();
+        renderRepertorios();
+        alert('Repertorio creado');
+    } catch (e) { alert('Error: ' + e.message) }
+}
+
+async function addSongToRepertorio(repId, defaultDia) {
+    if (!canManageReps() || !supabaseReady) return;
+    if (songs.length === 0) { alert('No hay canciones en tu biblioteca'); return }
+    addSongDefaultDia = defaultDia || 'ambos';
+    addSongDirectMode = (addSongDefaultDia === 'ambos');
+    const picker = document.getElementById('rep-song-picker');
+    if (!picker) return;
+    picker.classList.remove('hidden');
+    picker.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end;justify-content:center" onclick="if(event.target===this)this.classList.add(\'hidden\')"><div style="background:#27272a;border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:calc(100vh - 20px);overflow-y:auto;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))"><h3 style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:12px">Seleccionar canción</h3><input type="text" id="rep-picker-search" class="input" placeholder="Buscar canción..." style="margin-bottom:10px" oninput="filterRepPicker()"><div id="rep-song-picker-list"></div></div></div>';
+    const list = document.getElementById('rep-song-picker-list');
+    list.innerHTML = songs.map(s => '<div class="card" style="margin-bottom:8px;padding:10px" onclick="confirmAddSongToRep(\'' + repId + '\',\'' + s.id + '\')"><div style="font-weight:600;color:#fff;font-size:.85rem">' + esc(s.title) + '</div><div style="font-size:.75rem;color:#a1a1aa">' + esc(s.artist) + '</div>' + (s.audio_url ? '<span style="font-size:.65rem;color:#4ade80">🎵 Audio vinculado</span>' : '') + '</div>').join('');
+}
+
+function filterRepPicker() {
+    const q = (document.getElementById('rep-picker-search').value || '').toLowerCase();
+    const list = document.getElementById('rep-song-picker-list');
+    if (!list) return;
+    const filtered = q ? songs.filter(s => s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q)) : songs;
+    list.innerHTML = filtered.map(s => '<div class="card" style="margin-bottom:8px;padding:10px" onclick="confirmAddSongToRep(\'' + (viewingRepId || '') + '\',\'' + s.id + '\')"><div style="font-weight:600;color:#fff;font-size:.85rem">' + esc(s.title) + '</div><div style="font-size:.75rem;color:#a1a1aa">' + esc(s.artist) + '</div>' + (s.audio_url ? '<span style="font-size:.65rem;color:#4ade80">🎵 Audio vinculado</span>' : '') + '</div>').join('');
+    if (filtered.length === 0) list.innerHTML = '<div style="text-align:center;padding:20px;color:#71717a;font-size:.8rem">No se encontraron canciones</div>';
+}
+
+async function confirmAddSongToRep(repId, songId) {
+    const s = songs.find(x => x.id === songId);
+    const r = repertorios.find(x => x.id === repId);
+    if (!s || !r) return;
+    document.getElementById('rep-song-picker').innerHTML = '';
+
+    if (addSongDirectMode) {
+        const orden = r.canciones.length + 1;
+        const id = 'rs' + Date.now().toString(36);
+        const localSong = songs.find(x => x.id === songId);
+        const vocalDom = localSong ? (localSong.vocalista_domingo || '') : '';
+        const vocalLun = localSong ? (localSong.vocalista_lunes || '') : '';
+        const corosDom = localSong ? (localSong.coros_domingo || []) : [];
+        const corosLun = localSong ? (localSong.coros_lunes || []) : [];
+        try {
+            const { error } = await supabaseClient.from('canciones_repertorio').insert({
+                id,
+                repertorio_id: repId,
+                titulo: s.title,
+                artista: s.artist,
+                dia: 'ambos',
+                orden,
+                tono_original: s.originalKey,
+                tempo: s.tempo || 0,
+                compas: s.compas || '',
+                duracion: '0:00',
+                vocalista_domingo: vocalDom,
+                vocalista_lunes: vocalLun,
+                coros_domingo: corosDom,
+                coros_lunes: corosLun,
+                letra_acordes: s.lyrics,
+                audio_url: s.audio_url || null,
+                source_song_id: s.id,
+                created_by: s.createdBy || '',
+                created_at: Date.now()
+            });
+            if (error) throw error;
+            await loadRepertorios();
+            renderRepertorios();
+            showNotification('"' + s.title + '" agregada a ambos días', 'success');
+        } catch (e) { alert('Error al guardar: ' + e.message) }
+        return;
+    }
+
+    const ctxDay = addSongDefaultDia !== 'ambos' ? addSongDefaultDia : (repDay || 'domingo');
+    vocalEditorDay = addSongDefaultDia;
+    showVocalEditor(repId, songId, 'add', s, ctxDay);
+}
+
+async function deleteRepertorio(repId) {
+    if (!canManageReps() || !supabaseReady) return;
+    if (!confirm('¿Eliminar este repertorio y todas sus canciones?')) return;
+    try {
+        await supabaseClient.from('canciones_repertorio').delete().eq('repertorio_id', repId);
+        await supabaseClient.from('repertorios').delete().eq('id', repId);
+        await loadRepertorios();
+        renderRepertorios();
+    } catch (e) { alert('Error: ' + e.message) }
+}
+
+function switchRepTab(tab) {
+    repTab = tab;
+    document.getElementById('rep-tab-active').className = 'rep-tab ' + (tab === 'active' ? 'active' : '');
+    document.getElementById('rep-tab-history').className = 'rep-tab ' + (tab === 'history' ? 'active' : '');
+    renderRepertorios()
+}
+
+function renderRepertorios() {
+    const active = repertorios.filter(r => r.estado === 'activo').sort((a, b) => a.fecha_domingo > b.fecha_domingo ? 1 : a.fecha_domingo < b.fecha_domingo ? -1 : 0);
+    const archived = repertorios.filter(r => r.estado === 'archivado');
+    document.getElementById('rep-count').textContent = active.length + ' activos';
+    document.getElementById('rep-admin-btn').innerHTML = repAdmin ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Gestionar' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Admin';
+    document.getElementById('rep-admin-btn').style.display = repAdmin ? 'none' : '';
+    const c = document.getElementById('rep-list');
+    if (repTab === 'active') {
+        const fc = document.getElementById('rep-filters');
+        if (repAdmin) { fc.style.display = 'block';
+            fc.innerHTML = '<button class="btn btn-amber" style="width:100%;margin-bottom:8px" onclick="createRepertorio()">+ Crear repertorio</button>' } else { fc.style.display = 'none' }
+        if (active.length === 0) {
+            c.innerHTML = '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div><h2>No hay repertorios activos</h2><p>' + (repAdmin ? 'Crea uno desde el botón de gestionar' : 'Espera a que el admin cree uno') + '</p></div>';
+            return
+        }
+        c.innerHTML = active.map(r => {
+            const sc = r.canciones.length;
+            const vocs = [...new Set(r.canciones.map(c => (c.vocalista_domingo || '')).filter(Boolean))];
+            return '<div class="rep-card" onclick="viewRepertorio(\'' + r.id + '\')"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ' + fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes) + '</div><div class="rep-card-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + sc + ' canciones</span>' + (vocs.length > 0 ? '<span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ' + vocs.join(', ') + '</span>' : '') + '</div>' + (sc === 0 ? '<p style="font-size:.7rem;color:#71717a;margin-top:6px;font-style:italic">Aún sin canciones asignadas</p>' : '') + '</div>' + (canManageReps() ? '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn-icon" onclick="event.stopPropagation();addSongToRepertorio(\'' + r.id + '\')" title="Agregar canción" style="color:#f59e0b"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepertorio(\'' + r.id + '\')" title="Eliminar" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div>' : '') + '</div></div>';
+        }).join('');
+    } else {
+        const uniqueYears = [...new Set(archived.map(r => r.año))].sort((a, b) => b - a);
+        let filtered = archived;
+        if (repHistoryMonth) filtered = filtered.filter(r => r.mes == repHistoryMonth);
+        if (repHistoryYear) filtered = filtered.filter(r => r.año == repHistoryYear);
+        filtered.sort((a, b) => b.fecha_domingo > a.fecha_domingo ? 1 : b.fecha_domingo < a.fecha_domingo ? -1 : 0);
+        const fc = document.getElementById('rep-filters');
+        fc.style.display = 'flex';
+        fc.innerHTML = '<select class="input" style="flex:1;padding:6px 8px;font-size:.75rem" onchange="repHistoryMonth=this.value;renderRepertorios()"><option value="">Todos los meses</option>' + MONTH_NAMES.map((n, i) => '<option value="' + (i + 1) + '"' + (repHistoryMonth == i + 1 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select><select class="input" style="flex:1;padding:6px 8px;font-size:.75rem" onchange="repHistoryYear=this.value;renderRepertorios()"><option value="">Todos los años</option>' + uniqueYears.map(y => '<option value="' + y + '"' + (repHistoryYear == y ? ' selected' : '') + '>' + y + '</option>').join('') + '</select>' + (repHistoryMonth || repHistoryYear ? '<button class="btn btn-zinc btn-sm" onclick="repHistoryMonth=\'\';repHistoryYear=\'\';renderRepertorios()">Limpiar</button>' : '');
+        if (filtered.length === 0) {
+            c.innerHTML = '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><polyline points="21,8 21,21 3,21 3,8"/><rect x="1" y="3" width="22" height="5"/></svg></div><h2>No hay repertorios en el historial</h2></div>';
+            return
+        }
+        c.innerHTML = filtered.map(r => {
+            const sc = r.canciones.length;
+            return '<div class="rep-card" onclick="viewRepertorio(\'' + r.id + '\')" style="opacity:.8"><div class="rep-card-title" style="color:#a1a1aa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2"><polyline points="21,8 21,21 3,21 3,8"/><rect x="1" y="3" width="22" height="5"/></svg> ' + fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes) + '</div><span style="font-size:.7rem;color:#71717a">' + sc + ' canciones</span></div>';
+        }).join('');
+    }
+}
+
+function viewRepertorio(id) {
+    viewingRepId = id;
+    var savedDay = load('cb_rep_day_' + id, null);
+    repDay = savedDay || 'domingo';
+    document.getElementById('rep-day-dom').className = 'rep-tab ' + (repDay === 'domingo' ? 'active' : '');
+    document.getElementById('rep-day-lun').className = 'rep-tab ' + (repDay === 'lunes' ? 'active' : '');
+    showPage('repertorio')
+}
+
+function switchRepDay(day) {
+    repDay = day;
+    save('cb_rep_day_' + viewingRepId, day);
+    document.getElementById('rep-day-dom').className = 'rep-tab ' + (day === 'domingo' ? 'active' : '');
+    document.getElementById('rep-day-lun').className = 'rep-tab ' + (day === 'lunes' ? 'active' : '');
+    renderRepertorioView()
+}
+
+function saveDirige(repId, day, name) {
+    if (!supabaseReady) return;
+    var field = day === 'domingo' ? 'dirige_domingo' : 'dirige_lunes';
+    var updateObj = {};
+    updateObj[field] = name;
+    supabaseClient.from('repertorios').update(updateObj).eq('id', repId).then(function(result) {
+        if (result.error) { console.error('Save dirige error:', result.error); return }
+        var r = repertorios.find(x => x.id === repId);
+        if (r) r[field] = name;
+        showNotification('Dirige actualizado', 'success');
+    }).catch(function(e) { console.error('Save dirige error:', e) });
+}
+
+function renderRepertorioView() {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    if (!r) return;
+    document.getElementById('rep-view-header').innerHTML = '<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px">' + fmtDate(repDay === 'domingo' ? r.fecha_domingo : r.fecha_lunes) + '</h1><p style="font-size:.8rem;color:#71717a">' + fmtDate(repDay === 'domingo' ? r.fecha_lunes : r.fecha_domingo) + '</p>';
+    const songsForDay = r.canciones.filter(s => s.dia === 'ambos' || s.dia === repDay).sort((a, b) => a.orden - b.orden);
+    const c = document.getElementById('rep-view-songs');
+
+    var canEditDir = canEditVocals();
+    var dirigeName = repDay === 'domingo' ? (r.dirige_domingo || '') : (r.dirige_lunes || '');
+    var dirigeField = canEditDir ? '<input class="input" style="max-width:250px;padding:5px 8px;font-size:.85rem" value="' + esc(dirigeName) + '" placeholder="Nombre del dirige" onchange="saveDirige(\'' + r.id + '\',\'' + repDay + '\',this.value)"/>' : '<span style="font-size:.9rem;color:#fbbf24;font-weight:600">' + (dirigeName ? esc(dirigeName) : '<span style="color:#52525b;font-weight:400;font-style:italic">Sin asignar</span>') + '</span>';
+    var dirigeHtml = '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(39,39,42,.4);border:1px solid rgba(63,63,70,.4);border-radius:10px;margin-bottom:12px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-size:.8rem;color:#a1a1aa">Dirige:</span>' + dirigeField + '</div>';
+
+    if (songsForDay.length === 0) {
+        c.innerHTML = dirigeHtml + '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><h2>No hay canciones para este día</h2><p>' + (canManageReps() ? 'Agrega canciones con el botón de abajo' : 'El admin aún no ha asignado canciones') + '</p>' + (canManageReps() ? '<button class="btn btn-amber" style="margin-top:10px" onclick="addSongToRepertorio(\'' + r.id + '\',\'' + repDay + '\')">+ Agregar canción</button>' : '') + '</div>';
+        return
+    }
+
+    c.innerHTML = dirigeHtml + songsForDay.map(s => {
+        var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || s.coros_domingo || []));
+        if (typeof corosForDay === 'string') corosForDay = corosForDay ? corosForDay.split(',').map(function(x) { return x.trim() }).filter(Boolean) : [];
+        if (!Array.isArray(corosForDay)) corosForDay = [];
+        const corosDisplay = corosForDay.length > 0 ? corosForDay.map(function(c, i) {
+            return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">' + (i + 1) + '</span><span style="color:#a1a1aa;font-size:.7rem">' + esc(c) + '</span></span>'
+        }).join('') : '';
+
+        return '<div class="rep-song-card" data-song-id="' + s.id + '" onclick="viewRepSong(\'' + r.id + '\',\'' + s.id + '\')">' + (canManageReps() ? '<div class="rep-drag-handle" onclick="event.stopPropagation()" style="cursor:grab;color:#52525b;display:flex;align-items:center;justify-content:center;padding:0 6px;touch-action:none;align-self:stretch;flex-shrink:0"><svg width="14" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></div>' : '') + '<div class="rep-song-order">' + s.orden + '</div><div class="rep-song-info"><div class="rep-song-title">' + esc(s.titulo) + '</div><div class="rep-song-artist">' + esc(s.artista) + '</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: ' + esc((repDay === 'domingo' ? (s.vocalista_domingo || 'Por asignar') : (s.vocalista_lunes || s.vocalista_domingo || 'Por asignar'))) + '</span>' + (corosForDay.length > 0 ? '<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">' + corosDisplay + '</span>' : '') + '</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> ' + dn(s.tono_original) + '</span>' + (s.compas ? '<span class="rep-meta-item">' + s.compas + '</span>' : '') + (s.tempo ? '<span class="rep-meta-item">' + s.tempo + ' BPM</span>' : '') + '</div>' + (s.dia !== 'ambos' ? '<span class="rep-day-badge ' + (s.dia === 'domingo' ? 'dom' : 'lun') + '">Solo ' + (s.dia === 'domingo' ? 'Domingo' : 'Lunes') + '</span>' : '') + '</div>' + (canEditVocals() ? '<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\'' + r.id + '\',\'' + s.id + '\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' : '') + (canManageReps() ? '<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\'' + r.id + '\',\'' + s.id + '\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
+    }).join('') + (canManageReps() ? '<div style="text-align:center;padding:16px 0"><button class="btn btn-amber" onclick="addSongToRepertorio(\'' + r.id + '\',\'' + repDay + '\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Agregar canción</button></div>' : '');
+    initRepDragHandles();
+}
+
+// ============= DRAG & DROP para reordenar canciones del repertorio =============
+let _repDrag = null;
+
+function initRepDragHandles() {
+    if (!canManageReps()) return;
+    const container = document.getElementById('rep-view-songs');
+    if (!container) return;
+    container.querySelectorAll('.rep-song-card').forEach(card => {
+        const handle = card.querySelector('.rep-drag-handle');
+        if (!handle) return;
+        handle.onpointerdown = (e) => startRepDrag(e, card, container);
+    });
+}
+
+function startRepDrag(e, card, container) {
+    e.preventDefault();
+    const cards = [...container.querySelectorAll('.rep-song-card')];
+    _repDrag = { card, container, cards, startY: e.clientY };
+    card.style.position = 'relative';
+    card.style.zIndex = '10';
+    card.style.boxShadow = '0 8px 20px rgba(0,0,0,.4)';
+    card.style.transition = 'none';
+    document.addEventListener('pointermove', onRepDragMove);
+    document.addEventListener('pointerup', onRepDragEnd, { once: true });
+}
+
+function onRepDragMove(e) {
+    if (!_repDrag) return;
+    const { card, container } = _repDrag;
+    const dy = e.clientY - _repDrag.startY;
+    card.style.transform = 'translateY(' + dy + 'px)';
+    const cardMidY = card.getBoundingClientRect().top + card.offsetHeight / 2;
+    const cards = [...container.querySelectorAll('.rep-song-card')];
+    const idx = cards.indexOf(card);
+    for (let i = 0; i < cards.length; i++) {
+        const other = cards[i];
+        if (other === card) continue;
+        const rect = other.getBoundingClientRect();
+        if (cardMidY > rect.top && cardMidY < rect.bottom) {
+            if (i < idx) container.insertBefore(card, other);
+            else container.insertBefore(card, other.nextSibling);
+            _repDrag.startY = e.clientY;
+            card.style.transform = 'translateY(0px)';
+            break;
+        }
+    }
+}
+
+async function onRepDragEnd() {
+    if (!_repDrag) return;
+    const { card, container } = _repDrag;
+    document.removeEventListener('pointermove', onRepDragMove);
+    card.style.transform = '';
+    card.style.position = '';
+    card.style.zIndex = '';
+    card.style.boxShadow = '';
+    const finalCards = [...container.querySelectorAll('.rep-song-card')];
+    const idx = finalCards.indexOf(card);
+    const afterNeighborId = finalCards[idx + 1] ? finalCards[idx + 1].dataset.songId : null;
+    const draggedId = card.dataset.songId;
+    _repDrag = null;
+    await commitRepDragOrder(draggedId, afterNeighborId);
+}
+
+// Reordena por ID dentro de la lista GLOBAL del repertorio (mismo criterio que
+// ya usaba moveRepSong): se saca la canción arrastrada y se reinserta justo
+// antes de su nuevo "vecino de abajo" visible en el día actual, preservando el
+// orden relativo del resto (incluidas canciones "ambos" que aparecen en los dos días).
+async function commitRepDragOrder(draggedId, afterNeighborId) {
+    if (!canManageReps() || !supabaseReady) { renderRepertorioView(); return }
+    const r = repertorios.find(x => x.id === viewingRepId);
+    if (!r) return;
+    const globalSorted = r.canciones.slice().sort((a, b) => (a.orden || 0) - (b.orden || 0));
+    const idx = globalSorted.findIndex(x => x.id === draggedId);
+    if (idx < 0) return;
+    const [dragged] = globalSorted.splice(idx, 1);
+    let insertAt = globalSorted.length;
+    if (afterNeighborId) {
+        const ni = globalSorted.findIndex(x => x.id === afterNeighborId);
+        if (ni >= 0) insertAt = ni;
+    }
+    globalSorted.splice(insertAt, 0, dragged);
+    try {
+        for (let i = 0; i < globalSorted.length; i++) {
+            const newOrden = i + 1;
+            if (globalSorted[i].orden !== newOrden) {
+                globalSorted[i].orden = newOrden;
+                await supabaseClient.from('canciones_repertorio').update({ orden: newOrden }).eq('id', globalSorted[i].id);
+            }
+        }
+        await loadRepertorios();
+        renderRepertorioView();
+    } catch (e) { alert('Error al reordenar: ' + e.message); renderRepertorioView() }
+}
+
+function viewRepSong(rid, sid) {
+    stopAllAudio();
+    viewingRepId = rid;
+    viewingRepSongId = sid;
+    repShowChords = true;
+    const r = repertorios.find(x => x.id === rid);
+    if (r) {
+        const songsForDay = r.canciones.filter(s => s.dia === 'ambos' || s.dia === repDay).sort((a, b) => a.orden - b.orden);
+        const idx = songsForDay.findIndex(x => x.id === sid);
+        if (idx >= 0) repSongNavIndex = idx;
+    }
+    showPage('rep-song')
+}
+
+function goBackFromRepSong() { stopAllAudio();
+    showPage('repertorio') }
+
+function setRepSongView(showChords) {
+    repShowChords = showChords;
+    document.getElementById('toggle-lyrics').className = showChords ? 'inactive' : 'active';
+    document.getElementById('toggle-chords').className = showChords ? 'active' : 'inactive';
+    renderRepSongLyrics()
+}
+
+function renderRepSongView() {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    if (!r) return;
+    const s = r.canciones.find(x => x.id === viewingRepSongId);
+    if (!s) return;
+
+    const nav = document.getElementById('rep-song-nav');
+    const songsForDay = r.canciones.filter(x => x.dia === 'ambos' || x.dia === repDay).sort((a, b) => a.orden - b.orden);
+    if (songsForDay.length > 1) {
+        nav.classList.remove('hidden');
+        const curIdx = songsForDay.findIndex(x => x.id === viewingRepSongId);
+        if (curIdx >= 0) repSongNavIndex = curIdx;
+        document.getElementById('rep-song-nav-info').textContent = (repSongNavIndex + 1) + ' / ' + songsForDay.length;
+        document.getElementById('rep-song-prev-btn').disabled = repSongNavIndex <= 0;
+        document.getElementById('rep-song-next-btn').disabled = repSongNavIndex >= songsForDay.length - 1;
+    } else { nav.classList.add('hidden') }
+
+    repCurrentKey = s.tono_original;
+    var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || s.coros_domingo || []));
+    if (typeof corosForDay === 'string') corosForDay = corosForDay ? corosForDay.split(',').map(function(x) { return x.trim() }).filter(Boolean) : [];
+    if (!Array.isArray(corosForDay)) corosForDay = [];
+
+    const saveBtn = document.getElementById('save-rep-btn');
+    if (saveBtn) {
+        const already = songs.find(x => x.title === s.titulo && x.artist === s.artista);
+        if (already) {
+            saveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';
+            saveBtn.style.background = 'rgba(34,197,94,.2)';
+            saveBtn.style.color = '#4ade80';
+            saveBtn.style.borderColor = 'rgba(34,197,94,.3)';
+            saveBtn.disabled = true;
+        } else {
+            saveBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg> Guardar';
+            saveBtn.style.background = 'rgba(39,39,46,.8)';
+            saveBtn.style.color = '#a1a1aa';
+            saveBtn.style.borderColor = 'rgba(63,63,70,.5)';
+            saveBtn.disabled = false;
+        }
+    }
+
+    const ntBtn = document.getElementById('notation-toggle');
+    if (ntBtn) ntBtn.innerHTML = useFlats ? '♭' : '#';
+
+    const dayName = repDay === 'domingo' ? 'Domingo' : 'Lunes';
+    const dayColor = repDay === 'domingo' ? '#60a5fa' : '#c084fc';
+    const dayEmoji = repDay === 'domingo' ? '🌞' : '🌙';
+
+    document.getElementById('rep-song-info').innerHTML = '<div style="text-align:center;margin-bottom:8px"><span style="font-size:.85rem;font-weight:700;color:' + dayColor + ';display:inline-flex;align-items:center;gap:4px;padding:4px 14px;background:' + (repDay === 'domingo' ? 'rgba(59,130,246,.15)' : 'rgba(168,85,247,.15)') + ';border:1px solid ' + (repDay === 'domingo' ? 'rgba(59,130,246,.3)' : 'rgba(168,85,247,.3)') + ';border-radius:8px">' + dayEmoji + ' ' + dayName + '</span></div><h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">' + esc(s.titulo) + '</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">' + esc(s.artista) + '</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: ' + esc(repDay === 'domingo' ? (s.vocalista_domingo || 'Por asignar') : (s.vocalista_lunes || s.vocalista_domingo || 'Por asignar')) + '</span>' + (corosForDay.length > 0 ? '<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">' + corosForDay.map(function(c, i) { return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">' + (i + 1) + '</span><span>' + esc(c) + '</span></span>' }).join('') + '</span>' : '') + '</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> ' + dn(s.tono_original) + '</span>' + (s.compas ? '<span class="rep-meta-item">' + s.compas + '</span>' : '') + (s.tempo ? '<span class="rep-meta-item">' + s.tempo + ' BPM</span>' : '') + '</div>';
+
+    document.getElementById('rep-song-key').innerHTML = '<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">' + (useFlats ? '\u266D' : '#') + '</button><div class="key-display"><div class="key-note">' + dn(repCurrentKey) + '</div>' + (repCurrentKey !== s.tono_original ? '<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: ' + dn(s.tono_original) + '</button>' : '') + '</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
+
+    // Build vocal audios section
+    let vocalAudiosHtml = '';
+    if (r && r.vocalAudios) {
+        const sourceSongId = s.source_song_id || viewingRepSongId;
+        const songAudios = r.vocalAudios.filter(va => (va.source_song_id || va.cancion_repertorio_id) === sourceSongId);
+        const corosDom = Array.isArray(s.coros_domingo) ? s.coros_domingo : [];
+        const corosLun = Array.isArray(s.coros_lunes) ? s.coros_lunes : [];
+        const domAudios = songAudios.filter(va => va.dia === 'domingo');
+        const lunAudios = songAudios.filter(va => va.dia === 'lunes');
+        const hasAnyAudio = domAudios.some(a => a.audio_url) || lunAudios.some(a => a.audio_url);
+
+        if (hasAnyAudio || corosDom.length > 0 || corosLun.length > 0) {
+            vocalAudiosHtml = '<div style="display:flex;flex-direction:column;gap:10px">';
+
+            if (repDay === 'domingo') {
+                vocalAudiosHtml += '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px">';
+                vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:8px"><span style="font-size:.75rem;font-weight:600;color:#fbbf24">🌞 Domingo</span>';
+                if (s.vocalista_domingo) vocalAudiosHtml += '<span style="font-size:.6rem;color:#71717a">· Principal: ' + esc(s.vocalista_domingo) + '</span>';
+                vocalAudiosHtml += '</div>';
+                vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+                for (let coro = 1; coro <= 4; coro++) {
+                    const audio = domAudios.find(va => va.coro_number === coro);
+                    const coroName = corosDom[coro - 1] || '';
+                    const audioKey = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro;
+                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;background:rgba(245,158,11,.05);border-radius:6px;margin-bottom:3px;border:1px solid rgba(63,63,70,.2)">';
+                    vocalAudiosHtml += '<span style="min-width:18px;font-size:.6rem;color:#fbbf24;font-weight:700;background:rgba(245,158,11,.15);padding:1px 4px;border-radius:3px;text-align:center">' + coro + '</span>';
+                    if (audio && audio.audio_url) {
+                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKey + '" onclick="playVocalAudio(\'' + audioKey + '\',\'' + audio.audio_url + '\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    }
+                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.65rem;color:' + (coroName ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroName ? esc(coroName) : (audio && audio.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '</div>';
+                }
+                vocalAudiosHtml += '</div></div>';
+            }
+
+            if (repDay === 'lunes') {
+                vocalAudiosHtml += '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(192,132,252,.2);border-radius:10px;padding:10px">';
+                vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:8px"><span style="font-size:.75rem;font-weight:600;color:#c084fc">🌙 Lunes</span>';
+                if (s.vocalista_lunes) vocalAudiosHtml += '<span style="font-size:.6rem;color:#71717a">· Principal: ' + esc(s.vocalista_lunes) + '</span>';
+                vocalAudiosHtml += '</div>';
+                vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+                for (let coro = 1; coro <= 4; coro++) {
+                    const audio = lunAudios.find(va => va.coro_number === coro);
+                    const coroName = corosLun[coro - 1] || '';
+                    const audioKey = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro;
+                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;background:rgba(192,132,252,.05);border-radius:6px;margin-bottom:3px;border:1px solid rgba(63,63,70,.2)">';
+                    vocalAudiosHtml += '<span style="min-width:18px;font-size:.6rem;color:#c084fc;font-weight:700;background:rgba(192,132,252,.15);padding:1px 4px;border-radius:3px;text-align:center">' + coro + '</span>';
+                    if (audio && audio.audio_url) {
+                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKey + '" onclick="playVocalAudio(\'' + audioKey + '\',\'' + audio.audio_url + '\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    }
+                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.65rem;color:' + (coroName ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroName ? esc(coroName) : (audio && audio.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '</div>';
+                }
+                vocalAudiosHtml += '</div></div>';
+            }
+
+            vocalAudiosHtml += '</div>';
+        }
+    }
+
+    document.getElementById('rep-song-audio').innerHTML = (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchmove="seekRepAudioTouch(event)"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>') + (vocalAudiosHtml ? '<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchmove="seekVocalAudioTouch(event)"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div>' : '');
+
+    document.getElementById('toggle-lyrics').className = repShowChords ? 'inactive' : 'active';
+    document.getElementById('toggle-chords').className = repShowChords ? 'active' : 'inactive';
+
+    const adminActions = document.getElementById('rep-song-admin-actions');
+    if (adminActions) {
+        if (canManageReps()) {
+            adminActions.innerHTML = '<button class="btn btn-sm" style="background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);gap:4px;margin-left:4px" onclick="deleteRepSong(\'' + viewingRepId + '\',\'' + viewingRepSongId + '\')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Eliminar</button>';
+        } else {
+            adminActions.innerHTML = '';
+        }
+    }
+    renderRepSongLyrics();
+}
+
+function deleteRepSong(repId, songId) {
+    if (!canManageReps() || !supabaseReady) return;
+    const r = repertorios.find(x => x.id === repId);
+    if (!r) return;
+    const s = r.canciones.find(x => x.id === songId);
+    if (!s) return;
+    if (!confirm('¿Eliminar "' + s.titulo + '" de este repertorio?')) return;
+    supabaseClient.from('canciones_repertorio').delete().eq('id', songId).then(async function(result) {
+        if (result.error) { alert('Error: ' + result.error.message); return }
+        await loadRepertorios();
+        await renumberRepSongs(repId);
+        await loadRepertorios();
+        if (viewingRepId === repId && viewingRepSongId === songId) {
+            showPage('repertorio');
+        } else {
+            renderRepertorioView();
+        }
+    }).catch(function(e) { alert('Error: ' + e.message) });
+}
+
+function changeRepKey(d) {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    const s = r?.canciones.find(x => x.id === viewingRepSongId);
+    if (!s) return;
+    const currentIdx = NOTE_MAP[repCurrentKey] ?? 0;
+    const newIdx = (currentIdx + d + 12) % 12;
+    repCurrentKey = useFlats ? FLATS[newIdx] : SHARPS[newIdx];
+    document.getElementById('rep-song-key').innerHTML = '<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">' + (useFlats ? '\u266D' : '#') + '</button><div class="key-display"><div class="key-note">' + dn(repCurrentKey) + '</div>' + (repCurrentKey !== s.tono_original ? '<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: ' + dn(s.tono_original) + '</button>' : '') + '</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
+    renderRepSongLyrics()
+}
+
+function resetRepKey() {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    const s = r?.canciones.find(x => x.id === viewingRepSongId);
+    if (!s) return;
+    repCurrentKey = s.tono_original;
+    changeRepKey(0)
+}
+
+async function renderRepSongLyrics() {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    if (!r) return;
+    const s = r.canciones.find(x => x.id === viewingRepSongId);
+    if (!s) return;
+    const semi = getS(s.tono_original, repCurrentKey);
+    const c = document.getElementById('rep-song-lyrics');
+
+    if (repShowChords) {
+        c.innerHTML = s.letra_acordes.split('\n').map(line => {
+            const t = semi !== 0 ? transposeLine(line, semi) : line;
+            if (/\[[^\]]+\]/.test(t)) {
+                let h = '<div class="lyrics-line">' + t.replace(/\[([^\]]+)\]/g, (m, p1) => '<span class="chord">' + displayChord(p1) + '</span>');
+                h = h.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>');
+                h = h.replace(/\s*\{\d+\}/g, '');
+                return h + '</div>'
+            }
+            if (/\([^)]+\)/.test(line)) {
+                var _dl = line.replace(/\s*\{\d+\}/g, '');
+                return '<div class="lyrics-line">' + _dl.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>') + '</div>'
+            }
+            return '<div class="lyrics-line">' + (line || '&nbsp;') + '</div>'
+        }).join('') + getSongNoteHtml(s)
+    } else {
+        var lyricsHtml = '';
+        var srcId = s.source_song_id || viewingRepSongId;
+        var sectionNotes = {};
+        if (srcId) { sectionNotes = await loadSectionNotes(srcId, repDay) }
+        s.letra_acordes.split('\n').forEach(function(line) {
+            var t2 = semi !== 0 ? transposeLine(line, semi) : line;
+            if (/\[[^\]]+\]/.test(t2)) {
+                var stripped = t2.replace(/\s*\[[^\]]+\]\s*/g, ' ').trim();
+                var h2 = '<div class="lyrics-line">';
+                if (/\(([^)]+)\)/.test(t2)) {
+                    var secMatch = t2.match(/\(([^)]+)\)/);
+                    var secName = secMatch ? secMatch[1] : '';
+                    var idMatch = t2.match(/\)\s*\{(\d+)\}/);
+                    var secId = idMatch ? idMatch[1] : '';
+                    var noteKey = secId ? secName + '_' + secId : secName;
+                    var noteVal = (sectionNotes[noteKey] || '').replace(/"/g, '&quot;');
+                    var displayLine = stripped.replace(/\s*\{\d+\}/g, '');
+                    h2 += displayLine.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>');
+                    if (srcId && canEditVocals()) {
+                        h2 += '<span class="section-note-wrap"><input class="section-note-input" value="' + noteVal + '" placeholder="nota..." oninput="onSectionNoteInput(\'' + srcId + '\',\'' + repDay + '\',\'' + noteKey.replace(/'/g, "\\'") + '\',this)"><span class="section-note-status"></span></span>'
+                    } else if (sectionNotes[noteKey]) { h2 += '<span class="section-note-display">' + esc(sectionNotes[noteKey]) + '</span>' }
+                }
+                lyricsHtml += h2 + '</div>'
+            } else if (/\(([^)]+)\)/.test(t2)) {
+                var secMatch2 = t2.match(/\(([^)]+)\)/);
+                var secName2 = secMatch2 ? secMatch2[1] : '';
+                var idMatch2 = t2.match(/\)\s*\{(\d+)\}/);
+                var secId2 = idMatch2 ? idMatch2[1] : '';
+                var noteKey2 = secId2 ? secName2 + '_' + secId2 : secName2;
+                var noteVal2 = (sectionNotes[noteKey2] || '').replace(/"/g, '&quot;');
+                var displayLine2 = t2.replace(/\s*\{\d+\}/g, '');
+                var h3 = '<div class="lyrics-line">' + displayLine2.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>');
+                if (srcId && canEditVocals()) {
+                    h3 += '<span class="section-note-wrap"><input class="section-note-input" value="' + noteVal2 + '" placeholder="nota..." oninput="onSectionNoteInput(\'' + srcId + '\',\'' + repDay + '\',\'' + noteKey2.replace(/'/g, "\\'") + '\',this)"><span class="section-note-status"></span></span>'
+                } else if (sectionNotes[noteKey2]) { h3 += '<span class="section-note-display">' + esc(sectionNotes[noteKey2]) + '</span>' }
+                lyricsHtml += h3 + '</div>'
+            } else {
+                lyricsHtml += '<div class="lyrics-line">' + (t2 || '&nbsp;') + '</div>'
+            }
+        });
+        lyricsHtml += getSongNoteHtml(s);
+        c.innerHTML = lyricsHtml
+    }
+}
+
+function repSongNav(dir) {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    if (!r) return;
+    const songsForDay = r.canciones.filter(s => s.dia === 'ambos' || s.dia === repDay).sort((a, b) => a.orden - b.orden);
+    const newIdx = repSongNavIndex + dir;
+    if (newIdx >= 0 && newIdx < songsForDay.length) {
+        stopAllAudio();
+        repSongNavIndex = newIdx;
+        viewingRepSongId = songsForDay[newIdx].id;
+        repShowChords = true;
+        showPage('rep-song')
+    }
+}
+
+function goBackFromView() {
+    if (viewReturnTo === 'listview') { showPage('listview') } else { showPage('library') }
+}
+
+// ============= VOCAL EDITOR =============
+function editRepVocals(repId, songId) {
+    const r = repertorios.find(x => x.id === repId);
+    if (!r) return;
+    const s = r.canciones.find(x => x.id === songId);
+    if (!s) return;
+    showVocalEditor(repId, songId, 'edit', s, repDay);
+}
+
+function showVocalEditor(repId, songId, mode, songData, contextDay) {
+    vocalEditorRepId = repId;
+    vocalEditorSongId = songId;
+    vocalEditorMode = mode;
+    vocalEditorContextDay = contextDay || 'domingo';
+    vocalEditorDay = songData ? (songData.dia || 'ambos') : 'ambos';
+
+    const isDom = vocalEditorContextDay === 'domingo';
+    const dayColor = isDom ? '#fbbf24' : '#c084fc';
+    const dayLabel = isDom ? 'Domingo' : 'Lunes';
+    const dayEmoji = isDom ? '🌞' : '🌙';
+
+    document.getElementById('vocal-editor-title').textContent = mode === 'add' ? 'Asignar vocales' : 'Editar vocales';
+    document.getElementById('vocal-editor-subtitle').textContent = 'Para ' + dayEmoji + ' ' + dayLabel;
+
+    const badge = document.getElementById('vocal-editor-day-badge');
+    badge.textContent = dayLabel;
+    badge.style.background = isDom ? 'rgba(245,158,11,.2)' : 'rgba(192,132,252,.2)';
+    badge.style.color = dayColor;
+
+    document.getElementById('vocal-main-label').textContent = 'Vocalista principal ' + dayLabel;
+    document.getElementById('vocal-main-label').style.color = dayColor;
+    document.getElementById('vocal-coros-label').textContent = 'Coros ' + dayLabel;
+    document.getElementById('vocal-coros-label').style.color = dayColor;
+
+    const mainSvg = document.querySelector('#vocal-section-main svg');
+    if (mainSvg) mainSvg.setAttribute('stroke', dayColor);
+    const corosSvg = document.querySelector('#vocal-section-coros svg');
+    if (corosSvg) corosSvg.setAttribute('stroke', dayColor);
+
+    const localSong = songs.find(x => x.id === songId);
+    const savedVocals = localSong ? {
+        vocalista_domingo: localSong.vocalista_domingo || '',
+        vocalista_lunes: localSong.vocalista_lunes || '',
+        coros_domingo: localSong.coros_domingo || [],
+        coros_lunes: localSong.coros_lunes || []
+    } : null;
+
+    let mainName = '';
+    let corosRaw = [];
+    if (isDom) {
+        mainName = songData ? (songData.vocalista_domingo || '') : (savedVocals ? savedVocals.vocalista_domingo : '');
+        corosRaw = songData ? (songData.coros_domingo || []) : (savedVocals ? savedVocals.coros_domingo : []);
+    } else {
+        mainName = songData ? (songData.vocalista_lunes || '') : (savedVocals ? savedVocals.vocalista_lunes : '');
+        corosRaw = songData ? (songData.coros_lunes || []) : (savedVocals ? savedVocals.coros_lunes : []);
+    }
+    if (typeof corosRaw === 'string') corosRaw = corosRaw ? corosRaw.split(',').map(function(x) { return x.trim() }).filter(Boolean) : [];
+    if (!Array.isArray(corosRaw)) corosRaw = [];
+
+    document.getElementById('vocal-input-main').value = mainName;
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('vocal-coro-' + i);
+        if (el) el.value = corosRaw[i - 1] || '';
+    }
+
+    renderVocalAudioList(vocalEditorContextDay);
+
+    document.getElementById('vocal-editor-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('vocal-input-main').focus(), 100);
+}
+
+function renderVocalAudioList(day) {
+    const list = document.getElementById('vocal-audio-list');
+    if (!list) return;
+    const r = repertorios.find(x => x.id === vocalEditorRepId);
+    const cancionesRep = r ? r.canciones.find(x => x.id === vocalEditorSongId) : null;
+    const sourceSongId = cancionesRep ? (cancionesRep.source_song_id || vocalEditorSongId) : vocalEditorSongId;
+    const songAudios = [];
+    if (r && r.vocalAudios) {
+        r.vocalAudios.forEach(va => {
+            if ((va.source_song_id || va.cancion_repertorio_id) === sourceSongId && va.dia === day) {
+                songAudios.push(va);
+            }
+        });
+    }
+    const coroNames = [];
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('vocal-coro-' + i);
+        coroNames.push(el ? el.value.trim() : '');
+    }
+    const isDom = day === 'domingo';
+    const dayColor = isDom ? '#fbbf24' : '#c084fc';
+    let html = '';
+    for (let coro = 1; coro <= 4; coro++) {
+        const audio = songAudios.find(va => va.coro_number === coro);
+        const coroName = coroNames[coro - 1] || '';
+        const audioKey = vocalEditorRepId + '_' + vocalEditorSongId + '_' + day + '_' + coro;
+        html += '<div style="background:rgba(27,27,30,.5);border:1px solid rgba(63,63,70,.3);border-radius:8px;padding:10px;margin-bottom:8px">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+        html += '<span style="font-size:.75rem;font-weight:600;color:' + dayColor + '">Coro ' + coro + (coroName ? ' — ' + esc(coroName) : '') + '</span>';
+        if (canEditVocals()) {
+            html += '<button class="btn-icon" onclick="triggerVocalAudioUpload(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\')" style="color:' + dayColor + '" title="Subir audio"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
+        }
+        html += '</div>';
+        if (audio && audio.audio_url) {
+            html += '<div style="display:flex;align-items:center;gap:8px">';
+            html += '<button class="btn-icon" data-vocal-key="' + audioKey + '" onclick="playVocalAudio(\'' + audioKey + '\',\'' + audio.audio_url + '\')" style="color:#4ade80" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+            html += '<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(audio.vocalista_name || coroName || 'Audio Coro ' + coro) + '</div>';
+            if (canEditVocals()) {
+                html += '<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\')" style="flex-shrink:0" title="Eliminar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+            }
+            html += '</div>';
+        } else {
+            html += '<div style="font-size:.7rem;color:#52525b;font-style:italic">Sin audio</div>';
+        }
+        html += '</div>';
+    }
+    list.innerHTML = html;
+}
+
+function hideVocalEditor() {
+    document.getElementById('vocal-editor-modal').classList.add('hidden');
+    document.getElementById('vocal-input-main').value = '';
+    vocalEditorDay = 'ambos';
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('vocal-coro-' + i);
+        if (el) el.value = '';
+    }
+}
+
+async function saveVocalEditor() {
+    const mainName = document.getElementById('vocal-input-main').value.trim() || 'Por asignar';
+    const isDom = vocalEditorContextDay === 'domingo';
+
+    const coros = [];
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('vocal-coro-' + i);
+        if (el && el.value.trim()) coros.push(el.value.trim());
+    }
+
+    const localSong = songs.find(x => x.id === vocalEditorSongId);
+    if (localSong) {
+        if (isDom) {
+            localSong.vocalista_domingo = mainName;
+            localSong.coros_domingo = coros;
+        } else {
+            localSong.vocalista_lunes = mainName;
+            localSong.coros_lunes = coros;
+        }
+        save('cb_songs', songs);
+    }
+
+    if (vocalEditorMode === 'add') {
+        const s = songs.find(x => x.id === vocalEditorSongId);
+        const r = repertorios.find(x => x.id === vocalEditorRepId);
+        if (!s || !r) return;
+        const orden = r.canciones.length + 1;
+        const id = 'rs' + Date.now().toString(36);
+        const dia = vocalEditorDay !== 'ambos' ? vocalEditorDay : (isDom ? 'domingo' : 'lunes');
+        const insertData = {
+            id,
+            repertorio_id: vocalEditorRepId,
+            titulo: s.title,
+            artista: s.artist,
+            dia,
+            orden,
+            tono_original: s.originalKey,
+            tempo: s.tempo || 0,
+            compas: s.compas || '',
+            duracion: '0:00',
+            letra_acordes: s.lyrics,
+            audio_url: s.audio_url || null,
+            source_song_id: s.id,
+            created_by: s.createdBy || '',
+            created_at: Date.now()
+        };
+        if (isDom) {
+            insertData.vocalista_domingo = mainName;
+            insertData.coros_domingo = coros;
+            insertData.vocalista_lunes = '';
+            insertData.coros_lunes = [];
+        } else {
+            insertData.vocalista_lunes = mainName;
+            insertData.coros_lunes = coros;
+            insertData.vocalista_domingo = '';
+            insertData.coros_domingo = [];
+        }
+        try {
+            const { error } = await supabaseClient.from('canciones_repertorio').insert(insertData);
+            if (error) throw error;
+            document.getElementById('rep-song-picker').innerHTML = '';
+            await loadRepertorios();
+            renderRepertorios();
+            hideVocalEditor();
+        } catch (e) { alert('Error al guardar: ' + e.message) }
+    } else {
+        const updateData = {};
+        if (isDom) {
+            updateData.vocalista_domingo = mainName;
+            updateData.coros_domingo = coros;
+        } else {
+            updateData.vocalista_lunes = mainName;
+            updateData.coros_lunes = coros;
+        }
+        try {
+            const { error } = await supabaseClient.from('canciones_repertorio').update(updateData).eq('id', vocalEditorSongId);
+            if (error) throw error;
+            await loadRepertorios();
+            renderRepertorioView();
+            hideVocalEditor();
+        } catch (e) { alert('Error al guardar: ' + e.message) }
+    }
+}
+
+// ============= VOCAL AUDIO UPLOAD =============
+function triggerVocalAudioUpload(repId, songId, coro, sourceSongId, dia) {
+    if (!canEditVocals()) return;
+    vocalAudioUploadRepId = repId;
+    vocalAudioUploadSongId = songId;
+    vocalAudioUploadSourceSongId = sourceSongId || null;
+    vocalAudioUploadCoro = coro;
+    vocalAudioUploadDia = dia || 'domingo';
+    document.getElementById('vocal-audio-upload-input').click();
+}
+
+async function handleVocalAudioUpload(e) {
+    const file = e.target.files[0];
+    if (!file || !vocalAudioUploadRepId || !vocalAudioUploadSongId || !vocalAudioUploadCoro) return;
+    if (!supabaseReady) { alert('Sin conexión a Supabase'); return }
+
+    let sourceSongId = vocalAudioUploadSourceSongId;
+    if (!sourceSongId) {
+        try {
+            const { data: crData } = await supabaseClient.from('canciones_repertorio').select('source_song_id').eq('id', vocalAudioUploadSongId).single();
+            if (crData && crData.source_song_id) sourceSongId = crData.source_song_id;
+        } catch (e) {}
+    }
+    if (!sourceSongId) {
+        const r = repertorios.find(x => x.id === vocalAudioUploadRepId);
+        const cancionesRep = r ? r.canciones.find(x => x.id === vocalAudioUploadSongId) : null;
+        if (cancionesRep && cancionesRep.source_song_id) sourceSongId = cancionesRep.source_song_id;
+    }
+    if (!sourceSongId) {
+        alert('No se pudo determinar el ID de la canción. Asegúrate de que la canción esté en tu biblioteca.');
+        e.target.value = '';
+        return;
+    }
+
+    const filename = sourceSongId + '_coro' + vocalAudioUploadCoro + '_' + vocalAudioUploadDia + '.mp3';
+    const storagePath = 'vocal-audios/' + filename;
+
+    try {
+        for (const rep of repertorios) {
+            if (rep.vocalAudios) {
+                const existing = rep.vocalAudios.find(va => va.source_song_id === sourceSongId && va.coro_number === vocalAudioUploadCoro && va.dia === vocalAudioUploadDia);
+                if (existing) {
+                    if (existing.audio_url) {
+                        try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(existing.audio_url), { method: 'DELETE' }) } catch (e) {}
+                    }
+                    if (existing.audio_path) {
+                        try { await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(extractR2Key(existing.audio_path)), { method: 'DELETE' }) } catch (e) {}
+                    }
+                    break;
+                }
+            }
+        }
+
+        const renamedFile = new File([file], filename, { type: file.type || 'audio/mpeg' });
+        const formData = new FormData();
+        formData.append('file', renamedFile);
+        formData.append('folder', 'vocal-audios');
+        formData.append('filename', filename);
+        const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+        if (uploadData.error) throw new Error(uploadData.error);
+        let audioUrl = uploadData.url;
+        if (audioUrl) audioUrl = normalizeVocalAudioUrl(audioUrl);
+
+        if (!audioUrl || !audioUrl.includes(sourceSongId)) {
+            audioUrl = SUPABASE_URL + '/storage/v1/object/public/vocal-audios/' + storagePath;
+        }
+        audioUrl = normalizeVocalAudioUrl(audioUrl);
+
+        const { data: upsertData, error: dbErr } = await supabaseClient.from('vocal_audios').upsert({
+            cancion_repertorio_id: vocalAudioUploadSongId,
+            repertorio_id: vocalAudioUploadRepId,
+            source_song_id: sourceSongId,
+            coro_number: vocalAudioUploadCoro,
+            dia: vocalAudioUploadDia,
+            vocalista_name: '',
+            audio_url: audioUrl,
+            audio_path: storagePath,
+            updated_at: Date.now()
+        }, { onConflict: 'source_song_id,coro_number,dia' });
+        if (dbErr) throw dbErr;
+
+        await loadRepertorios();
+        renderRepertorioView();
+        showNotification('Audio del Coro ' + vocalAudioUploadCoro + ' guardado', 'success');
+    } catch (err) {
+        alert('Error al subir audio: ' + err.message);
+    }
+
+    e.target.value = '';
+    vocalAudioUploadCoro = null;
+    vocalAudioUploadRepId = null;
+    vocalAudioUploadSongId = null;
+    vocalAudioUploadSourceSongId = null;
+}
+
+async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
+    if (!canEditVocals()) return;
+    if (!confirm('¿Eliminar este audio de coro?')) return;
+
+    let resolvedSourceId = sourceSongId;
+    if (!resolvedSourceId) {
+        try {
+            const { data: crData } = await supabaseClient.from('canciones_repertorio').select('source_song_id').eq('id', songId).single();
+            if (crData && crData.source_song_id) resolvedSourceId = crData.source_song_id;
+        } catch (e) {}
+    }
+    if (!resolvedSourceId) {
+        const r = repertorios.find(x => x.id === repId);
+        if (r) {
+            const cancionesRep = r.canciones.find(x => x.id === songId);
+            if (cancionesRep && cancionesRep.source_song_id) resolvedSourceId = cancionesRep.source_song_id;
+        }
+    }
+    if (!resolvedSourceId) { resolvedSourceId = songId }
+
+    const r = repertorios.find(x => x.id === repId);
+    if (!r || !r.vocalAudios) return;
+
+    const existing = r.vocalAudios.find(va => (va.source_song_id || va.cancion_repertorio_id) === resolvedSourceId && va.coro_number === coro && va.dia === dia);
+    if (!existing) return;
+
+    try {
+        if (existing.audio_url) {
+            try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(existing.audio_url), { method: 'DELETE' }) } catch (e) {}
+        }
+        if (existing.audio_path) {
+            try { await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(extractR2Key(existing.audio_path)), { method: 'DELETE' }) } catch (e) {}
+        }
+
+        await supabaseClient.from('vocal_audios').delete().eq('id', existing.id);
+        await loadRepertorios();
+        renderRepertorioView();
+        showNotification('Audio eliminado', 'success');
+    } catch (err) {
+        alert('Error al eliminar: ' + err.message);
+    }
+}
+
+// ============= PAGE NAVIGATION =============
+function showPage(name) {
+    stopAllAudio();
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    const pg = document.getElementById('page-' + name);
+    if (pg) pg.classList.add('active');
+    const nb = document.getElementById('nav-' + name);
+    if (nb) nb.classList.add('active');
+    if (name === 'library') renderLibrary();
+    if (name === 'lists') renderLists();
+    if (name === 'repertorios') { showConnectionStatus();
+        loadRepertorios().then(() => renderRepertorios()) }
+    if (name === 'repertorio') renderRepertorioView();
+    if (name === 'rep-song') renderRepSongView();
+    if (name === 'add') { if (!editingSongId) resetForm();
+        renderKeyGrid() }
+    if (name === 'view') renderView();
+    if (name === 'listview') renderListView();
+}
+
+// ============= SEARCH =============
+document.getElementById('search-input').addEventListener('input', renderLibrary);
+
+// ============= KEYBOARD SHORTCUTS =============
+document.addEventListener('keydown', function(e) {
+    // Escape to close modals
+    if (e.key === 'Escape') {
+        const modals = document.querySelectorAll('.auth-modal.active, #import-confirm-modal, #vocal-editor-modal');
+        modals.forEach(m => {
+            if (m.id === 'auth-modal') closeAuthModal();
+            else if (m.id === 'import-confirm-modal') closeImportConfirmModal();
+            else if (m.id === 'vocal-editor-modal') hideVocalEditor();
+        });
+    }
+});
+
+// ============= AUDIO UPLOAD INPUTS =============
+document.getElementById('audio-upload-input').addEventListener('change', handleAudioUpload);
+document.getElementById('vocal-audio-upload-input').addEventListener('change', handleVocalAudioUpload);
+
+// ============= INIT =============
+showConnectionStatus();
+loadRepertorios().then(() => renderLibrary());
+
+// ============= PWA =============
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredPrompt = e;
+    showInstallBanner();
+    showInstallFloat()
+});
+
+function isIOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 }
+
+function isStandalone() { return window.matchMedia('(display-mode:standalone)').matches || window.navigator.standalone === true }
+
+function showInstallFloat() {
+    if (isStandalone()) return;
+    const btn = document.getElementById('install-float-btn');
+    if (btn) btn.style.display = 'flex'
+}
+
+function handleInstallClick() {
+    if (isIOS()) { document.getElementById('ios-install-modal').style.display = 'flex' } else { installApp() }
+}
+
+function showInstallBanner() {
+    if (!deferredPrompt) return;
+    const c = document.getElementById('install-banner-container');
+    if (c && !c.innerHTML) {
+        c.innerHTML = '<div class="install-banner" onclick="installApp()"><div style="font-size:24px">📱</div><div class="install-banner-text"><div class="install-banner-title">Instalar Repertorios RL</div><div class="install-banner-desc">Añadir a pantalla de inicio para usar como app</div></div><button class="install-banner-btn">Instalar</button></div>';
+        showInstallFloat()
+    }
+}
+
+async function installApp() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const r = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    document.getElementById('install-banner-container').innerHTML = '';
+    document.getElementById('install-float-btn').style.display = 'none'
+}
+
+window.addEventListener('appinstalled', () => {
+    document.getElementById('install-banner-container').innerHTML = '';
+    document.getElementById('install-float-btn').style.display = 'none';
+    deferredPrompt = null
+});
+
+if (isIOS() && !isStandalone()) {
+    setTimeout(() => {
+        const btn = document.getElementById('install-float-btn');
+        if (btn) btn.style.display = 'flex'
+    }, 2000)
+}
+
+// ============= SERVICE WORKER =============
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js').then(function(registration) {
+            console.log('[PWA] Service Worker registered, scope:', registration.scope);
+            setInterval(function() { registration.update() }, 60000);
+            registration.addEventListener('updatefound', function() {
+                var newWorker = registration.installing;
+                if (newWorker) {
+                    newWorker.addEventListener('statechange', function() {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            if (confirm('Hay una nueva versión disponible. ¿Actualizar ahora?')) {
+                                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                window.location.reload();
+                            }
+                        }
+                    });
+                }
+            });
+        }).catch(function(err) {
+            console.log('[PWA] Service Worker registration failed:', err);
+        });
+    });
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (!refreshing) { refreshing = true;
+            window.location.reload() }
+    });
+}
