@@ -1207,7 +1207,6 @@ function toggleVocalAudioFromBar() {
         updateVocalAudioButtons() } else { audio.play().catch(function(e) { console.error(e) });
         updateVocalAudioButtons() }
 }
-
 function playVocalAudio(key, url) {
     url = normalizeVocalAudioUrl(url);
     if (vocalAudioCurrentKey === key && vocalAudioPlayers[key]) {
@@ -1231,11 +1230,9 @@ function playVocalAudio(key, url) {
     }
     if (repAudioEl) { repAudioEl.pause();
         repAudioPlaying = false;
-        stopAudioProgress();
         updateAudioBtn() }
     if (viewAudioEl) { viewAudioEl.pause();
         viewAudioPlaying = false;
-        stopViewAudioProgress();
         updateViewAudioBtn() }
     const audio = new Audio();
     audio.crossOrigin = 'anonymous';
@@ -1268,6 +1265,8 @@ function playVocalAudio(key, url) {
         stopVocalAudioProgress();
         updateVocalAudioButtons();
     });
+    // Añadir timeupdate para la barra de progreso
+    setupVocalAudioProgress(audio, key);
     audio.src = url;
     vocalAudioPlayers[key] = audio;
     vocalAudioCurrentKey = key;
@@ -1283,7 +1282,6 @@ function playVocalAudio(key, url) {
     });
     return true;
 }
-
 // ============= VIEW AUDIO FUNCTIONS =============
 function toggleViewAudio() {
     const s = songs.find(x => x.id === viewingSongId);
@@ -1296,6 +1294,13 @@ function toggleViewAudio() {
         viewAudioEl.addEventListener('ended', () => { viewAudioPlaying = false;
             updateViewAudioBtn() });
         viewAudioEl.addEventListener('loadedmetadata', () => { const dur = document.getElementById('view-audio-duration'); if (dur) dur.textContent = formatTime(viewAudioEl.duration) });
+        viewAudioEl.addEventListener('timeupdate', () => {
+            const pct = viewAudioEl.duration ? (viewAudioEl.currentTime / viewAudioEl.duration) * 100 : 0;
+            const fill = document.getElementById('view-audio-fill');
+            if (fill) fill.style.width = pct + '%';
+            const cur = document.getElementById('view-audio-current');
+            if (cur) cur.textContent = formatTime(viewAudioEl.currentTime);
+        });
         viewAudioEl.addEventListener('error', () => {
             const err = viewAudioEl.error;
             console.error('Audio error:', err ? 'Code: ' + err.code + ', Message: ' + err.message : 'Unknown', 'URL:', audioUrl);
@@ -1318,43 +1323,48 @@ function updateViewAudioBtn() {
     if (!icon) return;
     if (viewAudioPlaying) {
         icon.outerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5" id="view-audio-icon"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
-        startViewAudioProgress();
     } else {
         icon.outerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg>';
-        stopViewAudioProgress();
     }
 }
 
-function startViewAudioProgress() {
-    stopViewAudioProgress();
-    viewAudioInterval = setInterval(() => {
-        if (!viewAudioEl) return;
-        const pct = viewAudioEl.duration ? (viewAudioEl.currentTime / viewAudioEl.duration) * 100 : 0;
-        const fill = document.getElementById('view-audio-fill');
-        if (fill) fill.style.width = pct + '%';
-        const cur = document.getElementById('view-audio-current');
-        if (cur) cur.textContent = formatTime(viewAudioEl.currentTime);
-    }, 250);
-}
+// Eliminar startViewAudioProgress y stopViewAudioProgress - usar timeupdate
 
-function stopViewAudioProgress() { if (viewAudioInterval) { clearInterval(viewAudioInterval);
-        viewAudioInterval = null } }
-
+// CORREGIDO - Seek con mouse
 function seekViewAudio(e) {
     if (!viewAudioEl || !viewAudioEl.duration) return;
-    var bar = e.currentTarget;
-    var rect = bar.getBoundingClientRect();
-    var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    viewAudioEl.currentTime = pct * viewAudioEl.duration;
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = pct * viewAudioEl.duration;
+    // Verificar que newTime sea válido
+    if (isFinite(newTime) && newTime >= 0 && newTime <= viewAudioEl.duration) {
+        viewAudioEl.currentTime = newTime;
+        // Actualizar barra inmediatamente
+        const fill = document.getElementById('view-audio-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('view-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
 }
 
+// CORREGIDO - Seek con touch
 function seekViewAudioTouch(e) {
+    e.preventDefault(); // Previene scrolling mientras se arrastra
     if (!viewAudioEl || !viewAudioEl.duration) return;
-    var bar = e.currentTarget;
-    var rect = bar.getBoundingClientRect();
-    var touch = e.touches[0];
-    var pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-    viewAudioEl.currentTime = pct * viewAudioEl.duration;
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+    const newTime = pct * viewAudioEl.duration;
+    if (isFinite(newTime) && newTime >= 0 && newTime <= viewAudioEl.duration) {
+        viewAudioEl.currentTime = newTime;
+        const fill = document.getElementById('view-audio-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('view-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
 }
 
 // ============= REP AUDIO FUNCTIONS =============
@@ -1372,6 +1382,13 @@ function toggleRepAudio() {
         repAudioEl.addEventListener('ended', () => { repAudioPlaying = false;
             updateAudioBtn() });
         repAudioEl.addEventListener('loadedmetadata', () => { const dur = document.getElementById('rep-audio-duration'); if (dur) dur.textContent = formatTime(repAudioEl.duration) });
+        repAudioEl.addEventListener('timeupdate', () => {
+            const pct = repAudioEl.duration ? (repAudioEl.currentTime / repAudioEl.duration) * 100 : 0;
+            const fill = document.getElementById('rep-audio-fill');
+            if (fill) fill.style.width = pct + '%';
+            const cur = document.getElementById('rep-audio-current');
+            if (cur) cur.textContent = formatTime(repAudioEl.currentTime);
+        });
         repAudioEl.addEventListener('error', () => {
             console.error('Rep audio error, URL:', audioUrl);
             if (s.id) { const r2Url = R2_WORKER_URL + '/file/songs/' + s.id + '.mp3';
@@ -1392,39 +1409,104 @@ function updateAudioBtn() {
     btn.innerHTML = repAudioPlaying ?
         '<svg width="18" height="18" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>' :
         '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>';
-    if (repAudioPlaying) { startAudioProgress() } else { stopAudioProgress() }
 }
 
-function startAudioProgress() {
-    stopAudioProgress();
-    repAudioInterval = setInterval(() => {
-        if (!repAudioEl) return;
-        const pct = repAudioEl.duration ? (repAudioEl.currentTime / repAudioEl.duration) * 100 : 0;
-        const fill = document.getElementById('rep-audio-fill');
-        if (fill) fill.style.width = pct + '%';
-        const cur = document.getElementById('rep-audio-current');
-        if (cur) cur.textContent = formatTime(repAudioEl.currentTime);
-    }, 250);
-}
+// Eliminar startAudioProgress y stopAudioProgress - usar timeupdate
 
-function stopAudioProgress() { if (repAudioInterval) { clearInterval(repAudioInterval);
-        repAudioInterval = null } }
-
+// CORREGIDO - Seek con mouse
 function seekRepAudio(e) {
     if (!repAudioEl || !repAudioEl.duration) return;
-    var bar = e.currentTarget;
-    var rect = bar.getBoundingClientRect();
-    var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    repAudioEl.currentTime = pct * repAudioEl.duration;
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = pct * repAudioEl.duration;
+    if (isFinite(newTime) && newTime >= 0 && newTime <= repAudioEl.duration) {
+        repAudioEl.currentTime = newTime;
+        const fill = document.getElementById('rep-audio-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('rep-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
 }
 
+// CORREGIDO - Seek con touch
 function seekRepAudioTouch(e) {
+    e.preventDefault();
     if (!repAudioEl || !repAudioEl.duration) return;
-    var bar = e.currentTarget;
-    var rect = bar.getBoundingClientRect();
-    var touch = e.touches[0];
-    var pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-    repAudioEl.currentTime = pct * repAudioEl.duration;
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+    const newTime = pct * repAudioEl.duration;
+    if (isFinite(newTime) && newTime >= 0 && newTime <= repAudioEl.duration) {
+        repAudioEl.currentTime = newTime;
+        const fill = document.getElementById('rep-audio-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('rep-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
+}
+
+// ============= VOCAL AUDIO FUNCTIONS =============
+// CORREGIDO - Vocal audio progress usando timeupdate
+function setupVocalAudioProgress(audio, key) {
+    audio.addEventListener('timeupdate', function() {
+        if (vocalAudioCurrentKey !== key) return;
+        const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+        const fill = document.getElementById('vocal-audio-fill');
+        if (fill) fill.style.width = pct + '%';
+        const cur = document.getElementById('vocal-audio-current');
+        if (cur) cur.textContent = formatTime(audio.currentTime);
+        const dur = document.getElementById('vocal-audio-duration');
+        if (dur) dur.textContent = audio.duration ? formatTime(audio.duration) : '--:--';
+    });
+}
+
+// Reemplazar startVocalAudioProgress y stopVocalAudioProgress
+function startVocalAudioProgress() {
+    // Ya no es necesario con timeupdate
+}
+
+function stopVocalAudioProgress() {
+    // Ya no es necesario con timeupdate
+}
+
+// CORREGIDO - Seek con mouse para vocal
+function seekVocalAudio(e) {
+    const audio = vocalAudioPlayers[vocalAudioCurrentKey];
+    if (!audio || !audio.duration) return;
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = pct * audio.duration;
+    if (isFinite(newTime) && newTime >= 0 && newTime <= audio.duration) {
+        audio.currentTime = newTime;
+        const fill = document.getElementById('vocal-audio-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('vocal-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
+}
+
+// CORREGIDO - Seek con touch para vocal
+function seekVocalAudioTouch(e) {
+    e.preventDefault();
+    const audio = vocalAudioPlayers[vocalAudioCurrentKey];
+    if (!audio || !audio.duration) return;
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+    const newTime = pct * audio.duration;
+    if (isFinite(newTime) && newTime >= 0 && newTime <= audio.duration) {
+        audio.currentTime = newTime;
+        const fill = document.getElementById('vocal-audio-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('vocal-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
 }
 
 // ============= AUDIO UPLOAD FUNCTIONS =============
@@ -1930,12 +2012,13 @@ async function renderView() {
     const il = lists.filter(l => l.songIds.includes(s.id));
     document.getElementById('view-song-location').innerHTML = il.length > 0 ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> En listas: ' + il.map(l => l.name).join(', ') : '';
 
-    const audioSection = document.getElementById('view-audio-section');
-    if (s.audio_url) {
-        audioSection.innerHTML = '<div class="audio-player" id="view-audio-player"><button class="audio-play-btn" onclick="toggleViewAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekViewAudio(event)" ontouchmove="seekViewAudioTouch(event)"><div class="audio-bar-fill" id="view-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-current">0:00</span><span id="view-audio-duration">--:--</span></div></div>' + (canUploadAudio() ? '<button class="btn-icon" onclick="triggerAudioUpload(\'' + s.id + '\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\'' + s.id + '\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
-    } else {
-        audioSection.innerHTML = '' + (canUploadAudio() ? '<div class="upload-zone" onclick="triggerAudioUpload(\'' + s.id + '\')" id="view-upload-zone"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir audio de esta canción</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — el audio quedará vinculado a la canción</p></div>' : '') + '';
-    }
+    // En app.js, en la función renderView(), reemplaza la sección del audio:
+const audioSection = document.getElementById('view-audio-section');
+if (s.audio_url) {
+    audioSection.innerHTML = '<div class="audio-player" id="view-audio-player"><button class="audio-play-btn" onclick="toggleViewAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekViewAudio(event)" ontouchstart="seekViewAudioTouch(event)" ontouchmove="seekViewAudioTouch(event)"><div class="audio-bar-fill" id="view-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-current">0:00</span><span id="view-audio-duration">--:--</span></div></div>' + (canUploadAudio() ? '<button class="btn-icon" onclick="triggerAudioUpload(\'' + s.id + '\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\'' + s.id + '\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
+} else {
+    audioSection.innerHTML = '' + (canUploadAudio() ? '<div class="upload-zone" onclick="triggerAudioUpload(\'' + s.id + '\')" id="view-upload-zone"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir audio de esta canción</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — el audio quedará vinculado a la canción</p></div>' : '') + '';
+}
 
     const semi = getS(s.originalKey, s.currentKey);
     var _vnSrc2 = s.sourceId || s.id;
@@ -2916,8 +2999,8 @@ function renderRepSongView() {
         }
     }
 
-    document.getElementById('rep-song-audio').innerHTML = (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchmove="seekRepAudioTouch(event)"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>') + (vocalAudiosHtml ? '<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchmove="seekVocalAudioTouch(event)"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div>' : '');
-
+    // En app.js, en la función renderRepSongView(), reemplaza esta sección:
+document.getElementById('rep-song-audio').innerHTML = (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchstart="seekRepAudioTouch(event)" ontouchmove="seekRepAudioTouch(event)"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>') + (vocalAudiosHtml ? '<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div>' : '');
     document.getElementById('toggle-lyrics').className = repShowChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = repShowChords ? 'active' : 'inactive';
 
