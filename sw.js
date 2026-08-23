@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v2.21';
+const CACHE_NAME = 'repertorios-rl-v2.22';
 const urlsToCache = [
   './',
   './index.html',
