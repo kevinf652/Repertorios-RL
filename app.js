@@ -3792,7 +3792,7 @@ if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
         navigator.serviceWorker.register('./sw.js').then(function(registration) {
             console.log('[PWA] Service Worker registered, scope:', registration.scope);
-            setInterval(function() { registration.update() }, 60000);
+            setInterval(function() { registration.update() }, 10000);
             registration.addEventListener('updatefound', function() {
                 var newWorker = registration.installing;
                 if (newWorker) {
