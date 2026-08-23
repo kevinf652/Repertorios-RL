@@ -429,13 +429,30 @@ function showCloudSongPreviewModal(songId) {
     const modal = document.createElement('div');
     modal.id = 'cloud-preview-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+    // Mismo formateo de acordes/secciones que usa la vista normal de canción
+    // (chords resaltados, secciones entre paréntesis marcadas), solo que aquí
+    // sin transposición ni notas vocales, por ser una vista previa de solo lectura.
+    const lyricsHtml = (preview.lyrics || '').split('\n').map(line => {
+        if (/\[[^\]]+\]/.test(line)) {
+            let h = '<div class="lyrics-line">' + line.replace(/\[([^\]]+)\]/g, (m, p1) => '<span class="chord">' + displayChord(p1) + '</span>');
+            h = h.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>');
+            h = h.replace(/\s*\{\d+\}/g, '');
+            return h + '</div>'
+        }
+        if (/\([^)]+\)/.test(line)) {
+            const dl = line.replace(/\s*\{\d+\}/g, '');
+            return '<div class="lyrics-line">' + dl.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>') + '</div>'
+        }
+        return '<div class="lyrics-line">' + (line || '&nbsp;') + '</div>'
+    }).join('');
     modal.innerHTML = '<div style="background:#18181b;border-radius:16px 16px 0 0;max-height:85vh;width:100%;max-width:560px;overflow-y:auto;padding:18px 18px 20px">'
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:10px">'
         + '<div style="min-width:0"><div style="font-size:1.05rem;font-weight:700;color:#fff">' + esc(preview.title || 'Sin título') + '</div>'
         + '<div style="font-size:.8rem;color:#a1a1aa">' + esc(preview.artist || 'Desconocido') + (preview.createdBy ? ' · Creado por ' + esc(preview.createdBy) : '') + '</div></div>'
         + '<button onclick="document.getElementById(\'cloud-preview-modal\').remove()" style="background:none;border:none;color:#a1a1aa;font-size:1.4rem;line-height:1;padding:4px;flex-shrink:0">×</button></div>'
-        + '<div style="font-size:.65rem;color:#71717a;margin:6px 0 12px">👁 Vista previa — esta canción aún no está en tu biblioteca</div>'
-        + '<pre style="white-space:pre-wrap;font-family:inherit;font-size:.85rem;color:#e4e4e7;line-height:1.6;margin:0 0 18px">' + esc(preview.lyrics || '(Sin letra)') + '</pre>'
+        + '<div style="display:flex;gap:8px;margin:6px 0 12px;flex-wrap:wrap">' + (preview.originalKey ? '<span class="tag tag-key">' + dn(preview.originalKey) + '</span>' : '') + (preview.tempo ? '<span class="tag tag-zinc">' + preview.tempo + ' BPM</span>' : '') + (preview.compas ? '<span class="tag tag-zinc">' + esc(preview.compas) + '</span>' : '') + '</div>'
+        + '<div style="font-size:.65rem;color:#71717a;margin-bottom:10px">👁 Vista previa — esta canción aún no está en tu biblioteca</div>'
+        + '<div class="lyrics-container" style="margin-bottom:18px">' + (lyricsHtml || '<div class="lyrics-line">(Sin letra)</div>') + '</div>'
         + '<button class="btn btn-amber" style="width:100%" onclick="addCloudSongToLibraryFromList(\'\',\'' + songId + '\');document.getElementById(\'cloud-preview-modal\').remove()">Añadir a mi biblioteca</button>'
         + '</div>';
     document.body.appendChild(modal);
@@ -644,6 +661,7 @@ async function loadSongsFromCloud() {
 }
 
 // ============= REALTIME SUBSCRIPTIONS =============
+let _userSongsChannelActive = false;
 function setupRealtimeSubscriptions() {
     if (!supabaseReady || !supabaseClient) return;
     console.log('Setting up Supabase Realtime subscriptions...');
@@ -677,6 +695,25 @@ function setupRealtimeSubscriptions() {
             });
         })
         .subscribe();
+
+    // Refresca la biblioteca personal cuando otra persona (o el propio usuario
+    // desde otro dispositivo) edita una canción que también tienes guardada —
+    // sin esto, solo se veía al recargar la página o volver a iniciar sesión.
+    if (currentUser && currentUser.id && !_userSongsChannelActive) {
+        _userSongsChannelActive = true;
+        supabaseClient.channel('user-songs-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'user_songs', filter: 'user_id=eq.' + currentUser.id }, function(payload) {
+                console.log('Realtime user_songs change:', payload.eventType);
+                loadSongsFromCloud().then(function(cloudSongs) {
+                    if (cloudSongs) {
+                        songs = cloudSongs;
+                        if (document.getElementById('page-library')?.classList.contains('active')) renderLibrary();
+                        if (viewingSongId) renderView();
+                    }
+                });
+            })
+            .subscribe();
+    }
 
     console.log('Realtime subscriptions active');
 }
@@ -822,6 +859,7 @@ async function handleLogin(e) {
         if (userRole === 'admin') localStorage.setItem('cb_rep_admin', 'true');
         updateUserUI();
         closeAuthModal();
+        setupRealtimeSubscriptions();
 
         const cloudSongs = await loadSongsFromCloud();
         if (cloudSongs && cloudSongs.length > 0) {
