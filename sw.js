@@ -1,4 +1,8 @@
-const CACHE_NAME = 'repertorios-rl-v2';
+// Versión dinámica basada en timestamp o hash
+const CACHE_NAME = 'repertorios-rl-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 10);
+// O mejor: usa un número fijo que incrementas manualmente
+// const CACHE_NAME = 'repertorios-rl-v2';
+
 const urlsToCache = [
   './',
   './index.html',
@@ -7,20 +11,25 @@ const urlsToCache = [
   './icon-512.png'
 ];
 
-// INSTALL - Cache app shell
+// INSTALL
 self.addEventListener('install', function(event) {
+  console.log('[SW] Installing new version:', CACHE_NAME);
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(function(cache) {
         console.log('[SW] Cache opened');
         return cache.addAll(urlsToCache);
       })
+      .then(function() {
+        // Forzar que el nuevo SW tome control inmediatamente
+        return self.skipWaiting();
+      })
   );
-  self.skipWaiting();
 });
 
 // ACTIVATE - Clean old caches
 self.addEventListener('activate', function(event) {
+  console.log('[SW] Activating new version:', CACHE_NAME);
   event.waitUntil(
     caches.keys().then(function(cacheNames) {
       return Promise.all(
@@ -32,11 +41,14 @@ self.addEventListener('activate', function(event) {
         })
       );
     })
+    .then(function() {
+      // Tomar control de todas las páginas
+      return self.clients.claim();
+    })
   );
-  self.clients.claim();
 });
 
-// FETCH - Network first, fallback to cache (ensures auto-update)
+// FETCH - Network first, fallback to cache
 self.addEventListener('fetch', function(event) {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
@@ -44,24 +56,28 @@ self.addEventListener('fetch', function(event) {
   // Skip Supabase requests (always go to network)
   if (event.request.url.includes('supabase')) return;
 
+  // Skip the SW file itself (critical!)
+  if (event.request.url.includes('sw.js')) return;
+
   event.respondWith(
     fetch(event.request)
       .then(function(response) {
-        // Clone the response before caching
-        var responseClone = response.clone();
-        caches.open(CACHE_NAME).then(function(cache) {
-          cache.put(event.request, responseClone);
-        });
+        // Solo cachear respuestas válidas
+        if (response && response.status === 200) {
+          var responseClone = response.clone();
+          caches.open(CACHE_NAME).then(function(cache) {
+            cache.put(event.request, responseClone);
+          });
+        }
         return response;
       })
       .catch(function() {
-        // Network failed, try cache
         return caches.match(event.request);
       })
   );
 });
 
-// LISTEN for skip waiting message (for auto-update)
+// MESSAGE listener
 self.addEventListener('message', function(event) {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
