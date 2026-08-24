@@ -3832,6 +3832,7 @@ async function handleVocalAudioUpload(e) {
     vocalAudioUploadSongId = null;
     vocalAudioUploadSourceSongId = null;
 }
+}
 
 async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
     if (!canEditVocals()) return;
