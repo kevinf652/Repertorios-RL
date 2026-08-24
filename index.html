@@ -511,7 +511,8 @@
     <div class="admin-section-subtitle">Todas las acciones de administradores, directores musicales y voces</div>
     
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <select id="log-filter-action" class="admin-search-input" style="flex:1;min-width:120px" onchange="renderAdminLogs()">
+      <input type="text" id="log-filter-search" class="admin-search-input" style="flex:2;min-width:160px;margin-bottom:0" placeholder="Buscar por usuario o @usuario..." oninput="logsPage = 0; renderAdminLogs()">
+      <select id="log-filter-action" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todas las acciones</option>
         <option value="song_created">Canción creada</option>
         <option value="song_updated">Canción editada</option>
@@ -524,8 +525,10 @@
         <option value="rep_song_added">Canción agregada a repertorio</option>
         <option value="rep_song_removed">Canción eliminada de repertorio</option>
         <option value="user_role_changed">Rol de usuario cambiado</option>
+        <option value="password_reset">Contraseña restablecida</option>
+        <option value="backfill_created_by">Mantenimiento: creado por</option>
       </select>
-      <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px" onchange="renderAdminLogs()">
+      <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todos los roles</option>
         <option value="admin">Admin</option>
         <option value="D_Musicos">D. Músicos</option>
@@ -535,6 +538,7 @@
     </div>
     
     <div id="admin-logs-content"></div>
+    <div id="admin-logs-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:12px"></div>
   </div>
 </div>
 
@@ -618,6 +622,9 @@
 
 <!-- Hidden vocal audio file input -->
 <input type="file" id="vocal-audio-upload-input" accept="audio/*" style="display:none" onchange="handleVocalAudioUpload(event)">
+
+<!-- Hidden storage replace file input (panel Almacenamiento R2) -->
+<input type="file" id="admin-storage-replace-input" accept="audio/*" style="display:none" onchange="handleAdminStorageReplace(event)">
 
 <!-- Floating Install Button -->
 <button class="install-float" id="install-float-btn" onclick="handleInstallClick()" title="Instalar app" style="display:none">
