@@ -1759,14 +1759,22 @@ async function handleAudioUpload(e) {
 
         const pathsToDelete = new Set();
         if (songs[si].audio_url) {
-            try { const storedKey = extractR2Key(songs[si].audio_url);
-                pathsToDelete.add(storedKey) } catch (e) {}
+            try { 
+                const storedKey = extractR2Key(songs[si].audio_url);
+                pathsToDelete.add(storedKey);
+            } catch (e) {}
         }
         try {
             const { data: repSongs } = await supabaseClient.from('canciones_repertorio').select('audio_url').eq('source_song_id', songId);
             if (repSongs) {
-                repSongs.forEach(rs => { if (rs.audio_url) { try { const p = extractR2Key(rs.audio_url);
-                            pathsToDelete.add(p) } catch (e) {} } });
+                repSongs.forEach(rs => { 
+                    if (rs.audio_url) { 
+                        try { 
+                            const p = extractR2Key(rs.audio_url);
+                            pathsToDelete.add(p);
+                        } catch (e) {} 
+                    } 
+                });
             }
         } catch (e) {}
         try {
@@ -1776,8 +1784,10 @@ async function handleAudioUpload(e) {
                     try {
                         const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
                         if (sd && (sd.id === songId || (sd.sourceId && sd.sourceId === songId))) {
-                            if (sd.audio_url) { const p = extractR2Key(sd.audio_url);
-                                pathsToDelete.add(p) }
+                            if (sd.audio_url) { 
+                                const p = extractR2Key(sd.audio_url);
+                                pathsToDelete.add(p);
+                            }
                         }
                     } catch (parseErr) {}
                 }
@@ -1785,7 +1795,14 @@ async function handleAudioUpload(e) {
         } catch (e) {}
 
         for (const delPath of pathsToDelete) {
-            try { await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(delPath), { method: 'DELETE' }) } catch (e) {}
+            try { 
+                // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
+                const deleteUrl = getR2DeleteUrl(delPath);
+                await fetch(deleteUrl, { method: 'DELETE' });
+                console.log('✅ Audio anterior eliminado:', delPath);
+            } catch (e) {
+                console.warn('⚠️ No se pudo eliminar archivo anterior:', delPath, e.message);
+            }
         }
 
         if (fill) fill.style.width = '35%';
@@ -3687,10 +3704,31 @@ async function handleVocalAudioUpload(e) {
                 const existing = rep.vocalAudios.find(va => va.source_song_id === sourceSongId && va.coro_number === vocalAudioUploadCoro && va.dia === vocalAudioUploadDia);
                 if (existing) {
                     if (existing.audio_url) {
-                        try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(existing.audio_url), { method: 'DELETE' }) } catch (e) {}
+                        try {
+                            let path = existing.audio_url;
+                            if (path.includes('supabase.co')) {
+                                const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
+                                if (match) path = match[1];
+                            } else {
+                                path = extractR2Key(path);
+                            }
+                            // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
+                            const deleteUrl = getR2DeleteUrl(path);
+                            await fetch(deleteUrl, { method: 'DELETE' });
+                            console.log('✅ Audio vocal anterior eliminado:', path);
+                        } catch (e) {
+                            console.warn('⚠️ No se pudo eliminar audio_url anterior:', e.message);
+                        }
                     }
                     if (existing.audio_path) {
-                        try { await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(extractR2Key(existing.audio_path)), { method: 'DELETE' }) } catch (e) {}
+                        try {
+                            // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
+                            const deleteUrl = getR2DeleteUrl(existing.audio_path);
+                            await fetch(deleteUrl, { method: 'DELETE' });
+                            console.log('✅ Audio vocal anterior (path) eliminado:', existing.audio_path);
+                        } catch (e) {
+                            console.warn('⚠️ No se pudo eliminar audio_path anterior:', e.message);
+                        }
                     }
                     break;
                 }
