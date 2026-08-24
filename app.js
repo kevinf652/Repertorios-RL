@@ -7,31 +7,11 @@ function extractR2Key(urlOrPath) {
     if (!urlOrPath) return '';
     try {
         let key = urlOrPath;
-        
-        // --- NUEVO: Manejar URLs de Supabase ---
-        if (urlOrPath.includes('supabase.co')) {
-            // Busca el patrón: /storage/v1/object/public/[bucket]/[ruta]
-            const match = urlOrPath.match(/\/storage\/v1\/object\/public\/([^?]+)/);
-            if (match) {
-                return match[1]; // Devuelve: "vocal-audios/1787084014693-msw8qqyown1j7luau_coro1_domingo.mp3"
-            }
-        }
-        
-        // Si es URL de R2 Worker
         if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://')) {
             key = new URL(urlOrPath).pathname;
         }
-        
-        // Limpiar
-        if (key.startsWith('/file/')) key = key.substring(6);
-        else if (key.startsWith('/')) key = key.substring(1);
+        if (key.startsWith('/')) key = key.substring(1);
         if (key.toLowerCase().startsWith('file/')) key = key.substring(5);
-        
-        // --- NUEVO: Decodificar URL encoding ---
-        try {
-            key = decodeURIComponent(key);
-        } catch (e) {}
-        
         return key;
     } catch (e) {
         let key = urlOrPath;
@@ -39,6 +19,28 @@ function extractR2Key(urlOrPath) {
         if (key.toLowerCase().startsWith('file/')) key = key.substring(5);
         return key;
     }
+}
+function getR2DeleteUrl(path) {
+    if (!path) return '';
+    // Si ya es una URL completa, extraer la ruta
+    let cleanPath = path;
+    if (path.includes('supabase.co')) {
+        const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
+        if (match) cleanPath = match[1];
+    }
+    
+    // Dividir en carpeta y archivo
+    const lastSlash = cleanPath.lastIndexOf('/');
+    if (lastSlash === -1) {
+        // No tiene carpeta, asumir "songs/"
+        return R2_WORKER_URL + '/file/songs/' + encodeURIComponent(cleanPath);
+    }
+    
+    const folder = cleanPath.substring(0, lastSlash);
+    const filename = cleanPath.substring(lastSlash + 1);
+    
+    // Codificar solo el nombre del archivo, no la ruta
+    return R2_WORKER_URL + '/file/' + folder + '/' + encodeURIComponent(filename);
 }
 
 const SHARPS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -1870,36 +1872,67 @@ async function removeSongAudio(songId) {
     if (si === -1) return;
     const s = songs[si];
 
-    const extensions = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'webm'];
-    for (const ext of extensions) {
-        try { await fetch(R2_WORKER_URL + '/file/songs/' + songId + '.' + ext, { method: 'DELETE' }) } catch (e) {}
-    }
+    // --- Eliminar de R2 correctamente ---
     if (s.audio_url) {
-        try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(s.audio_url), { method: 'DELETE' }) } catch (e) {}
+        try {
+            let path = s.audio_url;
+            // Si es URL de Supabase, extrae la ruta
+            if (path.includes('supabase.co')) {
+                const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
+                if (match) path = match[1];
+            } else {
+                path = extractR2Key(path);
+            }
+            
+            // Usar la función helper para construir la URL correcta
+            const deleteUrl = getR2DeleteUrl(path);
+            console.log('📤 Eliminando audio de canción:', deleteUrl);
+            
+            const response = await fetch(deleteUrl, { method: 'DELETE' });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.warn('⚠️ No se pudo eliminar de R2:', response.status, errorText);
+            } else {
+                console.log('✅ Audio de canción eliminado de R2:', path);
+            }
+        } catch (e) {
+            console.warn('⚠️ Error eliminando audio de canción:', e.message);
+        }
     }
 
+    // Limpiar en la base de datos local
     songs[si].audio_url = null;
     save('cb_songs', songs);
 
+    // Limpiar en Supabase
     try {
         await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId);
+        
         const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
         if (userSongs) {
             for (const us of userSongs) {
                 try {
-                    const sd = JSON.parse(us.song_data);
-                    if (sd.id === songId || (sd.sourceId && sd.sourceId === songId)) {
+                    const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
+                    if (sd && (sd.id === songId || (sd.sourceId && sd.sourceId === songId))) {
                         sd.audio_url = null;
-                        await supabaseClient.from('user_songs').update({ song_data: JSON.stringify(sd), updated_at: Date.now() }).eq('id', us.id);
+                        await supabaseClient.from('user_songs').update({ 
+                            song_data: JSON.stringify(sd), 
+                            updated_at: Date.now() 
+                        }).eq('id', us.id);
                     }
                 } catch (parseErr) {}
             }
         }
-    } catch (e) { console.log('Supabase update skipped:', e.message) }
+    } catch (e) {
+        console.log('Supabase update skipped:', e.message);
+    }
 
     try { await loadRepertorios() } catch (e) { console.log("Reload repertorios error:", e.message) }
+    
     if (viewingSongId === songId) { renderView() } else { renderLibrary() }
     if (viewingRepId) { renderRepertorioView() }
+    
     showNotif('import-notification', 'Audio desvinculado de "' + s.title + '"', 'success');
     logActivity('audio_deleted', {
         type: 'song',
@@ -3740,23 +3773,66 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
     if (!existing) return;
 
     try {
+        // --- Eliminar de R2 correctamente ---
         if (existing.audio_url) {
-            try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(existing.audio_url), { method: 'DELETE' }) } catch (e) {}
+            try {
+                let path = existing.audio_url;
+                // Si es URL de Supabase, extrae la ruta
+                if (path.includes('supabase.co')) {
+                    const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
+                    if (match) path = match[1];
+                } else {
+                    path = extractR2Key(path);
+                }
+                
+                // Usar la función helper para construir la URL correcta
+                const deleteUrl = getR2DeleteUrl(path);
+                console.log('📤 Eliminando audio vocal:', deleteUrl);
+                
+                const response = await fetch(deleteUrl, { method: 'DELETE' });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.warn('⚠️ No se pudo eliminar de R2:', response.status, errorText);
+                } else {
+                    console.log('✅ Audio vocal eliminado de R2:', path);
+                }
+            } catch (e) {
+                console.warn('⚠️ Error eliminando audio vocal de R2:', e.message);
+            }
         }
+        
         if (existing.audio_path) {
-            try { await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(extractR2Key(existing.audio_path)), { method: 'DELETE' }) } catch (e) {}
+            try {
+                const deleteUrl = getR2DeleteUrl(existing.audio_path);
+                console.log('📤 Eliminando audio vocal (path):', deleteUrl);
+                
+                const response = await fetch(deleteUrl, { method: 'DELETE' });
+                
+                if (!response.ok) {
+                    console.warn('⚠️ No se pudo eliminar audio_path de R2:', response.status);
+                } else {
+                    console.log('✅ Audio vocal (path) eliminado de R2:', existing.audio_path);
+                }
+            } catch (e) {
+                console.warn('⚠️ Error eliminando audio_path de R2:', e.message);
+            }
         }
 
+        // Eliminar de la base de datos
         await supabaseClient.from('vocal_audios').delete().eq('id', existing.id);
         await loadRepertorios();
         renderRepertorioView();
         showNotification('Audio eliminado', 'success');
+        
         logActivity('audio_deleted', {
             type: 'vocal',
             coro: coro,
             dia: dia
         }, 'vocal', resolvedSourceId);
+        
     } catch (err) {
+        console.error('❌ Error:', err);
         alert('Error al eliminar: ' + err.message);
     }
 }
