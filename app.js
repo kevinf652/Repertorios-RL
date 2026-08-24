@@ -728,7 +728,6 @@ function initAuth() {
             currentUser = JSON.parse(saved);
             userRole = currentUser.role || 'usuario';
             repAdmin = (userRole === 'admin');
-            if (currentUser && currentUser.id === 'admin') repAdmin = true;
             if (currentUser && supabaseReady) {
                 console.log('User logged in, loading songs from cloud...');
                 loadSongsFromCloud().then(cloudSongs => {
@@ -851,7 +850,7 @@ async function handleLogin(e) {
     try {
         const { data, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
         if (error || !data) { showAuthError('Usuario o contraseña incorrectos'); return }
-        await supabaseClient.from('admin_users').update({ created_at: Date.now() }).eq('id', data.id);
+        await supabaseClient.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', data.id);
         currentUser = { id: data.id, nombre: data.nombre || '', apellido: data.apellido || '', role: data.role || 'usuario' };
         localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
         userRole = currentUser.role;
@@ -895,7 +894,15 @@ async function handleRegister(e) {
     try {
         const { data: existing } = await supabaseClient.from('admin_users').select('id').eq('id', username.toLowerCase()).single();
         if (existing) { showAuthError('Este usuario ya está registrado'); return }
-        const { error } = await supabaseClient.from('admin_users').insert({ id: username.toLowerCase(), nombre: nombre, apellido: apellido, password_hash: password, created_at: Date.now() });
+        // ✅ FORZAR role = 'usuario' siempre al registrarse
+        const { error } = await supabaseClient.from('admin_users').insert({ 
+            id: username.toLowerCase(), 
+            nombre: nombre, 
+            apellido: apellido, 
+            password_hash: password, 
+            role: 'usuario',  // <-- SIEMPRE usuario
+            created_at: Date.now() 
+        });
         if (error) throw error;
         showAuthSuccess('¡Cuenta creada! Ahora puedes iniciar sesión.');
         switchAuthTab('login');
@@ -1827,6 +1834,11 @@ async function handleAudioUpload(e) {
     }
     e.target.value = '';
     audioUploadSongId = null;
+logActivity('audio_uploaded', {
+    type: 'song',
+    fileSize: file.size,
+    songTitle: songTitle
+}, 'song', songId);
 }
 
 function triggerAudioUpload(songId) { audioUploadSongId = songId;
@@ -2054,11 +2066,26 @@ function saveSong() {
             var userName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
             songs[i] = { ...songs[i], title: t, artist: a, lyrics: l, originalKey: formKey, tags: [...formTags], tempo: bpm || songs[i].tempo || 0, compas: cmp || songs[i].compas || '', audio_url: songs[i].audio_url || null, updatedAt: Date.now(), modifiedBy: userName || songs[i].modifiedBy || '' };
             syncRepertorioFromLibrary(songs[i]);
+    logActivity('song_updated', { 
+        title: t, 
+        artist: a, 
+        originalKey: formKey,
+        tempo: bpm,
+        compas: cmp
+    }, 'song', editingSongId);
         }
     } else {
         var dk = detectKey(l);
         var creatorName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
         songs.unshift({ id: genId(), title: t, artist: a, lyrics: l, originalKey: formKey || dk, currentKey: formKey || dk, tags: [...formTags], tempo: bpm, compas: cmp, audio_url: null, createdAt: Date.now(), updatedAt: Date.now(), createdBy: creatorName || '' })
+
+logActivity('song_created', { 
+    title: t, 
+    artist: a, 
+    originalKey: formKey || dk,
+    tempo: bpm,
+    compas: cmp
+}, 'song', songs[0].id);
     }
     save('cb_songs', songs);
     editingSongId = null;
@@ -2737,24 +2764,6 @@ const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Vierne
 function fmtDate(ds) { const d = new Date(ds + 'T12:00:00'); return DAY_NAMES[d.getDay()] + ' ' + d.getDate() + '/' + MONTH_NAMES[d.getMonth()] }
 function fmtShortDate(ds) { const d = new Date(ds + 'T12:00:00'); return d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0, 3) }
 
-function showRepLogin() {
-    document.getElementById('login-modal').classList.remove('hidden');
-    document.getElementById('login-password').focus()
-}
-
-function hideRepLogin() {
-    document.getElementById('login-modal').classList.add('hidden');
-    document.getElementById('login-password').value = '';
-    document.getElementById('login-error').classList.add('hidden')
-}
-
-function doRepLogin() {
-    if (document.getElementById('login-password').value === 'worship2026') { repAdmin = true;
-        hideRepLogin();
-        renderRepertorios() } else { document.getElementById('login-error').classList.remove('hidden');
-        setTimeout(() => document.getElementById('login-error').classList.add('hidden'), 3000) }
-}
-
 async function createRepertorio() {
     if (!repAdmin || !supabaseReady) return;
     const titulo = prompt('Nombre del repertorio (ej: 24/25 Agosto):');
@@ -2843,6 +2852,11 @@ async function confirmAddSongToRep(repId, songId) {
     const ctxDay = addSongDefaultDia !== 'ambos' ? addSongDefaultDia : (repDay || 'domingo');
     vocalEditorDay = addSongDefaultDia;
     showVocalEditor(repId, songId, 'add', s, ctxDay);
+logActivity('rep_song_added', {
+    repertorio: r.titulo,
+    dia: addSongDefaultDia,
+    songTitle: s.title
+}, 'repertorio', repId);
 }
 
 async function deleteRepertorio(repId) {
@@ -2867,8 +2881,6 @@ function renderRepertorios() {
     const active = repertorios.filter(r => r.estado === 'activo').sort((a, b) => a.fecha_domingo > b.fecha_domingo ? 1 : a.fecha_domingo < b.fecha_domingo ? -1 : 0);
     const archived = repertorios.filter(r => r.estado === 'archivado');
     document.getElementById('rep-count').textContent = active.length + ' activos';
-    document.getElementById('rep-admin-btn').innerHTML = repAdmin ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Gestionar' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Admin';
-    document.getElementById('rep-admin-btn').style.display = repAdmin ? 'none' : '';
     const c = document.getElementById('rep-list');
     if (repTab === 'active') {
         const fc = document.getElementById('rep-filters');
@@ -3227,6 +3239,10 @@ function deleteRepSong(repId, songId) {
             renderRepertorioView();
         }
     }).catch(function(e) { alert('Error: ' + e.message) });
+logActivity('rep_song_removed', {
+    repertorio: r.titulo,
+    songTitle: s.titulo
+}, 'repertorio', repId);
 }
 
 function changeRepKey(d) {
@@ -3547,6 +3563,12 @@ async function saveVocalEditor() {
             hideVocalEditor();
         } catch (e) { alert('Error al guardar: ' + e.message) }
     }
+logActivity('vocals_assigned', {
+    day: vocalEditorContextDay,
+    main: mainName,
+    coros: coros,
+    mode: vocalEditorMode
+}, 'song', vocalEditorSongId);
 }
 
 // ============= VOCAL AUDIO UPLOAD =============
@@ -3643,6 +3665,11 @@ async function handleVocalAudioUpload(e) {
     vocalAudioUploadRepId = null;
     vocalAudioUploadSongId = null;
     vocalAudioUploadSourceSongId = null;
+logActivity('audio_uploaded', {
+    type: 'vocal',
+    coro: vocalAudioUploadCoro,
+    dia: vocalAudioUploadDia
+}, 'vocal', sourceSongId);
 }
 
 async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {

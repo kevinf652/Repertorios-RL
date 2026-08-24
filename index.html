@@ -128,6 +128,7 @@
 <div id="page-library" class="page active">
   <div class="header">
     <div class="header-inner">
+
       <div style="display:flex;align-items:center;gap:8px">
         <div style="width:32px;height:32px;border-radius:8px;overflow:hidden;box-shadow:0 4px 8px rgba(245,158,11,.2)">
           <img src="icon-192.png" alt="Logo" style="width:100%;height:100%;object-fit:cover">
@@ -319,10 +320,6 @@
   <div class="header">
     <div class="header-inner">
       <div><div class="header-title">Repertorios</div><div class="header-sub" id="rep-count">0 activos</div></div>
-      <button class="btn btn-zinc" id="rep-admin-btn" onclick="showRepLogin()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Admin
-      </button>
     </div>
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:0 12px 12px">
@@ -391,17 +388,150 @@
   </div>
 </div>
 
-<!-- Login Modal -->
-<div id="login-modal" class="login-modal hidden" onclick="if(event.target===this)hideRepLogin()">
-  <div class="login-box">
-    <h3>Acceso Admin</h3>
-    <p>Ingresa la contraseña para gestionar repertorios</p>
-    <input type="password" id="login-password" class="input" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doRepLogin()">
-    <div id="login-error" class="login-error hidden">Contraseña incorrecta</div>
-    <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn btn-zinc" style="flex:1" onclick="hideRepLogin()">Cancelar</button>
-      <button class="btn btn-amber" style="flex:1" onclick="doRepLogin()">Entrar</button>
+<!-- PAGE: Admin -->
+<div id="page-admin" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <div><div class="header-title">Administración</div><div class="header-sub">Panel de configuración</div></div>
     </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px" id="admin-content"></div>
+</div>
+
+<!-- PAGE: Admin Usuarios -->
+<div id="page-admin-usuarios" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Usuarios</div>
+    <input type="text" id="admin-usuarios-search" class="admin-search-input" placeholder="Buscar usuario..." oninput="renderAdminUsuarios()">
+    <div id="admin-usuarios-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin - Canciones de un usuario -->
+<div id="page-admin-user-songs" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin-usuarios')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Usuarios</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title" id="admin-user-songs-title">Usuario</div>
+    <div id="admin-user-songs-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Duplicados -->
+<div id="page-admin-duplicados" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Canciones duplicadas</div>
+    <div id="admin-duplicados-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Repertorios -->
+<div id="page-admin-repertorios" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Todos los repertorios</div>
+    <div id="admin-repertorios-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Mantenimiento -->
+<div id="page-admin-mantenimiento" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Mantenimiento</div>
+    <div id="admin-mantenimiento-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Almacenamiento -->
+<div id="page-admin-storage" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">📦 Almacenamiento R2</div>
+    <div class="admin-section-subtitle">Archivos de audio subidos al Cloudflare R2</div>
+    <div id="admin-storage-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Logs -->
+<div id="page-admin-logs" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">📋 Registro de actividades</div>
+    <div class="admin-section-subtitle">Todas las acciones de administradores, directores musicales y voces</div>
+    
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <select id="log-filter-action" class="admin-search-input" style="flex:1;min-width:120px" onchange="renderAdminLogs()">
+        <option value="">Todas las acciones</option>
+        <option value="song_created">Canción creada</option>
+        <option value="song_updated">Canción editada</option>
+        <option value="song_deleted">Canción eliminada</option>
+        <option value="vocals_assigned">Vocales asignadas</option>
+        <option value="audio_uploaded">Audio subido</option>
+        <option value="rep_song_added">Canción agregada a repertorio</option>
+        <option value="rep_song_removed">Canción eliminada de repertorio</option>
+        <option value="user_role_changed">Rol de usuario cambiado</option>
+      </select>
+      <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px" onchange="renderAdminLogs()">
+        <option value="">Todos los roles</option>
+        <option value="admin">Admin</option>
+        <option value="D_Musicos">D. Músicos</option>
+        <option value="D_Voces">D. Voces</option>
+      </select>
+      <button class="btn btn-zinc" onclick="renderAdminLogs()">🔄 Refrescar</button>
+    </div>
+    
+    <div id="admin-logs-content"></div>
   </div>
 </div>
 
@@ -521,10 +651,18 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       <span class="nav-btn-label">Repertorios</span>
     </button>
+
+    <button class="nav-btn" id="nav-admin" style="display:none" onclick="showPage('admin')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Admin</span>
+    </button>
+
   </div>
 </nav>
 
 
-<script src="app.js"></script>
+<link rel="stylesheet" href="./admin.css">
+<script src="./app.js"></script>
+<script src="./admin.js"></script>
 </body>
 </html>

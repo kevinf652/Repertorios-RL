@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v2.233';
+const CACHE_NAME = 'repertorios-rl-v2.31';
 const urlsToCache = [
   './',
   './index.html',
@@ -6,7 +6,9 @@ const urlsToCache = [
   './icon-192.png',
   './icon-512.png',
   './app.js',
-  './styles.css'
+  './styles.css',
+  './admin.js',
+  './admin.css'
 ];
 
 // INSTALL - Cache app shell
