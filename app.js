@@ -3698,39 +3698,52 @@ async function handleVocalAudioUpload(e) {
     const filename = sourceSongId + '_coro' + vocalAudioUploadCoro + '_' + vocalAudioUploadDia + '.mp3';
     const storagePath = 'vocal-audios/' + filename;
 
+    // ✅ PRIMERO: Verificar si ya existe un audio para este coro en la base de datos
+    let existingAudio = null;
     try {
-        for (const rep of repertorios) {
-            if (rep.vocalAudios) {
-                const existing = rep.vocalAudios.find(va => va.source_song_id === sourceSongId && va.coro_number === vocalAudioUploadCoro && va.dia === vocalAudioUploadDia);
-                if (existing) {
-                    if (existing.audio_url) {
-                        try {
-                            let path = existing.audio_url;
-                            if (path.includes('supabase.co')) {
-                                const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
-                                if (match) path = match[1];
-                            } else {
-                                path = extractR2Key(path);
-                            }
-                            // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
-                            const deleteUrl = getR2DeleteUrl(path);
-                            await fetch(deleteUrl, { method: 'DELETE' });
-                            console.log('✅ Audio vocal anterior eliminado:', path);
-                        } catch (e) {
-                            console.warn('⚠️ No se pudo eliminar audio_url anterior:', e.message);
-                        }
+        const { data: existingRows } = await supabaseClient
+            .from('vocal_audios')
+            .select('*')
+            .eq('source_song_id', sourceSongId)
+            .eq('coro_number', vocalAudioUploadCoro)
+            .eq('dia', vocalAudioUploadDia)
+            .maybeSingle();
+        
+        if (existingRows) {
+            existingAudio = existingRows;
+            console.log('📌 Audio existente encontrado:', existingAudio);
+        }
+    } catch (e) {
+        console.warn('⚠️ Error verificando audio existente:', e.message);
+    }
+
+    try {
+        // ✅ SOLO eliminar si existe audio previo
+        if (existingAudio) {
+            // Eliminar de R2
+            if (existingAudio.audio_url) {
+                try {
+                    let path = existingAudio.audio_url;
+                    if (path.includes('supabase.co')) {
+                        const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
+                        if (match) path = match[1];
+                    } else {
+                        path = extractR2Key(path);
                     }
-                    if (existing.audio_path) {
-                        try {
-                            // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
-                            const deleteUrl = getR2DeleteUrl(existing.audio_path);
-                            await fetch(deleteUrl, { method: 'DELETE' });
-                            console.log('✅ Audio vocal anterior (path) eliminado:', existing.audio_path);
-                        } catch (e) {
-                            console.warn('⚠️ No se pudo eliminar audio_path anterior:', e.message);
-                        }
-                    }
-                    break;
+                    const deleteUrl = getR2DeleteUrl(path);
+                    await fetch(deleteUrl, { method: 'DELETE' });
+                    console.log('✅ Audio vocal anterior eliminado de R2:', path);
+                } catch (e) {
+                    console.warn('⚠️ No se pudo eliminar audio_url anterior:', e.message);
+                }
+            }
+            if (existingAudio.audio_path) {
+                try {
+                    const deleteUrl = getR2DeleteUrl(existingAudio.audio_path);
+                    await fetch(deleteUrl, { method: 'DELETE' });
+                    console.log('✅ Audio vocal anterior (path) eliminado de R2:', existingAudio.audio_path);
+                } catch (e) {
+                    console.warn('⚠️ No se pudo eliminar audio_path anterior:', e.message);
                 }
             }
         }
@@ -3751,18 +3764,33 @@ async function handleVocalAudioUpload(e) {
         }
         audioUrl = normalizeVocalAudioUrl(audioUrl);
 
-        const { data: upsertData, error: dbErr } = await supabaseClient.from('vocal_audios').upsert({
-            cancion_repertorio_id: vocalAudioUploadSongId,
-            repertorio_id: vocalAudioUploadRepId,
-            source_song_id: sourceSongId,
-            coro_number: vocalAudioUploadCoro,
-            dia: vocalAudioUploadDia,
-            vocalista_name: '',
-            audio_url: audioUrl,
-            audio_path: storagePath,
-            updated_at: Date.now()
-        }, { onConflict: 'source_song_id,coro_number,dia' });
-        if (dbErr) throw dbErr;
+        // ✅ Si existe, actualizar; si no, insertar
+        if (existingAudio && existingAudio.id) {
+            const { error: dbErr } = await supabaseClient
+                .from('vocal_audios')
+                .update({
+                    audio_url: audioUrl,
+                    audio_path: storagePath,
+                    updated_at: Date.now()
+                })
+                .eq('id', existingAudio.id);
+            if (dbErr) throw dbErr;
+        } else {
+            const { error: dbErr } = await supabaseClient
+                .from('vocal_audios')
+                .insert({
+                    cancion_repertorio_id: vocalAudioUploadSongId,
+                    repertorio_id: vocalAudioUploadRepId,
+                    source_song_id: sourceSongId,
+                    coro_number: vocalAudioUploadCoro,
+                    dia: vocalAudioUploadDia,
+                    vocalista_name: '',
+                    audio_url: audioUrl,
+                    audio_path: storagePath,
+                    updated_at: Date.now()
+                });
+            if (dbErr) throw dbErr;
+        }
 
         await loadRepertorios();
         renderRepertorioView();

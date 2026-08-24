@@ -635,33 +635,80 @@ async function adminDeleteStorageAudio(key) {
     if (!confirm('¿Eliminar el audio "' + label + '"? Esto lo quitará de la canción/repertorio donde esté vinculado y no se puede deshacer.')) return;
 
     try {
-        await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(key), { method: 'DELETE' });
+        // ✅ 1. Eliminar de R2 usando getR2DeleteUrl
+        const deleteUrl = getR2DeleteUrl(key);
+        console.log('📤 Eliminando de R2:', deleteUrl);
+        
+        const response = await fetch(deleteUrl, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.warn('⚠️ No se pudo eliminar de R2:', response.status, errorText);
+        } else {
+            console.log('✅ Archivo eliminado de R2:', key);
+        }
 
+        // ✅ 2. Eliminar referencia de la base de datos
         if (isSong) {
             const songId = (songData && songData.id) || parseSongIdFromKey(key);
-            try { await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId) } catch (e) {}
+            
+            // Eliminar de canciones_repertorio
+            try { 
+                await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId);
+                console.log('✅ Referencia eliminada de canciones_repertorio');
+            } catch (e) { console.warn('⚠️ Error actualizando canciones_repertorio:', e.message); }
+            
+            // Eliminar de user_songs
             try {
                 const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
                 if (userSongs) {
+                    let updated = 0;
                     for (const us of userSongs) {
                         try {
                             const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
                             if (sd && (sd.id === songId || sd.sourceId === songId)) {
                                 sd.audio_url = null;
-                                await supabaseClient.from('user_songs').update({ song_data: JSON.stringify(sd), updated_at: Date.now() }).eq('id', us.id);
+                                await supabaseClient.from('user_songs').update({ 
+                                    song_data: JSON.stringify(sd), 
+                                    updated_at: Date.now() 
+                                }).eq('id', us.id);
+                                updated++;
                             }
                         } catch (e) {}
                     }
+                    console.log('✅ Referencias eliminadas de user_songs:', updated);
                 }
-            } catch (e) {}
-            logActivity('audio_deleted', { type: 'song', songTitle: (songData && songData.title) || songId }, 'song', songId);
-        } else {
+            } catch (e) { console.warn('⚠️ Error actualizando user_songs:', e.message); }
+            
+            logActivity('audio_deleted', { 
+                type: 'song', 
+                songTitle: (songData && songData.title) || songId 
+            }, 'song', songId);
+            
+        } else if (isVocal) {
             const parts = parseVocalKeyParts(key);
             if (parts.sourceSongId && parts.coro && parts.dia) {
-                try { await supabaseClient.from('vocal_audios').delete().eq('source_song_id', parts.sourceSongId).eq('coro_number', parts.coro).eq('dia', parts.dia) } catch (e) {}
+                // Eliminar de vocal_audios
+                try {
+                    const { error } = await supabaseClient
+                        .from('vocal_audios')
+                        .delete()
+                        .eq('source_song_id', parts.sourceSongId)
+                        .eq('coro_number', parts.coro)
+                        .eq('dia', parts.dia);
+                    
+                    if (!error) {
+                        console.log('✅ Referencia eliminada de vocal_audios');
+                    }
+                } catch (e) { 
+                    console.warn('⚠️ Error eliminando de vocal_audios:', e.message); 
+                }
             }
             try { await loadRepertorios() } catch (e) {}
-            logActivity('audio_deleted', { type: 'vocal', coro: parts.coro, dia: parts.dia }, 'vocal', parts.sourceSongId);
+            logActivity('audio_deleted', { 
+                type: 'vocal', 
+                coro: parts.coro, 
+                dia: parts.dia 
+            }, 'vocal', parts.sourceSongId);
         }
 
         showNotification('Audio eliminado', 'success');
@@ -669,13 +716,10 @@ async function adminDeleteStorageAudio(key) {
         await loadR2StorageData(true);
         renderAdminStorage();
     } catch (e) {
+        console.error('❌ Error en adminDeleteStorageAudio:', e);
         alert('Error al eliminar: ' + e.message);
     }
 }
-
-let pendingReplaceKey = null;
-let pendingReplaceType = null;
-let pendingReplaceSongData = null;
 
 async function triggerAdminStorageReplace(key) {
     if (!isAdmin()) return;
@@ -695,7 +739,10 @@ async function handleAdminStorageReplace(e) {
     const songData = pendingReplaceSongData;
 
     try {
-        await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(key), { method: 'DELETE' });
+        // ✅ 1. Eliminar el archivo viejo de R2
+        const deleteUrl = getR2DeleteUrl(key);
+        console.log('📤 Eliminando archivo viejo:', deleteUrl);
+        await fetch(deleteUrl, { method: 'DELETE' });
 
         if (type === 'song') {
             const songId = (songData && songData.id) || parseSongIdFromKey(key);
