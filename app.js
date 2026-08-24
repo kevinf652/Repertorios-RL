@@ -1881,6 +1881,10 @@ async function removeSongAudio(songId) {
     if (viewingSongId === songId) { renderView() } else { renderLibrary() }
     if (viewingRepId) { renderRepertorioView() }
     showNotif('import-notification', 'Audio desvinculado de "' + s.title + '"', 'success');
+    logActivity('audio_deleted', {
+        type: 'song',
+        songTitle: s.title
+    }, 'song', songId);
 }
 
 // ============= SYNC REPERTORIO FUNCTIONS =============
@@ -2137,6 +2141,10 @@ async function confirmDeleteSong(id) {
     save('cb_lists', lists);
     renderLibrary();
     if (currentUser && supabaseReady) { syncSongsToCloud() }
+    logActivity('song_deleted', {
+        title: s ? s.title : '',
+        artist: s ? s.artist : ''
+    }, 'song', songId);
 }
 
 async function deleteCurrentSong() {
@@ -2161,6 +2169,10 @@ async function deleteCurrentSong() {
     save('cb_lists', lists);
     showPage('library');
     if (currentUser && supabaseReady) { syncSongsToCloud() }
+    logActivity('song_deleted', {
+        title: s ? s.title : '',
+        artist: s ? s.artist : ''
+    }, 'song', songId);
 }
 
 function saveRepSongToLibrary() {
@@ -2780,6 +2792,10 @@ async function createRepertorio() {
         await loadRepertorios();
         renderRepertorios();
         alert('Repertorio creado');
+        logActivity('rep_created', {
+            repertorio: titulo,
+            day: dom
+        }, 'repertorio', id);
     } catch (e) { alert('Error: ' + e.message) }
 }
 
@@ -2861,12 +2877,16 @@ logActivity('rep_song_added', {
 
 async function deleteRepertorio(repId) {
     if (!canManageReps() || !supabaseReady) return;
+    const r = repertorios.find(x => x.id === repId);
     if (!confirm('¿Eliminar este repertorio y todas sus canciones?')) return;
     try {
         await supabaseClient.from('canciones_repertorio').delete().eq('repertorio_id', repId);
         await supabaseClient.from('repertorios').delete().eq('id', repId);
         await loadRepertorios();
         renderRepertorios();
+        logActivity('rep_deleted', {
+            repertorio: r ? r.titulo : repId
+        }, 'repertorio', repId);
     } catch (e) { alert('Error: ' + e.message) }
 }
 
@@ -3660,16 +3680,17 @@ async function handleVocalAudioUpload(e) {
         alert('Error al subir audio: ' + err.message);
     }
 
+    logActivity('audio_uploaded', {
+        type: 'vocal',
+        coro: vocalAudioUploadCoro,
+        dia: vocalAudioUploadDia
+    }, 'vocal', sourceSongId);
+
     e.target.value = '';
     vocalAudioUploadCoro = null;
     vocalAudioUploadRepId = null;
     vocalAudioUploadSongId = null;
     vocalAudioUploadSourceSongId = null;
-logActivity('audio_uploaded', {
-    type: 'vocal',
-    coro: vocalAudioUploadCoro,
-    dia: vocalAudioUploadDia
-}, 'vocal', sourceSongId);
 }
 
 async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
@@ -3710,6 +3731,11 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
         await loadRepertorios();
         renderRepertorioView();
         showNotification('Audio eliminado', 'success');
+        logActivity('audio_deleted', {
+            type: 'vocal',
+            coro: coro,
+            dia: dia
+        }, 'vocal', resolvedSourceId);
     } catch (err) {
         alert('Error al eliminar: ' + err.message);
     }
