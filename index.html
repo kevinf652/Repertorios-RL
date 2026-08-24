@@ -618,6 +618,647 @@
 <div id="rep-song-picker"></div>
 
 <!-- Hidden audio file input -->
+<input type="file" id="audio-upload-input" accept="audio/*" style="display:none">
+
+<!-- Hidden vocal audio file input -->
+<input type="file" id="vocal-audio-upload-input" accept="audio/*" style="display:none">
+
+<!-- Hidden storage replace file input (panel Almacenamiento R2) -->
+<input type="file" id="admin-storage-replace-input" accept="audio/*" style="display:none" onchange="handleAdminStorageReplace(event)">
+
+<!-- Floating Install Button -->
+<button class="install-float" id="install-float-btn" onclick="handleInstallClick()" title="Instalar app" style="display:none">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+</button>
+
+<!-- iOS Install Modal -->
+<div id="ios-install-modal" class="ios-install-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="install-ios-box">
+    <h3>📱 Instalar Repertorios RL</h3>
+    <p>Para instalar en tu iPhone/iPad:</p>
+    <div class="step"><span class="step-num">1</span><span>Toca el botón <strong>Compartir</strong> ⬇️ en Safari</span></div>
+    <div class="step"><span class="step-num">2</span><span>Selecciona <strong>"Añadir a pantalla de inicio"</strong></span></div>
+    <div class="step"><span class="step-num">3</span><span>Toca <strong>"Añadir"</strong> en la esquina superior derecha</span></div>
+    <div style="margin-top:16px;display:flex;gap:8px">
+      <button class="btn btn-amber" style="flex:1" onclick="document.getElementById('ios-install-modal').style.display='none'">Entendido</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="bottom-nav">
+  <div class="bottom-nav-inner">
+    <button class="nav-btn active" id="nav-library" onclick="showPage('library')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      <span class="nav-btn-label">Biblioteca</span>
+    </button>
+
+    <button class="nav-btn" id="nav-lists" onclick="showPage('lists')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      <span class="nav-btn-label">Listas</span>
+    </button>
+    <button class="nav-btn" id="nav-repertorios" onclick="showPage('repertorios')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span class="nav-btn-label">Repertorios</span>
+    </button>
+
+    <button class="nav-btn" id="nav-admin" style="display:none" onclick="showPage('admin')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Admin</span>
+    </button>
+
+  </div>
+</nav>
+
+
+<link rel="stylesheet" href="./admin.css">
+<script src="./app.js"></script>
+<script src="./admin.js"></script>
+</body>
+</html>    <!-- Login Form -->
+    <form id="auth-login-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="label">Usuario</label>
+        <input type="text" id="login-username" class="input" placeholder="Tu usuario" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Contraseña</label>
+        <input type="password" id="login-password" class="input" placeholder="Tu contraseña" required>
+      </div>
+      <button type="submit" class="btn btn-amber" style="width:100%;justify-content:center;padding:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10,17 15,12 10,7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Iniciar Sesión
+      </button>
+      <div style="text-align:center;margin-top:16px">
+        <button type="button" class="btn btn-zinc" onclick="closeAuthModal()" style="font-size:.75rem">
+          Usar sin sesión (solo local)
+        </button>
+      </div>
+    </form>
+    
+    <!-- Register Form -->
+    <form id="auth-register-form" style="display:none" onsubmit="handleRegister(event)">
+      <div class="form-group">
+        <label class="label">Nombre</label>
+        <input type="text" id="reg-nombre" class="input" placeholder="Tu nombre" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Apellido</label>
+        <input type="text" id="reg-apellido" class="input" placeholder="Tu apellido" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Usuario</label>
+        <input type="text" id="reg-username" class="input" placeholder="Elige un usuario" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Contraseña</label>
+        <input type="password" id="reg-password" class="input" placeholder="Elige una contraseña" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Confirmar contraseña</label>
+        <input type="password" id="reg-password-confirm" class="input" placeholder="Repite la contraseña" required>
+      </div>
+      <button type="submit" class="btn btn-amber" style="width:100%;justify-content:center;padding:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Crear Cuenta
+      </button>
+    </form>
+    
+    <div style="text-align:center;margin-top:12px;font-size:.7rem;color:#71717a">
+      Tus datos locales se mantendrán intactos
+    </div>
+  </div>
+</div>
+
+<!-- CHANGE PASSWORD MODAL -->
+<div id="change-password-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">Cambiar Contraseña</div>
+    <div class="auth-subtitle">Ingresa tu contraseña actual y la nueva</div>
+    
+    <div id="cp-error" class="auth-error"></div>
+    <div id="cp-success" class="auth-success"></div>
+    
+    <form onsubmit="handleChangePassword(event)">
+      <div class="form-group">
+        <label class="label">Contraseña actual</label>
+        <input type="password" id="cp-old-password" class="input" placeholder="Tu contraseña actual" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Nueva contraseña</label>
+        <input type="password" id="cp-new-password" class="input" placeholder="Nueva contraseña" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Confirmar nueva contraseña</label>
+        <input type="password" id="cp-new-password-confirm" class="input" placeholder="Repite la nueva contraseña" required>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-zinc" onclick="closeChangePasswordModal()" style="flex:1;justify-content:center">
+          Cancelar
+        </button>
+        <button type="submit" class="btn btn-amber" style="flex:1;justify-content:center">
+          Cambiar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- PAGE: Library -->
+<div id="page-library" class="page active">
+  <div class="header">
+    <div class="header-inner">
+
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:32px;height:32px;border-radius:8px;overflow:hidden;box-shadow:0 4px 8px rgba(245,158,11,.2)">
+          <img src="icon-192.png" alt="Logo" style="width:100%;height:100%;object-fit:cover">
+        </div>
+        <div><div class="header-title">Repertorios RL</div><div class="header-sub" id="song-count">0 canciones</div></div>
+        <div id="sync-indicator" style="display:flex;align-items:center;margin-left:8px"></div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="file" id="import-input" accept=".txt,.json" multiple style="display:none">
+        <button class="btn btn-zinc" onclick="document.getElementById('import-input').click()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span class="hide-mobile">Importar</span>
+        </button>
+        <button class="btn btn-amber" onclick="showPage('add')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span class="hide-mobile">Nueva</span>
+        </button>
+        <div class="user-menu">
+          <button class="user-btn" onclick="toggleUserMenu()">
+            <div class="user-avatar" id="user-avatar-btn">?</div>
+            <span id="user-name-btn" class="hide-mobile">Invitado</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"/></svg>
+          </button>
+          <div class="user-dropdown" id="user-dropdown">
+            <div id="user-dropdown-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="import-notification"></div>
+  <div style="max-width:56rem;margin:0 auto;padding:0 12px 12px">
+    <div id="install-banner-container"></div>
+    <div style="position:relative;margin-bottom:12px">
+      <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#71717a" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="search-input" class="input" placeholder="Buscar canciones..." style="padding-left:32px">
+    </div>
+    <div id="song-list"></div>
+  </div>
+</div>
+
+<!-- PAGE: Add/Edit Song -->
+<div id="page-add" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('library')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Cancelar</span>
+      </button>
+      <div class="header-title" id="form-title">Nueva canción</div>
+      <div style="width:60px"></div>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="form-group"><label class="label">Título *</label><input type="text" id="input-title" class="input" placeholder="Nombre de la canción"></div>
+    <div class="form-group"><label class="label">Artista</label><input type="text" id="input-artist" class="input" placeholder="Nombre del artista o banda"></div>
+    <div class="form-group">
+      <label class="label">Tono original</label>
+      <div class="key-grid" id="key-grid-form"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1">
+        <label class="label">Tempo (BPM)</label>
+        <input type="number" id="input-tempo" class="input" placeholder="120" min="20" max="300">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label class="label">Compás</label>
+        <input type="text" id="input-compas" class="input" placeholder="4/4" maxlength="5">
+      </div>
+    </div>
+    <div class="form-group">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <label class="label" style="margin:0">Letra con acordes *</label>
+        <button class="btn-icon" onclick="toggleHelp()" style="font-size:.7rem;color:#71717a">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          Formato
+        </button>
+      </div>
+      <div id="help-box" class="help-box hidden">
+        <p style="color:#d4d4d8;margin-bottom:6px;font-weight:500;font-size:.8rem">Formato de acordes:</p>
+        <p style="color:#a1a1aa;margin-bottom:6px;font-size:.8rem">Escribe los acordes entre corchetes <code>[Am]</code> en la línea donde van:</p>
+        <div class="help-example"><span class="help-chord">[Am] [F] [C] [G]</span><br><span class="help-text">Esta es la primera línea</span><br><span class="help-chord">[Am] [F]</span><br><span class="help-text">Segunda línea de la canción</span></div>
+        <p style="color:#71717a;margin-top:6px;font-size:.7rem">Soporta: Am, Bb, C#m7, Fmaj7, Gsus4, etc.</p>
+      </div>
+      <textarea id="input-lyrics" class="input textarea" placeholder="[Am] [F] [C] [G]&#10;Escribe la letra aquí&#10;[Am] [F]&#10;Con los acordes encima"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="label">Etiquetas</label>
+      <div class="tag-input-wrap">
+        <input type="text" id="input-tag" class="input" placeholder="Agregar etiqueta" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag()}">
+        <button class="btn btn-zinc btn-sm" onclick="addTag()">+</button>
+      </div>
+      <div id="tag-list" class="tag-list-wrap"></div>
+    </div>
+    <button class="btn btn-amber w-full" style="padding:10px;font-size:.9rem" onclick="saveSong()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+      Guardar canción
+    </button>
+  </div>
+</div>
+
+<!-- PAGE: View Song -->
+<div id="page-view" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="goBackFromView()" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Volver</span>
+      </button>
+      <div style="display:flex;gap:2px">
+        <button class="btn-icon" onclick="shareSong()" title="Exportar / Compartir"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
+        <button class="btn-icon" onclick="toggleListPicker()" title="Añadir a lista"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+        <button class="btn-icon" onclick="editSong()" title="Editar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="btn-icon btn-icon-red" onclick="deleteCurrentSong()" title="Eliminar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <div id="view-nav" class="nav-arrows hidden">
+    <button class="nav-arrows-btn" id="view-prev-btn" onclick="viewNav(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button>
+    <div class="nav-arrows-info" id="view-nav-info"></div>
+    <button class="nav-arrows-btn" id="view-next-btn" onclick="viewNav(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div id="view-song-info" style="margin-bottom:10px"></div>
+    <div id="view-list-picker" class="list-picker hidden"></div>
+    <div class="key-selector" id="view-key-selector"></div>
+    <div id="view-song-location" class="song-location" style="margin-top:8px"></div>
+    <div id="view-audio-section" style="margin-top:12px"></div>
+    <div class="lyrics-container" id="view-lyrics" style="margin-top:12px"></div>
+    <div id="view-tags" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+</div>
+
+<!-- PAGE: Lists -->
+<div id="page-lists" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <div><div class="header-title">Listas</div><div class="header-sub" id="list-count">0 listas</div></div>
+      <div style="display:flex;gap:6px">
+        <input type="file" id="import-list-input" accept=".json" style="display:none">
+        <button class="btn btn-zinc" onclick="document.getElementById('import-list-input').click()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span class="hide-mobile">Importar</span>
+        </button>
+        <button class="btn btn-amber" onclick="showNewListForm()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span class="hide-mobile">Nueva</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div id="import-list-notification"></div>
+  <div id="new-list-form" class="hidden" style="max-width:56rem;margin:0 auto;padding:12px 12px 0">
+    <div style="background:rgba(39,39,42,.5);border:1px solid rgba(63,63,70,.5);border-radius:10px;padding:12px">
+      <h3 style="font-size:.8rem;font-weight:600;color:#fff;margin-bottom:8px">Nueva lista</h3>
+      <input type="text" id="input-list-name" class="input mb-2" placeholder="Nombre de la lista" onkeydown="if(event.key==='Enter')createList()">
+      <input type="text" id="input-list-desc" class="input mb-3" placeholder="Descripción (opcional)">
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-amber" style="flex:1" onclick="createList()">Crear</button>
+        <button class="btn btn-zinc" onclick="hideNewListForm()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px" id="list-list"></div>
+</div>
+
+<!-- PAGE: View List -->
+<div id="page-listview" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('lists')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Listas</span>
+      </button>
+      <button class="btn-icon" onclick="shareCurrentList()" title="Exportar / Compartir" style="gap:4px;color:#a1a1aa">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div id="listview-header"></div>
+    <div id="listview-missing"></div>
+    <div id="listview-songs" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- PAGE: Repertorios -->
+<div id="page-repertorios" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <div><div class="header-title">Repertorios</div><div class="header-sub" id="rep-count">0 activos</div></div>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:0 12px 12px">
+    <div id="rep-connection-status" style="margin-bottom:8px"></div>
+    <div style="display:flex;gap:4px;background:#27272a;padding:4px;border-radius:12px;margin-bottom:12px">
+      <button class="rep-tab active" id="rep-tab-active" onclick="switchRepTab('active')">📅 Activos</button>
+      <button class="rep-tab" id="rep-tab-history" onclick="switchRepTab('history')">📦 Historial</button>
+    </div>
+    <div id="rep-filters" style="display:none;gap:8px;margin-bottom:12px"></div>
+    <div id="rep-list"></div>
+  </div>
+</div>
+
+<!-- PAGE: Repertorio View -->
+<div id="page-repertorio" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('repertorios')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Volver</span>
+      </button>
+      <div style="width:60px"></div>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div id="rep-view-header"></div>
+    <div style="display:flex;gap:4px;background:#27272a;padding:4px;border-radius:12px;margin-bottom:12px">
+      <button class="rep-tab active" id="rep-day-dom" onclick="switchRepDay('domingo')">🌞 Domingo</button>
+      <button class="rep-tab" id="rep-day-lun" onclick="switchRepDay('lunes')">🌙 Lunes</button>
+    </div>
+    <div id="rep-view-songs"></div>
+  </div>
+</div>
+
+<!-- PAGE: Repertorio Song View -->
+<div id="page-rep-song" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="goBackFromRepSong()" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Volver</span>
+      </button>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="save-rep-btn" onclick="saveRepSongToLibrary()" class="btn btn-sm" style="background:rgba(39,39,46,.8);color:#a1a1aa;border:1px solid rgba(63,63,70,.5);gap:4px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          Guardar
+        </button>
+        <span id="rep-song-admin-actions"></span>
+      </div>
+    </div>
+  </div>
+  <div id="rep-song-nav" class="nav-arrows hidden">
+    <button class="nav-arrows-btn" id="rep-song-prev-btn" onclick="repSongNav(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button>
+    <div class="nav-arrows-info" id="rep-song-nav-info"></div>
+    <button class="nav-arrows-btn" id="rep-song-next-btn" onclick="repSongNav(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div id="rep-song-info"></div>
+    <div class="key-selector" id="rep-song-key"></div>
+    <div class="toggle-btn">
+      <button id="toggle-lyrics" class="inactive" onclick="setRepSongView(false)">👁 Solo letra</button>
+      <button id="toggle-chords" class="active" onclick="setRepSongView(true)">🎵 Letra + Acordes</button>
+    </div>
+    <div id="rep-song-audio"></div>
+    <div class="lyrics-container" id="rep-song-lyrics"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin -->
+<div id="page-admin" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <div><div class="header-title">Administración</div><div class="header-sub">Panel de configuración</div></div>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px" id="admin-content"></div>
+</div>
+
+<!-- PAGE: Admin Usuarios -->
+<div id="page-admin-usuarios" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Usuarios</div>
+    <input type="text" id="admin-usuarios-search" class="admin-search-input" placeholder="Buscar usuario..." oninput="renderAdminUsuarios()">
+    <div id="admin-usuarios-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin - Canciones de un usuario -->
+<div id="page-admin-user-songs" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin-usuarios')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Usuarios</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title" id="admin-user-songs-title">Usuario</div>
+    <div id="admin-user-songs-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Duplicados -->
+<div id="page-admin-duplicados" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Canciones duplicadas</div>
+    <div id="admin-duplicados-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Repertorios -->
+<div id="page-admin-repertorios" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Todos los repertorios</div>
+    <div id="admin-repertorios-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Mantenimiento -->
+<div id="page-admin-mantenimiento" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Mantenimiento</div>
+    <div id="admin-mantenimiento-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Almacenamiento -->
+<div id="page-admin-storage" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">📦 Almacenamiento R2</div>
+    <div class="admin-section-subtitle">Archivos de audio subidos al Cloudflare R2</div>
+    <div id="admin-storage-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin Logs -->
+<div id="page-admin-logs" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">📋 Registro de actividades</div>
+    <div class="admin-section-subtitle">Todas las acciones de administradores, directores musicales y voces</div>
+    
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <input type="text" id="log-filter-search" class="admin-search-input" style="flex:2;min-width:160px;margin-bottom:0" placeholder="Buscar por usuario o @usuario..." oninput="logsPage = 0; renderAdminLogs()">
+      <select id="log-filter-action" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
+        <option value="">Todas las acciones</option>
+        <option value="song_created">Canción creada</option>
+        <option value="song_updated">Canción editada</option>
+        <option value="song_deleted">Canción eliminada</option>
+        <option value="vocals_assigned">Vocales asignadas</option>
+        <option value="audio_uploaded">Audio subido</option>
+        <option value="audio_deleted">Audio eliminado</option>
+        <option value="rep_created">Repertorio creado</option>
+        <option value="rep_deleted">Repertorio eliminado</option>
+        <option value="rep_song_added">Canción agregada a repertorio</option>
+        <option value="rep_song_removed">Canción eliminada de repertorio</option>
+        <option value="user_role_changed">Rol de usuario cambiado</option>
+        <option value="password_reset">Contraseña restablecida</option>
+        <option value="backfill_created_by">Mantenimiento: creado por</option>
+      </select>
+      <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
+        <option value="">Todos los roles</option>
+        <option value="admin">Admin</option>
+        <option value="D_Musicos">D. Músicos</option>
+        <option value="D_Voces">D. Voces</option>
+      </select>
+      <button class="btn btn-zinc" onclick="renderAdminLogs()">🔄 Refrescar</button>
+    </div>
+    
+    <div id="admin-logs-content"></div>
+    <div id="admin-logs-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- Vocal Editor Modal (Per-Day) -->
+<div id="vocal-editor-modal" class="login-modal hidden" onclick="if(event.target===this)hideVocalEditor()">
+  <div class="login-box" style="width:400px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+      <h3 id="vocal-editor-title" style="font-size:1.1rem">Asignar vocales</h3>
+      <span id="vocal-editor-day-badge" style="font-size:.65rem;padding:3px 8px;border-radius:6px;font-weight:600"></span>
+    </div>
+    <p style="font-size:.75rem;color:#a1a1aa;margin-bottom:14px" id="vocal-editor-subtitle">Asigna los vocales para este día</p>
+
+    <!-- Vocalista Principal -->
+    <div id="vocal-section-main" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span id="vocal-main-label" style="font-size:.85rem;font-weight:600;color:#fbbf24">Vocalista principal</span>
+      </div>
+      <input type="text" id="vocal-input-main" class="input" placeholder="Nombre del vocalista" style="background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+    </div>
+
+    <!-- Coros 1-4 -->
+    <div id="vocal-section-coros" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span id="vocal-coros-label" style="font-size:.85rem;font-weight:600;color:#fbbf24">Coros</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">1</span> Coro 1
+          </label>
+          <input type="text" id="vocal-coro-1" class="input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">2</span> Coro 2
+          </label>
+          <input type="text" id="vocal-coro-2" class="input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">3</span> Coro 3
+          </label>
+          <input type="text" id="vocal-coro-3" class="input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:#a1a1aa;display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="width:18px;height:18px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700">4</span> Coro 4
+          </label>
+          <input type="text" id="vocal-coro-4" class="input" placeholder="Nombre" style="font-size:.75rem;padding:6px 8px;background:rgba(27,27,30,.6);border-color:rgba(80,80,90,.5)">
+        </div>
+      </div>
+    </div>
+
+    <!-- Audios de coros -->
+    <div id="vocal-section-audios" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span>
+      </div>
+      <p style="font-size:.65rem;color:#71717a;margin-bottom:10px">Sube los audios de coros para este día.</p>
+      <div id="vocal-audio-list"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-zinc" style="flex:1;justify-content:center;padding:10px" onclick="hideVocalEditor()">Cancelar</button>
+      <button class="btn btn-amber" style="flex:1;justify-content:center;padding:10px" onclick="saveVocalEditor()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+        Guardar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Song Picker Modal -->
+<div id="rep-song-picker"></div>
+
+<!-- Hidden audio file input -->
 <input type="file" id="audio-upload-input" accept="audio/*" style="display:none" onchange="handleAudioUpload(event)">
 
 <!-- Hidden vocal audio file input -->
