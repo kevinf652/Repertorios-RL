@@ -7,11 +7,31 @@ function extractR2Key(urlOrPath) {
     if (!urlOrPath) return '';
     try {
         let key = urlOrPath;
+        
+        // --- NUEVO: Manejar URLs de Supabase ---
+        if (urlOrPath.includes('supabase.co')) {
+            // Busca el patrón: /storage/v1/object/public/[bucket]/[ruta]
+            const match = urlOrPath.match(/\/storage\/v1\/object\/public\/([^?]+)/);
+            if (match) {
+                return match[1]; // Devuelve: "vocal-audios/1787084014693-msw8qqyown1j7luau_coro1_domingo.mp3"
+            }
+        }
+        
+        // Si es URL de R2 Worker
         if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://')) {
             key = new URL(urlOrPath).pathname;
         }
-        if (key.startsWith('/')) key = key.substring(1);
+        
+        // Limpiar
+        if (key.startsWith('/file/')) key = key.substring(6);
+        else if (key.startsWith('/')) key = key.substring(1);
         if (key.toLowerCase().startsWith('file/')) key = key.substring(5);
+        
+        // --- NUEVO: Decodificar URL encoding ---
+        try {
+            key = decodeURIComponent(key);
+        } catch (e) {}
+        
         return key;
     } catch (e) {
         let key = urlOrPath;
