@@ -15,6 +15,7 @@ function renderAdminPanel() {
         return;
     }
     c.innerHTML = '<div class="admin-cards-grid">'
+        + '<div class="admin-summary-panel" id="admin-summary-panel"><div class="admin-summary-title">Vistazo rápido</div><div class="admin-empty" style="padding:10px 0">Cargando...</div></div>'
         + adminCardHtml('admin-usuarios', 'Usuarios', 'Ver registrados y su biblioteca', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>')
         + adminCardHtml('admin-duplicados', 'Duplicados', 'Detectar canciones repetidas', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>')
         + adminCardHtml('admin-repertorios', 'Repertorios', 'Ver todos, activos y archivados', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>')
@@ -22,6 +23,59 @@ function renderAdminPanel() {
         + adminCardHtml('admin-storage', 'Almacenamiento R2', 'Ver archivos y espacio usado', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>')
 	+ adminCardHtml('admin-logs', 'Registro de actividades', 'Ver acciones de usuarios', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>')
         + '</div>';
+    renderAdminSummary();
+}
+
+// ---------- Panel resumen (vistazo rápido) ----------
+async function renderAdminSummary() {
+    const el = document.getElementById('admin-summary-panel');
+    if (!el) return;
+    if (!supabaseReady) {
+        el.innerHTML = '<div class="admin-summary-title">Vistazo rápido</div><div class="admin-empty" style="padding:6px 0">Sin conexión.</div>';
+        return;
+    }
+    try {
+        const users = await loadAdminUsersData(false);
+        const totalUsers = users.length;
+        const totalSongs = Object.values(adminSongCountsCache || {}).reduce((a, b) => a + b, 0);
+        const totalReps = Array.isArray(repertorios) ? repertorios.length : 0;
+        const activeReps = Array.isArray(repertorios) ? repertorios.filter(r => r.estado === 'activo').length : 0;
+
+        const since24h = Date.now() - 24 * 60 * 60 * 1000;
+        let actions24h = '-';
+        try {
+            const { count } = await supabaseClient.from('activity_log').select('id', { count: 'exact', head: true }).gte('created_at', since24h);
+            actions24h = (count === null || count === undefined) ? '-' : count;
+        } catch (e) {}
+
+        let recentHtml = '';
+        try {
+            const { data: recent } = await supabaseClient.from('activity_log').select('user_name,action,created_at').order('created_at', { ascending: false }).limit(1);
+            if (recent && recent[0]) {
+                const labels = {
+                    song_created: 'creó una canción', song_updated: 'editó una canción', song_deleted: 'eliminó una canción',
+                    vocals_assigned: 'asignó vocales', audio_uploaded: 'subió un audio', audio_deleted: 'eliminó un audio',
+                    rep_created: 'creó un repertorio', rep_deleted: 'eliminó un repertorio', rep_song_added: 'agregó una canción a un repertorio',
+                    rep_song_removed: 'quitó una canción de un repertorio', user_role_changed: 'cambió el rol de un usuario',
+                    password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento'
+                };
+                const when = new Date(recent[0].created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                recentHtml = '<div class="admin-summary-recent">🕒 Última actividad: <b style="color:#e4e4e7">' + esc(recent[0].user_name || '') + '</b> ' + (labels[recent[0].action] || recent[0].action) + ' · ' + when + '</div>';
+            }
+        } catch (e) {}
+
+        el.innerHTML = '<div class="admin-summary-title">Vistazo rápido</div>'
+            + '<div class="admin-summary-grid">'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + totalUsers + '</div><div class="admin-summary-label">Usuarios</div></div>'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + totalSongs + '</div><div class="admin-summary-label">Canciones</div></div>'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + activeReps + '/' + totalReps + '</div><div class="admin-summary-label">Rep. activos</div></div>'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + actions24h + '</div><div class="admin-summary-label">Acciones 24h</div></div>'
+            + '</div>'
+            + recentHtml;
+    } catch (e) {
+        console.error('renderAdminSummary error:', e);
+        el.innerHTML = '<div class="admin-summary-title">Vistazo rápido</div><div class="admin-empty" style="padding:6px 0">No se pudo cargar.</div>';
+    }
 }
 
 function adminCardHtml(page, title, subtitle, icon) {
@@ -74,6 +128,7 @@ async function renderAdminUsuarios(force) {
                     <th>Canciones</th>
                     <th>Registrado</th>
                     <th>Último acceso</th>
+                    <th>Acciones</th>
                 </tr></thead>
                 <tbody>
                     ${filtered.map(u => {
@@ -90,6 +145,7 @@ async function renderAdminUsuarios(force) {
         <td>${adminSongCountsCache[u.id] || 0}</td>
         <td style="font-size:.7rem;color:#71717a">${u.created_at ? new Date(u.created_at).toLocaleDateString('es-ES') : '-'}</td>
         <td style="font-size:.7rem;color:#a1a1aa">${lastLogin}</td>
+        <td>${isSelf ? '' : `<button class="btn-outline-sm" onclick="event.stopPropagation(); resetUserPassword('${u.id}')">🔑 Restablecer</button>`}</td>
     </tr>`;
 }).join('')}
                 </tbody>
@@ -125,6 +181,22 @@ async function updateUserRole(userId, newRole) {
     }
 }
 
+// ---------- Restablecer contraseña de usuario ----------
+async function resetUserPassword(userId) {
+    if (!isAdmin() || !supabaseReady) return;
+    if (!confirm('¿Restablecer la contraseña de "' + userId + '" a "1234"? La persona podrá entrar con esa clave y luego cambiarla.')) return;
+    try {
+        const { error } = await supabaseClient.from('admin_users').update({ password_hash: '1234' }).eq('id', userId);
+        if (error) throw error;
+        showNotification('Contraseña restablecida a 1234', 'success');
+        logActivity('password_reset', {
+            targetUser: userId
+        }, 'user', userId);
+    } catch (e) {
+        alert('Error al restablecer contraseña: ' + e.message);
+    }
+}
+
 // ---------- Ver canciones de usuario ----------
 let viewingAdminUserId = null;
 async function viewAdminUserSongs(userId) {
@@ -154,7 +226,7 @@ async function renderAdminDuplicados() {
     c.innerHTML = '<div class="admin-empty">Buscando duplicados...</div>';
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
     try {
-        const { data: rows, error } = await supabaseClient.from('user_songs').select('user_id,song_data');
+        const { data: rows, error } = await supabaseClient.from('user_songs').select('id,user_id,song_data');
         if (error || !rows) { c.innerHTML = '<div class="admin-empty">No se pudo cargar.</div>'; return }
         const groups = {};
         rows.forEach(r => {
@@ -163,20 +235,38 @@ async function renderAdminDuplicados() {
                 if (!sd || !sd.title) return;
                 const key = (sd.title || '').trim().toLowerCase() + '|' + (sd.artist || '').trim().toLowerCase();
                 if (!groups[key]) groups[key] = [];
-                groups[key].push({ userId: r.user_id, id: sd.id, createdBy: sd.createdBy });
+                groups[key].push({ rowId: r.id, userId: r.user_id, id: sd.id, createdBy: sd.createdBy, title: sd.title, artist: sd.artist });
             } catch (e) {}
         });
         const dupGroups = Object.entries(groups).filter(([k, arr]) => new Set(arr.map(x => x.id)).size > 1);
         if (dupGroups.length === 0) { c.innerHTML = '<div class="admin-empty">No se encontraron canciones duplicadas (mismo título/artista con IDs distintos).</div>'; return }
-        c.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Título — Artista</th><th>Copias con ID distinto</th><th>Creadores</th></tr></thead><tbody>'
-            + dupGroups.map(([k, arr]) => {
-                const uniqueIds = [...new Set(arr.map(x => x.id))];
-                const creators = [...new Set(arr.map(x => x.createdBy).filter(Boolean))];
-                const title = k.split('|')[0], artist = k.split('|')[1];
-                return '<tr><td>' + esc(title) + ' — ' + esc(artist) + '</td><td>' + uniqueIds.length + '</td><td>' + esc(creators.join(', ') || '-') + '</td></tr>';
-            }).join('')
-            + '</tbody></table></div>';
+        c.innerHTML = dupGroups.map(([k, arr]) => {
+            const title = k.split('|')[0], artist = k.split('|')[1];
+            return '<div style="margin-bottom:14px">'
+                + '<div style="font-size:.82rem;font-weight:600;color:#e4e4e7;margin-bottom:6px">' + esc(title) + ' — ' + esc(artist) + ' <span style="color:#71717a;font-weight:400;font-size:.7rem">(' + arr.length + ' copias)</span></div>'
+                + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Usuario</th><th>Creado por</th><th>ID canción</th><th></th></tr></thead><tbody>'
+                + arr.map(x => '<tr><td style="font-size:.75rem">@' + esc(x.userId) + '</td><td style="font-size:.72rem;color:#a1a1aa">' + esc(x.createdBy || '-') + '</td><td style="font-size:.65rem;color:#52525b">' + esc(x.id || '-') + '</td><td><button class="btn-danger-sm" onclick="adminDeleteDuplicateCopy(\'' + x.rowId + '\',\'' + esc(x.userId) + '\',\'' + esc(title).replace(/'/g, "\\'") + '\')">🗑️ Borrar</button></td></tr>').join('')
+                + '</tbody></table></div>'
+                + '</div>';
+        }).join('');
     } catch (e) { console.error(e); c.innerHTML = '<div class="admin-empty">Error al buscar duplicados.</div>' }
+}
+
+async function adminDeleteDuplicateCopy(rowId, userId, title) {
+    if (!isAdmin() || !supabaseReady) return;
+    if (!confirm('¿Eliminar esta copia de "' + title + '" de la biblioteca de @' + userId + '? Esta acción no se puede deshacer.')) return;
+    try {
+        const { error } = await supabaseClient.from('user_songs').delete().eq('id', rowId);
+        if (error) throw error;
+        showNotification('Copia eliminada', 'success');
+        logActivity('song_deleted', {
+            title: title,
+            targetUser: userId
+        }, 'song', null);
+        renderAdminDuplicados();
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
 }
 
 // ---------- Repertorios ----------
@@ -233,6 +323,10 @@ async function runAdminBackfillCreatedBy() {
             }
         }
         resultEl.textContent = 'Listo: ' + updated + ' de ' + repRows.length + ' filas actualizadas (las demás no tienen coincidencia conocida).';
+        logActivity('backfill_created_by', {
+            updated: updated,
+            total: repRows.length
+        }, 'system', null);
     } catch (e) { console.error(e); resultEl.textContent = 'Error: ' + e.message }
 }
 
@@ -452,6 +546,7 @@ async function renderAdminStorageCategory(category) {
                     <th>Archivo</th>
                     <th>Tamaño</th>
                     <th>Fecha de subida</th>
+                    <th>Acciones</th>
                 </tr></thead>
                 <tbody>
                     ${resolvedObjects.map(o => {
@@ -483,6 +578,14 @@ async function renderAdminStorageCategory(category) {
                         else if (isSong) badge = '<span style="background:rgba(96,165,250,.2);color:#60a5fa;font-size:.6rem;padding:1px 6px;border-radius:4px;margin-right:4px">CANCIÓN</span>';
                         else badge = '<span style="background:rgba(161,161,170,.15);color:#a1a1aa;font-size:.6rem;padding:1px 6px;border-radius:4px;margin-right:4px">OTRO</span>';
                         
+                        const keyEsc = o.key.replace(/'/g, "\\'");
+                        const actionsHtml = (isVocal || isSong) ? (
+                            '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+                            + '<button class="btn-outline-sm" onclick="triggerAdminStorageReplace(\'' + keyEsc + '\')">🔄 Reemplazar</button>'
+                            + '<button class="btn-danger-sm" onclick="adminDeleteStorageAudio(\'' + keyEsc + '\')">🗑️ Borrar</button>'
+                            + '</div>'
+                        ) : '-';
+                        
                         return `<tr>
                             <td>
                                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
@@ -493,6 +596,7 @@ async function renderAdminStorageCategory(category) {
                             </td>
                             <td style="font-size:.72rem;color:#a1a1aa">${sizeMB(o)} MB</td>
                             <td style="font-size:.7rem;color:#71717a">${formatDate(o.uploaded)}</td>
+                            <td>${actionsHtml}</td>
                         </tr>`;
                     }).join('')}
                 </tbody>
@@ -502,6 +606,160 @@ async function renderAdminStorageCategory(category) {
             ${objects.length} archivos · Total: ${(objects.reduce((s,o) => s + (o.size||0), 0) / (1024 * 1024)).toFixed(2)} MB
         </div>
     `;
+}
+
+// ---------- Borrar / reemplazar audio desde Almacenamiento R2 ----------
+function parseVocalKeyParts(key) {
+    const songIdMatch = key.match(/([a-z0-9]+)_coro/i);
+    const coroMatch = key.match(/coro(\d+)_(domingo|lunes)/i);
+    return {
+        sourceSongId: songIdMatch ? songIdMatch[1] : null,
+        coro: coroMatch ? parseInt(coroMatch[1], 10) : null,
+        dia: coroMatch ? coroMatch[2] : null
+    };
+}
+
+function parseSongIdFromKey(key) {
+    const filename = key.split('/').pop() || '';
+    return filename.replace(/\.[^/.]+$/, '');
+}
+
+async function adminDeleteStorageAudio(key) {
+    if (!isAdmin() || !supabaseReady) return;
+    const isVocal = key.includes('vocal-audios');
+    const isSong = key.includes('songs/');
+    if (!isVocal && !isSong) return;
+
+    const songData = await resolveSongDataForKey(key);
+    const label = songData ? (songData.title + (songData.artist ? ' - ' + songData.artist : '')) : key;
+    if (!confirm('¿Eliminar el audio "' + label + '"? Esto lo quitará de la canción/repertorio donde esté vinculado y no se puede deshacer.')) return;
+
+    try {
+        await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(key), { method: 'DELETE' });
+
+        if (isSong) {
+            const songId = (songData && songData.id) || parseSongIdFromKey(key);
+            try { await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId) } catch (e) {}
+            try {
+                const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
+                if (userSongs) {
+                    for (const us of userSongs) {
+                        try {
+                            const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
+                            if (sd && (sd.id === songId || sd.sourceId === songId)) {
+                                sd.audio_url = null;
+                                await supabaseClient.from('user_songs').update({ song_data: JSON.stringify(sd), updated_at: Date.now() }).eq('id', us.id);
+                            }
+                        } catch (e) {}
+                    }
+                }
+            } catch (e) {}
+            logActivity('audio_deleted', { type: 'song', songTitle: (songData && songData.title) || songId }, 'song', songId);
+        } else {
+            const parts = parseVocalKeyParts(key);
+            if (parts.sourceSongId && parts.coro && parts.dia) {
+                try { await supabaseClient.from('vocal_audios').delete().eq('source_song_id', parts.sourceSongId).eq('coro_number', parts.coro).eq('dia', parts.dia) } catch (e) {}
+            }
+            try { await loadRepertorios() } catch (e) {}
+            logActivity('audio_deleted', { type: 'vocal', coro: parts.coro, dia: parts.dia }, 'vocal', parts.sourceSongId);
+        }
+
+        showNotification('Audio eliminado', 'success');
+        allSongsCache = null;
+        await loadR2StorageData(true);
+        renderAdminStorage();
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
+}
+
+let pendingReplaceKey = null;
+let pendingReplaceType = null;
+let pendingReplaceSongData = null;
+
+async function triggerAdminStorageReplace(key) {
+    if (!isAdmin()) return;
+    pendingReplaceKey = key;
+    pendingReplaceType = key.includes('vocal-audios') ? 'vocal' : 'song';
+    pendingReplaceSongData = await resolveSongDataForKey(key);
+    document.getElementById('admin-storage-replace-input').click();
+}
+
+async function handleAdminStorageReplace(e) {
+    const file = e.target.files[0];
+    if (!file || !pendingReplaceKey) return;
+    if (!supabaseReady) { alert('Sin conexión a Supabase'); e.target.value = ''; return }
+
+    const key = pendingReplaceKey;
+    const type = pendingReplaceType;
+    const songData = pendingReplaceSongData;
+
+    try {
+        await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(key), { method: 'DELETE' });
+
+        if (type === 'song') {
+            const songId = (songData && songData.id) || parseSongIdFromKey(key);
+            const renamedFile = new File([file], songId + '.mp3', { type: file.type || 'audio/mpeg' });
+            const formData = new FormData();
+            formData.append('file', renamedFile);
+            formData.append('folder', 'songs');
+            const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+            const uploadData = await uploadRes.json();
+            if (uploadData.error) throw new Error(uploadData.error);
+            const audioUrl = normalizeVocalAudioUrl(uploadData.url);
+            if (!audioUrl) throw new Error('El worker no devolvió URL');
+
+            await supabaseClient.from('canciones_repertorio').update({ audio_url: audioUrl }).eq('source_song_id', songId);
+            const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
+            if (userSongs) {
+                for (const us of userSongs) {
+                    try {
+                        const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
+                        if (sd && (sd.id === songId || sd.sourceId === songId)) {
+                            sd.audio_url = audioUrl;
+                            await supabaseClient.from('user_songs').update({ song_data: JSON.stringify(sd), updated_at: Date.now() }).eq('id', us.id);
+                        }
+                    } catch (e) {}
+                }
+            }
+            logActivity('audio_uploaded', { type: 'song', songTitle: (songData && songData.title) || songId, fileSize: file.size }, 'song', songId);
+        } else {
+            const parts = parseVocalKeyParts(key);
+            if (!parts.sourceSongId || !parts.coro || !parts.dia) throw new Error('No se pudo identificar la canción/coro de este archivo.');
+            const filename = parts.sourceSongId + '_coro' + parts.coro + '_' + parts.dia + '.mp3';
+            const storagePath = 'vocal-audios/' + filename;
+            const renamedFile = new File([file], filename, { type: file.type || 'audio/mpeg' });
+            const formData = new FormData();
+            formData.append('file', renamedFile);
+            formData.append('folder', 'vocal-audios');
+            formData.append('filename', filename);
+            const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+            const uploadData = await uploadRes.json();
+            if (uploadData.error) throw new Error(uploadData.error);
+            let audioUrl = uploadData.url ? normalizeVocalAudioUrl(uploadData.url) : null;
+            if (!audioUrl || !audioUrl.includes(parts.sourceSongId)) {
+                audioUrl = SUPABASE_URL + '/storage/v1/object/public/vocal-audios/' + storagePath;
+            }
+
+            const { data: existingRows } = await supabaseClient.from('vocal_audios').select('id').eq('source_song_id', parts.sourceSongId).eq('coro_number', parts.coro).eq('dia', parts.dia);
+            if (existingRows && existingRows[0]) {
+                await supabaseClient.from('vocal_audios').update({ audio_url: audioUrl, audio_path: storagePath, updated_at: Date.now() }).eq('id', existingRows[0].id);
+            }
+            try { await loadRepertorios() } catch (e) {}
+            logActivity('audio_uploaded', { type: 'vocal', coro: parts.coro, dia: parts.dia }, 'vocal', parts.sourceSongId);
+        }
+
+        showNotification('Audio reemplazado', 'success');
+        allSongsCache = null;
+        await loadR2StorageData(true);
+        renderAdminStorage();
+    } catch (err) {
+        alert('Error al reemplazar audio: ' + err.message);
+    }
+    e.target.value = '';
+    pendingReplaceKey = null;
+    pendingReplaceType = null;
+    pendingReplaceSongData = null;
 }
 
 // ---------- Enganches sin tocar app.js ----------
@@ -515,7 +773,7 @@ if (typeof showPage === 'function') {
         if (name === 'admin-repertorios') renderAdminRepertorios();
         if (name === 'admin-mantenimiento') renderAdminMantenimiento();
         if (name === 'admin-storage') renderAdminStorage();
-	if (name === 'admin-logs') renderAdminLogs();
+	if (name === 'admin-logs') { logsPage = 0; renderAdminLogs(); }
     };
 }
 
@@ -554,10 +812,15 @@ async function logActivity(action, details, targetType, targetId) {
 }
 
 // ---------- Logs de actividad ----------
+let logsPage = 0;
+const LOGS_PAGE_SIZE = 50;
+
 async function renderAdminLogs() {
     const c = document.getElementById('admin-logs-content');
+    const pagEl = document.getElementById('admin-logs-pagination');
     if (!c) return;
     c.innerHTML = '<div class="admin-empty">Cargando logs...</div>';
+    if (pagEl) pagEl.innerHTML = '';
     
     if (!supabaseReady) {
         c.innerHTML = '<div class="admin-empty">Sin conexión.</div>';
@@ -566,22 +829,35 @@ async function renderAdminLogs() {
     
     const actionFilter = document.getElementById('log-filter-action')?.value || '';
     const roleFilter = document.getElementById('log-filter-role')?.value || '';
+    const searchTerm = (document.getElementById('log-filter-search')?.value || '').trim().toLowerCase().replace(/^@/, '');
     
     try {
         let query = supabaseClient.from('activity_log').select('*');
         
         if (actionFilter) query = query.eq('action', actionFilter);
         if (roleFilter) query = query.eq('user_role', roleFilter);
+        if (searchTerm) query = query.or('user_name.ilike.%' + searchTerm + '%,user_id.ilike.%' + searchTerm + '%');
+        
+        const from = logsPage * LOGS_PAGE_SIZE;
+        const to = from + LOGS_PAGE_SIZE; // pedimos uno extra para saber si hay página siguiente
         
         const { data, error } = await query
             .order('created_at', { ascending: false })
-            .limit(200);
+            .range(from, to);
         
         if (error) throw error;
         if (!data || data.length === 0) {
+            if (logsPage > 0) {
+                // nos pasamos de página (p.ej. tras borrar filtros); retrocedemos una
+                logsPage = Math.max(0, logsPage - 1);
+                return renderAdminLogs();
+            }
             c.innerHTML = '<div class="admin-empty">No hay actividades registradas aún.</div>';
             return;
         }
+        
+        const hasNext = data.length > LOGS_PAGE_SIZE;
+        const pageData = hasNext ? data.slice(0, LOGS_PAGE_SIZE) : data;
         
         const actionLabels = {
             song_created: '🎵 Creó canción',
@@ -594,7 +870,9 @@ async function renderAdminLogs() {
             rep_deleted: '🗑️ Eliminó repertorio',
             rep_song_added: '➕ Agregó a repertorio',
             rep_song_removed: '➖ Eliminó de repertorio',
-            user_role_changed: '👤 Cambió rol de usuario'
+            user_role_changed: '👤 Cambió rol de usuario',
+            password_reset: '🔑 Restableció contraseña',
+            backfill_created_by: '🛠️ Rellenó "creado por" (mantenimiento)'
         };
         
         const roleColors = {
@@ -615,7 +893,7 @@ async function renderAdminLogs() {
                         <th>Detalles</th>
                     </tr></thead>
                     <tbody>
-                        ${data.map(log => {
+                        ${pageData.map(log => {
                             const date = new Date(log.created_at).toLocaleString('es-ES', {
                                 day: '2-digit', month: '2-digit', year: 'numeric',
                                 hour: '2-digit', minute: '2-digit', second: '2-digit'
@@ -657,9 +935,17 @@ async function renderAdminLogs() {
                 </table>
             </div>
             <div style="margin-top:8px;font-size:.65rem;color:#71717a;text-align:right">
-                Mostrando los últimos ${data.length} registros
+                Página ${logsPage + 1} · ${pageData.length} registros
             </div>
         `;
+        
+        if (pagEl) {
+            pagEl.innerHTML = `
+                <button class="admin-page-btn" ${logsPage === 0 ? 'disabled' : ''} onclick="logsPage--; renderAdminLogs()">← Anterior</button>
+                <span class="admin-page-label">Página ${logsPage + 1}</span>
+                <button class="admin-page-btn" ${!hasNext ? 'disabled' : ''} onclick="logsPage++; renderAdminLogs()">Siguiente →</button>
+            `;
+        }
     } catch (e) {
         console.error('renderAdminLogs error:', e);
         c.innerHTML = '<div class="admin-empty">Error al cargar logs: ' + e.message + '</div>';
