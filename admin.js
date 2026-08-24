@@ -107,21 +107,22 @@ function initAdminUsuariosPage() {
 async function updateUserRole(userId, newRole) {
     if (!isAdmin() || !supabaseReady) return;
     if (!confirm('¿Cambiar el rol de este usuario a "' + newRole + '"?')) return;
+    const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
+    const oldRole = userRef ? userRef.role : '';
     try {
         const { error } = await supabaseClient.from('admin_users').update({ role: newRole }).eq('id', userId);
         if (error) throw error;
-        const user = adminUsersCache.find(u => u.id === userId);
-        if (user) user.role = newRole;
+        if (userRef) userRef.role = newRole;
         showNotification('Rol actualizado a ' + newRole, 'success');
         renderAdminUsuarios(true);
+        logActivity('user_role_changed', {
+            oldRole: oldRole,
+            newRole: newRole,
+            targetUser: userId
+        }, 'user', userId);
     } catch (e) {
         alert('Error al actualizar rol: ' + e.message);
     }
-logActivity('user_role_changed', {
-    oldRole: user.role,
-    newRole: newRole,
-    targetUser: userId
-}, 'user', userId);
 }
 
 // ---------- Ver canciones de usuario ----------
@@ -588,6 +589,9 @@ async function renderAdminLogs() {
             song_deleted: '🗑️ Eliminó canción',
             vocals_assigned: '🎤 Asignó vocales',
             audio_uploaded: '🔊 Subió audio',
+            audio_deleted: '🔇 Eliminó audio',
+            rep_created: '📁 Creó repertorio',
+            rep_deleted: '🗑️ Eliminó repertorio',
             rep_song_added: '➕ Agregó a repertorio',
             rep_song_removed: '➖ Eliminó de repertorio',
             user_role_changed: '👤 Cambió rol de usuario'
