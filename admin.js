@@ -57,7 +57,8 @@ async function renderAdminSummary() {
                     vocals_assigned: 'asignó vocales', audio_uploaded: 'subió un audio', audio_deleted: 'eliminó un audio',
                     rep_created: 'creó un repertorio', rep_deleted: 'eliminó un repertorio', rep_song_added: 'agregó una canción a un repertorio',
                     rep_song_removed: 'quitó una canción de un repertorio', user_role_changed: 'cambió el rol de un usuario',
-                    password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento'
+                    password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento',
+                    activity_created: 'propuso una actividad', activity_deleted: 'eliminó una actividad', social_profile_updated: 'actualizó sus datos'
                 };
                 const when = new Date(recent[0].created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
                 recentHtml = '<div class="admin-summary-recent">🕒 Última actividad: <b style="color:#e4e4e7">' + esc(recent[0].user_name || '') + '</b> ' + (labels[recent[0].action] || recent[0].action) + ' · ' + when + '</div>';
@@ -83,7 +84,7 @@ function adminCardHtml(page, title, subtitle, icon) {
 }
 
 function roleBadgeHtml(role) {
-    const map = { admin: ['admin', 'Admin'], D_Musicos: ['dmusicos', 'D. Músicos'], D_Voces: ['dvoces', 'D. Voces'] };
+    const map = { admin: ['admin', 'Admin'], D_Musicos: ['dmusicos', 'D. Músicos'], D_Voces: ['dvoces', 'D. Voces'], Social: ['social', 'Social'] };
     const m = map[role] || ['usuario', 'Usuario'];
     return '<span class="admin-badge-role ' + m[0] + '">' + m[1] + '</span>';
 }
@@ -116,8 +117,8 @@ async function renderAdminUsuarios(force) {
     const filtered = users.filter(u => !q || (u.nombre || '').toLowerCase().includes(q) || (u.apellido || '').toLowerCase().includes(q) || u.id.toLowerCase().includes(q));
     if (filtered.length === 0) { c.innerHTML = '<div class="admin-empty">No se encontraron usuarios.</div>'; return; }
 
-    const roleOptions = ['usuario', 'D_Voces', 'D_Musicos', 'admin'];
-    const roleLabels = { admin: 'Admin', D_Musicos: 'D. Músicos', D_Voces: 'D. Voces', usuario: 'Usuario' };
+    const roleOptions = ['usuario', 'D_Voces', 'D_Musicos', 'Social', 'admin'];
+    const roleLabels = { admin: 'Admin', D_Musicos: 'D. Músicos', D_Voces: 'D. Voces', Social: 'Social', usuario: 'Usuario' };
 
     c.innerHTML = `
         <div class="admin-table-wrap">
@@ -721,6 +722,10 @@ async function adminDeleteStorageAudio(key) {
     }
 }
 
+let pendingReplaceKey = null;
+let pendingReplaceType = null;
+let pendingReplaceSongData = null;
+
 async function triggerAdminStorageReplace(key) {
     if (!isAdmin()) return;
     pendingReplaceKey = key;
@@ -919,13 +924,17 @@ async function renderAdminLogs() {
             rep_song_removed: '➖ Eliminó de repertorio',
             user_role_changed: '👤 Cambió rol de usuario',
             password_reset: '🔑 Restableció contraseña',
-            backfill_created_by: '🛠️ Rellenó "creado por" (mantenimiento)'
+            backfill_created_by: '🛠️ Rellenó "creado por" (mantenimiento)',
+            activity_created: '🎉 Creó actividad',
+            activity_deleted: '🗑️ Eliminó actividad',
+            social_profile_updated: '📝 Actualizó Mis Datos'
         };
         
         const roleColors = {
             admin: '#f59e0b',
             D_Musicos: '#60a5fa',
             D_Voces: '#c084fc',
+            Social: '#34d399',
             usuario: '#a1a1aa'
         };
         

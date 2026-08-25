@@ -1022,6 +1022,27 @@ async function loadRepertorios() {
             if (!vaErr && vaData) vocalAudios = vaData.map(va => ({ ...va, audio_url: va.audio_url ? normalizeVocalAudioUrl(va.audio_url) : va.audio_url }));
         } catch (e) { console.log('vocal_audios table may not exist yet') }
 
+        // ✅ Deduplicar registros: agrupar por source_song_id + coro_number + dia y eliminar extras
+        try {
+            const seen = {};
+            const duplicateIds = [];
+            for (const va of vocalAudios) {
+                const key = (va.source_song_id || '') + '|' + (va.coro_number || '') + '|' + (va.dia || '');
+                if (seen[key]) {
+                    duplicateIds.push(va.id);
+                } else {
+                    seen[key] = true;
+                }
+            }
+            if (duplicateIds.length > 0) {
+                console.log('🧹 Eliminando', duplicateIds.length, 'registros duplicados de vocal_audios');
+                await supabaseClient.from('vocal_audios').delete().in('id', duplicateIds);
+                vocalAudios = vocalAudios.filter(va => !duplicateIds.includes(va.id));
+            }
+        } catch (dedupErr) {
+            console.warn('⚠️ Error deduplicando vocal_audios:', dedupErr.message);
+        }
+
         const vocalAudiosBySong = {};
         vocalAudios.forEach(va => {
             const key = va.source_song_id || va.cancion_repertorio_id;
@@ -3885,8 +3906,12 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
             }
         }
 
-        // Eliminar de la base de datos
-        await supabaseClient.from('vocal_audios').delete().eq('id', existing.id);
+        // Eliminar TODOS los registros duplicados de la base de datos (no solo uno)
+        await supabaseClient.from('vocal_audios')
+            .delete()
+            .eq('source_song_id', resolvedSourceId)
+            .eq('coro_number', coro)
+            .eq('dia', dia);
         await loadRepertorios();
         renderRepertorioView();
         showNotification('Audio eliminado', 'success');

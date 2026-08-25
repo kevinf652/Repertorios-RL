@@ -527,18 +527,166 @@
         <option value="user_role_changed">Rol de usuario cambiado</option>
         <option value="password_reset">Contraseña restablecida</option>
         <option value="backfill_created_by">Mantenimiento: creado por</option>
+        <option value="activity_created">Actividad creada</option>
+        <option value="activity_deleted">Actividad eliminada</option>
+        <option value="social_profile_updated">Mis Datos actualizado</option>
       </select>
       <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todos los roles</option>
         <option value="admin">Admin</option>
         <option value="D_Musicos">D. Músicos</option>
         <option value="D_Voces">D. Voces</option>
+        <option value="Social">Social</option>
       </select>
       <button class="btn btn-zinc" onclick="renderAdminLogs()">🔄 Refrescar</button>
     </div>
     
     <div id="admin-logs-content"></div>
     <div id="admin-logs-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- PAGE: Social (home) -->
+<div id="page-social" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <div><div class="header-title">Social</div><div class="header-sub">Comunidad y unidad del grupo</div></div>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px" id="social-content"></div>
+</div>
+
+<!-- PAGE: Social - Información de usuarios -->
+<div id="page-social-usuarios" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('social')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Social</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">Información de usuarios</div>
+    <div class="admin-section-subtitle">Datos recopilados para celebrar cumpleaños, actividades y reuniones</div>
+    <div id="social-usuarios-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Social - Actividades -->
+<div id="page-social-actividades" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('social')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Social</span>
+      </button>
+      <button class="btn btn-amber" onclick="showAddActivityModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span class="hide-mobile">Agregar actividad</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">🎉 Actividades</div>
+    <div class="admin-section-subtitle">Propuestas de la comunidad — se decide en equipo si se realizan</div>
+    <div id="social-actividades-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Mis Datos (todos los usuarios) -->
+<div id="page-mis-datos" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('library')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Volver</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="mis-datos-header">
+      <div class="mis-datos-avatar">👤</div>
+      <div>
+        <div class="mis-datos-name" id="md-nombre-completo">-</div>
+        <div class="mis-datos-user" id="md-usuario">@-</div>
+      </div>
+    </div>
+
+    <form onsubmit="saveMisDatos(event)">
+      <div class="form-group">
+        <label class="label">Fecha de cumpleaños</label>
+        <input type="date" id="md-cumpleanos" class="input">
+      </div>
+      <div class="form-group">
+        <label class="label">Color favorito</label>
+        <input type="text" id="md-color" class="input" placeholder="Ej: Azul">
+      </div>
+      <div class="form-group">
+        <label class="label">Comida favorita</label>
+        <input type="text" id="md-comida" class="input" placeholder="Ej: Pasta">
+      </div>
+      <div class="form-group">
+        <label class="label">¿Pastel o pizza?</label>
+        <select id="md-pastel-pizza" class="input">
+          <option value="">Sin elegir</option>
+          <option value="Pastel">Pastel</option>
+          <option value="Pizza">Pizza</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="label">Instrumento o rol en la banda</label>
+        <input type="text" id="md-instrumento" class="input" placeholder="Ej: Guitarra, voces, batería...">
+      </div>
+      <div class="form-group">
+        <label class="label">¿Qué crees que deberíamos mejorar dentro del grupo de Alabanza?</label>
+        <textarea id="md-mejorar" class="input textarea" placeholder="Escribe tu opinión con confianza" style="min-height:90px"></textarea>
+      </div>
+      <button type="submit" class="btn btn-amber w-full" style="padding:10px;font-size:.9rem">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+        Guardar mis datos
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Agregar actividad -->
+<div id="add-activity-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">Nueva actividad</div>
+    <div class="auth-subtitle">Propón una idea para el grupo</div>
+    <form onsubmit="saveActivity(event)">
+      <div class="form-group">
+        <label class="label">Título</label>
+        <input type="text" id="add-activity-title" class="input" placeholder="Ej: Noche de juegos" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Fecha</label>
+        <input type="date" id="add-activity-fecha" class="input">
+      </div>
+      <div class="form-group">
+        <label class="label">Descripción</label>
+        <textarea id="add-activity-desc" class="input textarea" placeholder="Cuéntanos la idea..." style="min-height:90px"></textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-zinc" onclick="closeAddActivityModal()" style="flex:1;justify-content:center">Cancelar</button>
+        <button type="submit" class="btn btn-amber" style="flex:1;justify-content:center">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Ver actividad -->
+<div id="view-activity-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title" id="view-activity-title">-</div>
+    <div class="auth-subtitle" id="view-activity-fecha">-</div>
+    <p style="font-size:.85rem;color:#d4d4d8;white-space:pre-wrap;margin:12px 0" id="view-activity-desc"></p>
+    <div style="font-size:.7rem;color:#71717a;margin-bottom:14px" id="view-activity-creator"></div>
+    <div style="display:flex;gap:8px">
+      <button type="button" class="btn btn-zinc" onclick="closeViewActivityModal()" style="flex:1;justify-content:center">Cerrar</button>
+      <button type="button" class="btn" id="view-activity-delete-btn" onclick="deleteActivity()" style="flex:1;justify-content:center;background:rgba(239,68,68,.15);color:#f87171">🗑️ Eliminar</button>
+    </div>
   </div>
 </div>
 
@@ -618,10 +766,10 @@
 <div id="rep-song-picker"></div>
 
 <!-- Hidden audio file input -->
-<input type="file" id="audio-upload-input" accept="audio/*" style="display:none" onchange="handleAudioUpload(event)">
+<input type="file" id="audio-upload-input" accept="audio/*" style="display:none">
 
 <!-- Hidden vocal audio file input -->
-<input type="file" id="vocal-audio-upload-input" accept="audio/*" style="display:none" onchange="handleVocalAudioUpload(event)">
+<input type="file" id="vocal-audio-upload-input" accept="audio/*" style="display:none">
 
 <!-- Hidden storage replace file input (panel Almacenamiento R2) -->
 <input type="file" id="admin-storage-replace-input" accept="audio/*" style="display:none" onchange="handleAdminStorageReplace(event)">
@@ -667,12 +815,19 @@
       <span>Admin</span>
     </button>
 
+    <button class="nav-btn" id="nav-social" style="display:none" onclick="showPage('social')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/></svg>
+      <span>Social</span>
+    </button>
+
   </div>
 </nav>
 
 
 <link rel="stylesheet" href="./admin.css">
+<link rel="stylesheet" href="./social.css">
 <script src="./app.js"></script>
 <script src="./admin.js"></script>
+<script src="./social.js"></script>
 </body>
 </html>

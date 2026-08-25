@@ -1,0 +1,33 @@
+/* ============= Módulo Social — estilos propios, no toca admin.css ============= */
+
+.mis-datos-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(63, 63, 70, .5);
+}
+
+.mis-datos-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, .15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.mis-datos-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.mis-datos-user {
+  font-size: .75rem;
+  color: #71717a;
+}

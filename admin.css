@@ -100,6 +100,7 @@
 .admin-badge-role.admin { background: rgba(245, 158, 11, .15); color: #f59e0b; }
 .admin-badge-role.dmusicos { background: rgba(96, 165, 250, .15); color: #60a5fa; }
 .admin-badge-role.dvoces { background: rgba(192, 132, 252, .15); color: #c084fc; }
+.admin-badge-role.social { background: rgba(52, 211, 153, .15); color: #34d399; }
 .admin-badge-role.usuario { background: rgba(161, 161, 170, .15); color: #a1a1aa; }
 
 .admin-search-input {
