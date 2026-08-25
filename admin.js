@@ -333,24 +333,30 @@ async function renderAdminR2Duplicates(force) {
             const songData = await resolveSongDataForKey(objs[0].key);
             const title = songData ? (songData.title + (songData.artist ? ' - ' + songData.artist : '')) : 'Audio sin identificar';
 
-            // Intentar detectar cuál archivo es el que realmente está enlazado en la base de datos
+            // Detectar cuál archivo está realmente enlazado usando audio_url de la DB
             let linkedKey = null;
             try {
                 if (isVocal) {
                     const [, sourceSongId, coroNum, dia] = gKey.split('|');
                     const { data: rows } = await supabaseClient.from('vocal_audios').select('audio_url,audio_path').eq('source_song_id', sourceSongId).eq('coro_number', parseInt(coroNum, 10)).eq('dia', dia);
-                    if (rows && rows[0]) linkedKey = extractR2Key(rows[0].audio_path || rows[0].audio_url);
+                    if (rows && rows[0]) {
+                        // Usar audio_url como fuente de truth (tiene el timestamp completo del worker)
+                        linkedKey = extractR2Key(rows[0].audio_url);
+                        if (!linkedKey && rows[0].audio_path) linkedKey = rows[0].audio_path;
+                        console.log('🔗 Linked key for', gKey, '→', linkedKey, '(from audio_url:', rows[0].audio_url, ')');
+                    }
                 } else {
                     const songId = gKey.split('|')[1];
                     const { data: rows } = await supabaseClient.from('canciones_repertorio').select('audio_url').eq('source_song_id', songId).limit(1);
                     if (rows && rows[0]) linkedKey = extractR2Key(rows[0].audio_url);
                 }
-            } catch (e) {}
+            } catch (e) { console.warn('Error detecting linked key:', e); }
 
             const rowsHtml = objs.map(o => {
-                const normKey = normalizeVocalKey(o.key);
+                // Comparar normalizando: quitar timestamp del nombre para comparar
+                const normR2Key = normalizeVocalKey(o.key);
                 const normLinked = normalizeVocalKey(linkedKey);
-                const isLinked = linkedKey && (normKey === normLinked || o.key === linkedKey);
+                const isLinked = linkedKey && (normR2Key === normLinked || o.key === linkedKey);
                 const sizeMBVal = ((o.size || 0) / (1024 * 1024)).toFixed(2);
                 const dateStr = o.uploaded ? new Date(o.uploaded).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
                 const keyEsc = o.key.replace(/'/g, "\\'");
@@ -382,7 +388,13 @@ async function adminDeleteR2OnlyFile(key) {
     if (!confirm('¿Eliminar este archivo SOLO de Almacenamiento (R2)?\n\nNo se tocará ninguna canción, repertorio ni tabla de la base de datos — es solo limpieza del archivo sobrante. Esta acción no se puede deshacer.')) return;
     try {
         const deleteUrl = getR2DeleteUrl(key);
-        await fetch(deleteUrl, { method: 'DELETE' });
+        console.log('🗑️ [Duplicados] Deleting:', key, '→ URL:', deleteUrl);
+        const response = await fetch(deleteUrl, { method: 'DELETE' });
+        console.log('🗑️ [Duplicados] Response:', response.status, response.ok);
+        if (!response.ok) {
+            const errText = await response.text();
+            console.warn('⚠️ Delete failed:', response.status, errText);
+        }
         showNotification('Archivo eliminado de Storage', 'success');
         logActivity('r2_file_deleted', { key: key }, 'storage', null);
         r2Cache = null;
