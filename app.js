@@ -156,6 +156,7 @@ let vocalAudioUploadRepId = null;
 let vocalAudioUploadSongId = null;
 let vocalAudioUploadSourceSongId = null;
 let vocalAudioUploadDia = 'domingo';
+let vocalAudioUploadPart = 'a';
 
 // ============= AUTH SYSTEM =============
 function isAdmin() { return userRole === 'admin' }
@@ -1027,7 +1028,7 @@ async function loadRepertorios() {
             const seen = {};
             const duplicateIds = [];
             for (const va of vocalAudios) {
-                const key = (va.source_song_id || '') + '|' + (va.coro_number || '') + '|' + (va.dia || '');
+                const key = (va.source_song_id || '') + '|' + (va.coro_number || '') + '|' + (va.dia || '') + '|' + (va.part || 'a');
                 if (seen[key]) {
                     duplicateIds.push(va.id);
                 } else {
@@ -3270,22 +3271,46 @@ function renderRepSongView() {
         if (hasAnyAudio || corosDom.length > 0 || corosLun.length > 0) {
             vocalAudiosHtml = '<div style="display:flex;flex-direction:column;gap:10px">';
 
+            // Colores: Coros 1&3 = amber, Coros 2&4 = cyan
+            const coroColors = [
+                { bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.25)', text: '#fbbf24', badge: 'rgba(245,158,11,.2)' },
+                { bg: 'rgba(34,211,238,.06)', border: 'rgba(34,211,238,.2)', text: '#22d3ee', badge: 'rgba(34,211,238,.15)' },
+                { bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.25)', text: '#fbbf24', badge: 'rgba(245,158,11,.2)' },
+                { bg: 'rgba(34,211,238,.06)', border: 'rgba(34,211,238,.2)', text: '#22d3ee', badge: 'rgba(34,211,238,.15)' }
+            ];
+
             if (repDay === 'domingo') {
                 vocalAudiosHtml += '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px">';
                 vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:8px"><span style="font-size:.75rem;font-weight:600;color:#fbbf24">🌞 Domingo</span>';
                 if (s.vocalista_domingo) vocalAudiosHtml += '<span style="font-size:.6rem;color:#71717a">· Principal: ' + esc(s.vocalista_domingo) + '</span>';
                 vocalAudiosHtml += '</div>';
-                vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+                vocalAudiosHtml += '<div style="display:flex;flex-direction:column;gap:4px">';
                 for (let coro = 1; coro <= 4; coro++) {
-                    const audio = domAudios.find(va => va.coro_number === coro);
-                    const coroName = corosDom[coro - 1] || '';
-                    const audioKey = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro;
-                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;background:rgba(245,158,11,.05);border-radius:6px;margin-bottom:3px;border:1px solid rgba(63,63,70,.2)">';
-                    vocalAudiosHtml += '<span style="min-width:18px;font-size:.6rem;color:#fbbf24;font-weight:700;background:rgba(245,158,11,.15);padding:1px 4px;border-radius:3px;text-align:center">' + coro + '</span>';
-                    if (audio && audio.audio_url) {
-                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKey + '" onclick="playVocalAudio(\'' + audioKey + '\',\'' + audio.audio_url + '\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    const audioA = domAudios.find(va => va.coro_number === coro && (va.part || 'a') === 'a');
+                    const audioB = domAudios.find(va => va.coro_number === coro && (va.part || 'a') === 'b');
+                    const coroNameA = (Array.isArray(corosDom) && corosDom[coro - 1]) ? corosDom[coro - 1] : '';
+                    const corosDomB = s.coros_domingo_b ? (typeof s.coros_domingo_b === 'string' ? JSON.parse(s.coros_domingo_b || '[]') : s.coros_domingo_b) : [];
+                    const coroNameB = (Array.isArray(corosDomB) && corosDomB[coro - 1]) ? corosDomB[coro - 1] : '';
+                    const cc = coroColors[coro - 1];
+                    const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_a';
+                    const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_b';
+                    vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">';
+                    // Parte A
+                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
+                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>';
+                    if (audioA && audioA.audio_url) {
+                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
                     }
-                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.65rem;color:' + (coroName ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroName ? esc(coroName) : (audio && audio.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameA ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameA ? esc(coroNameA) : (audioA && audioA.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '</div>';
+                    // Parte B
+                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
+                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'B</span>';
+                    if (audioB && audioB.audio_url) {
+                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyB + '" onclick="playVocalAudio(\'' + audioKeyB + '\',\'' + audioB.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    }
+                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameB ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameB ? esc(coroNameB) : (audioB && audioB.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '</div>';
                     vocalAudiosHtml += '</div>';
                 }
                 vocalAudiosHtml += '</div></div>';
@@ -3296,17 +3321,33 @@ function renderRepSongView() {
                 vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:8px"><span style="font-size:.75rem;font-weight:600;color:#c084fc">🌙 Lunes</span>';
                 if (s.vocalista_lunes) vocalAudiosHtml += '<span style="font-size:.6rem;color:#71717a">· Principal: ' + esc(s.vocalista_lunes) + '</span>';
                 vocalAudiosHtml += '</div>';
-                vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+                vocalAudiosHtml += '<div style="display:flex;flex-direction:column;gap:4px">';
                 for (let coro = 1; coro <= 4; coro++) {
-                    const audio = lunAudios.find(va => va.coro_number === coro);
-                    const coroName = corosLun[coro - 1] || '';
-                    const audioKey = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro;
-                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:6px;padding:5px 6px;background:rgba(192,132,252,.05);border-radius:6px;margin-bottom:3px;border:1px solid rgba(63,63,70,.2)">';
-                    vocalAudiosHtml += '<span style="min-width:18px;font-size:.6rem;color:#c084fc;font-weight:700;background:rgba(192,132,252,.15);padding:1px 4px;border-radius:3px;text-align:center">' + coro + '</span>';
-                    if (audio && audio.audio_url) {
-                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKey + '" onclick="playVocalAudio(\'' + audioKey + '\',\'' + audio.audio_url + '\')" style="color:#4ade80;padding:2px" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    const audioA = lunAudios.find(va => va.coro_number === coro && (va.part || 'a') === 'a');
+                    const audioB = lunAudios.find(va => va.coro_number === coro && (va.part || 'a') === 'b');
+                    const coroNameA = (Array.isArray(corosLun) && corosLun[coro - 1]) ? corosLun[coro - 1] : '';
+                    const corosLunB = s.coros_lunes_b ? (typeof s.coros_lunes_b === 'string' ? JSON.parse(s.coros_lunes_b || '[]') : s.coros_lunes_b) : [];
+                    const coroNameB = (Array.isArray(corosLunB) && corosLunB[coro - 1]) ? corosLunB[coro - 1] : '';
+                    const cc = coroColors[coro - 1];
+                    const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_a';
+                    const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_b';
+                    vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">';
+                    // Parte A
+                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
+                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>';
+                    if (audioA && audioA.audio_url) {
+                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
                     }
-                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.65rem;color:' + (coroName ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroName ? esc(coroName) : (audio && audio.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameA ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameA ? esc(coroNameA) : (audioA && audioA.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '</div>';
+                    // Parte B
+                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
+                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'B</span>';
+                    if (audioB && audioB.audio_url) {
+                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyB + '" onclick="playVocalAudio(\'' + audioKeyB + '\',\'' + audioB.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    }
+                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameB ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameB ? esc(coroNameB) : (audioB && audioB.audio_url ? 'Audio' : '—')) + '</div>';
+                    vocalAudiosHtml += '</div>';
                     vocalAudiosHtml += '</div>';
                 }
                 vocalAudiosHtml += '</div></div>';
@@ -3526,6 +3567,19 @@ function showVocalEditor(repId, songId, mode, songData, contextDay) {
         const el = document.getElementById('vocal-coro-' + i);
         if (el) el.value = corosRaw[i - 1] || '';
     }
+    // Load part B names
+    let corosRawB = [];
+    if (isDom) {
+        const rawB = songData ? (songData.coros_domingo_b || []) : (savedVocals ? (savedVocals.coros_domingo_b || []) : []);
+        corosRawB = typeof rawB === 'string' ? (rawB ? JSON.parse(rawB) : []) : (Array.isArray(rawB) ? rawB : []);
+    } else {
+        const rawB = songData ? (songData.coros_lunes_b || []) : (savedVocals ? (savedVocals.coros_lunes_b || []) : []);
+        corosRawB = typeof rawB === 'string' ? (rawB ? JSON.parse(rawB) : []) : (Array.isArray(rawB) ? rawB : []);
+    }
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('vocal-coro-' + i + 'b');
+        if (el) el.value = corosRawB[i - 1] || '';
+    }
 
     renderVocalAudioList(vocalEditorContextDay);
 
@@ -3555,31 +3609,84 @@ function renderVocalAudioList(day) {
     const isDom = day === 'domingo';
     const dayColor = isDom ? '#fbbf24' : '#c084fc';
     let html = '';
+    const isDom = day === 'domingo';
+    const dayColor = isDom ? '#fbbf24' : '#c084fc';
+    const coroColors = ['#fbbf24', '#22d3ee', '#fbbf24', '#22d3ee'];
     for (let coro = 1; coro <= 4; coro++) {
-        const audio = songAudios.find(va => va.coro_number === coro);
-        const coroName = coroNames[coro - 1] || '';
-        const audioKey = vocalEditorRepId + '_' + vocalEditorSongId + '_' + day + '_' + coro;
-        html += '<div style="background:rgba(27,27,30,.5);border:1px solid rgba(63,63,70,.3);border-radius:8px;padding:10px;margin-bottom:8px">';
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
-        html += '<span style="font-size:.75rem;font-weight:600;color:' + dayColor + '">Coro ' + coro + (coroName ? ' — ' + esc(coroName) : '') + '</span>';
-        if (canEditVocals()) {
-            html += '<button class="btn-icon" onclick="triggerVocalAudioUpload(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\')" style="color:' + dayColor + '" title="Subir audio"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
+        const audioA = songAudios.find(va => va.coro_number === coro && (va.part || 'a') === 'a');
+        const audioB = songAudios.find(va => va.coro_number === coro && (va.part || 'a') === 'b');
+        const coroNameA = coroNames[coro - 1] || '';
+        const coroNamesB = [];
+        for (let i = 1; i <= 4; i++) {
+            const el = document.getElementById('vocal-coro-' + i + 'b');
+            coroNamesB.push(el ? el.value.trim() : '');
         }
-        html += '</div>';
-        if (audio && audio.audio_url) {
-            html += '<div style="display:flex;align-items:center;gap:8px">';
-            html += '<button class="btn-icon" data-vocal-key="' + audioKey + '" onclick="playVocalAudio(\'' + audioKey + '\',\'' + audio.audio_url + '\')" style="color:#4ade80" title="Reproducir"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-            html += '<div style="flex:1;min-width:0;font-size:.7rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(audio.vocalista_name || coroName || 'Audio Coro ' + coro) + '</div>';
+        const coroNameB = coroNamesB[coro - 1] || '';
+        const cc = coroColors[coro - 1];
+        const audioKey = vocalEditorRepId + '_' + vocalEditorSongId + '_' + day + '_' + coro;
+        html += '<div style="background:rgba(27,27,30,.5);border:1px solid rgba(63,63,70,.3);border-radius:8px;padding:8px 10px;margin-bottom:6px">';
+        html += '<div style="font-size:.72rem;font-weight:600;color:' + cc + ';margin-bottom:6px">Coro ' + coro + (coroNameA || coroNameB ? ' — ' + esc(coroNameA || coroNameB) : '') + '</div>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+        // Part A
+        html += '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.2);border-radius:6px;padding:6px">';
+        html += '<div style="font-size:.6rem;color:#71717a;margin-bottom:4px;font-weight:600">Parte A</div>';
+        if (audioA && audioA.audio_url) {
+            html += '<div style="display:flex;align-items:center;gap:6px">';
+            html += '<button class="btn-icon" data-vocal-key="' + audioKey + '_a" onclick="playVocalAudio(\'' + audioKey + '_a\',\'' + audioA.audio_url + '\')" style="color:#4ade80" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+            html += '<div style="flex:1;min-width:0;font-size:.65rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(audioA.vocalista_name || coroNameA || 'Audio') + '</div>';
             if (canEditVocals()) {
-                html += '<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\')" style="flex-shrink:0" title="Eliminar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+                html += '<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\',\'a\')" style="flex-shrink:0" title="Eliminar"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
             }
             html += '</div>';
         } else {
-            html += '<div style="font-size:.7rem;color:#52525b;font-style:italic">Sin audio</div>';
+            html += '<div style="font-size:.65rem;color:#52525b;font-style:italic">Sin audio</div>';
+            if (canEditVocals()) {
+                html += '<button class="btn-icon" onclick="triggerVocalAudioUpload(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\',\'a\')" style="color:' + dayColor + ';margin-top:2px" title="Subir audio A"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
+            }
         }
+        html += '</div>';
+        // Part B
+        html += '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(63,63,70,.2);border-radius:6px;padding:6px">';
+        html += '<div style="font-size:.6rem;color:#71717a;margin-bottom:4px;font-weight:600">Parte B</div>';
+        if (audioB && audioB.audio_url) {
+            html += '<div style="display:flex;align-items:center;gap:6px">';
+            html += '<button class="btn-icon" data-vocal-key="' + audioKey + '_b" onclick="playVocalAudio(\'' + audioKey + '_b\',\'' + audioB.audio_url + '\')" style="color:#4ade80" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+            html += '<div style="flex:1;min-width:0;font-size:.65rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(audioB.vocalista_name || coroNameB || 'Audio') + '</div>';
+            if (canEditVocals()) {
+                html += '<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\',\'b\')" style="flex-shrink:0" title="Eliminar"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+            }
+            html += '</div>';
+        } else {
+            html += '<div style="font-size:.65rem;color:#52525b;font-style:italic">Sin audio</div>';
+            if (canEditVocals()) {
+                html += '<button class="btn-icon" onclick="triggerVocalAudioUpload(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\',\'b\')" style="color:' + dayColor + ';margin-top:2px" title="Subir audio B"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
+            }
+        }
+        html += '</div>';
+        html += '</div>';
         html += '</div>';
     }
     list.innerHTML = html;
+}
+
+function switchVocalTab(tab) {
+    const vocesTab = document.getElementById('vocal-tab-voces');
+    const audiosTab = document.getElementById('vocal-tab-audios');
+    const btnVoces = document.getElementById('vtab-voces');
+    const btnAudios = document.getElementById('vtab-audios');
+    if (tab === 'voces') {
+        vocesTab.style.display = '';
+        audiosTab.style.display = 'none';
+        btnVoces.classList.add('active');
+        btnAudios.classList.remove('active');
+    } else {
+        vocesTab.style.display = 'none';
+        audiosTab.style.display = '';
+        btnVoces.classList.remove('active');
+        btnAudios.classList.add('active');
+        // Re-render audio list when switching to audios tab
+        renderVocalAudioList(vocalEditorContextDay);
+    }
 }
 
 function hideVocalEditor() {
@@ -3589,6 +3696,8 @@ function hideVocalEditor() {
     for (let i = 1; i <= 4; i++) {
         const el = document.getElementById('vocal-coro-' + i);
         if (el) el.value = '';
+        const elB = document.getElementById('vocal-coro-' + i + 'b');
+        if (elB) elB.value = '';
     }
 }
 
@@ -3601,15 +3710,23 @@ async function saveVocalEditor() {
         const el = document.getElementById('vocal-coro-' + i);
         if (el && el.value.trim()) coros.push(el.value.trim());
     }
+    // Collect part B coro names
+    const corosB = [];
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('vocal-coro-' + i + 'b');
+        if (el && el.value.trim()) corosB.push(el.value.trim());
+    }
 
     const localSong = songs.find(x => x.id === vocalEditorSongId);
     if (localSong) {
         if (isDom) {
             localSong.vocalista_domingo = mainName;
             localSong.coros_domingo = coros;
+            localSong.coros_domingo_b = corosB;
         } else {
             localSong.vocalista_lunes = mainName;
             localSong.coros_lunes = coros;
+            localSong.coros_lunes_b = corosB;
         }
         save('cb_songs', songs);
     }
@@ -3641,13 +3758,17 @@ async function saveVocalEditor() {
         if (isDom) {
             insertData.vocalista_domingo = mainName;
             insertData.coros_domingo = coros;
+            insertData.coros_domingo_b = corosB;
             insertData.vocalista_lunes = '';
             insertData.coros_lunes = [];
+            insertData.coros_lunes_b = [];
         } else {
             insertData.vocalista_lunes = mainName;
             insertData.coros_lunes = coros;
+            insertData.coros_lunes_b = corosB;
             insertData.vocalista_domingo = '';
             insertData.coros_domingo = [];
+            insertData.coros_domingo_b = [];
         }
         try {
             const { error } = await supabaseClient.from('canciones_repertorio').insert(insertData);
@@ -3662,9 +3783,11 @@ async function saveVocalEditor() {
         if (isDom) {
             updateData.vocalista_domingo = mainName;
             updateData.coros_domingo = coros;
+            updateData.coros_domingo_b = corosB;
         } else {
             updateData.vocalista_lunes = mainName;
             updateData.coros_lunes = coros;
+            updateData.coros_lunes_b = corosB;
         }
         try {
             const { error } = await supabaseClient.from('canciones_repertorio').update(updateData).eq('id', vocalEditorSongId);
@@ -3683,13 +3806,14 @@ logActivity('vocals_assigned', {
 }
 
 // ============= VOCAL AUDIO UPLOAD =============
-function triggerVocalAudioUpload(repId, songId, coro, sourceSongId, dia) {
+function triggerVocalAudioUpload(repId, songId, coro, sourceSongId, dia, part) {
     if (!canEditVocals()) return;
     vocalAudioUploadRepId = repId;
     vocalAudioUploadSongId = songId;
     vocalAudioUploadSourceSongId = sourceSongId || null;
     vocalAudioUploadCoro = coro;
     vocalAudioUploadDia = dia || 'domingo';
+    vocalAudioUploadPart = part || 'a';
     document.getElementById('vocal-audio-upload-input').click();
 }
 
@@ -3716,7 +3840,7 @@ async function handleVocalAudioUpload(e) {
         return;
     }
 
-    const filename = sourceSongId + '_coro' + vocalAudioUploadCoro + '_' + vocalAudioUploadDia + '.mp3';
+    const filename = sourceSongId + '_coro' + vocalAudioUploadCoro + '_' + (vocalAudioUploadPart || 'a') + '_' + vocalAudioUploadDia + '.mp3';
     const storagePath = 'vocal-audios/' + filename;
 
     // ✅ PRIMERO: Verificar si ya existe un audio para este coro en la base de datos
@@ -3728,6 +3852,7 @@ async function handleVocalAudioUpload(e) {
             .eq('source_song_id', sourceSongId)
             .eq('coro_number', vocalAudioUploadCoro)
             .eq('dia', vocalAudioUploadDia)
+            .eq('part', vocalAudioUploadPart || 'a')
             .maybeSingle();
         
         if (existingRows) {
@@ -3816,6 +3941,7 @@ async function handleVocalAudioUpload(e) {
                     source_song_id: sourceSongId,
                     coro_number: vocalAudioUploadCoro,
                     dia: vocalAudioUploadDia,
+                    part: vocalAudioUploadPart || 'a',
                     vocalista_name: '',
                     audio_url: audioUrl,
                     audio_path: actualStoragePath,
@@ -3826,7 +3952,7 @@ async function handleVocalAudioUpload(e) {
 
         await loadRepertorios();
         renderRepertorioView();
-        showNotification('Audio del Coro ' + vocalAudioUploadCoro + ' guardado', 'success');
+        showNotification('Audio del Coro ' + vocalAudioUploadCoro + ' parte ' + (vocalAudioUploadPart || 'a').toUpperCase() + ' guardado', 'success');
     } catch (err) {
         alert('Error al subir audio: ' + err.message);
     }
@@ -3842,11 +3968,13 @@ async function handleVocalAudioUpload(e) {
     vocalAudioUploadRepId = null;
     vocalAudioUploadSongId = null;
     vocalAudioUploadSourceSongId = null;
+    vocalAudioUploadPart = 'a';
 }
 
-async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
+async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia, part) {
     if (!canEditVocals()) return;
     if (!confirm('¿Eliminar este audio de coro?')) return;
+    const audioPart = part || 'a';
 
     let resolvedSourceId = sourceSongId;
     if (!resolvedSourceId) {
@@ -3867,7 +3995,7 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
     const r = repertorios.find(x => x.id === repId);
     if (!r || !r.vocalAudios) return;
 
-    const existing = r.vocalAudios.find(va => (va.source_song_id || va.cancion_repertorio_id) === resolvedSourceId && va.coro_number === coro && va.dia === dia);
+    const existing = r.vocalAudios.find(va => (va.source_song_id || va.cancion_repertorio_id) === resolvedSourceId && va.coro_number === coro && va.dia === dia && (va.part || 'a') === audioPart);
     if (!existing) return;
 
     try {
@@ -3922,7 +4050,8 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia) {
             .delete()
             .eq('source_song_id', resolvedSourceId)
             .eq('coro_number', coro)
-            .eq('dia', dia);
+            .eq('dia', dia)
+            .eq('part', audioPart);
         await loadRepertorios();
         renderRepertorioView();
         showNotification('Audio eliminado', 'success');

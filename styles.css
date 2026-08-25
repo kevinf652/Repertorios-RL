@@ -347,3 +347,8 @@ input,textarea,button{font-family:inherit}
 .floating-notification {
     animation: slideDown .3s ease;
 }
+
+/* ============= VOCAL TAB STYLES ============= */
+.vocal-tab{background:transparent;color:#71717a;border:none;cursor:pointer;transition:all .2s}
+.vocal-tab.active{background:rgba(245,158,11,.15);color:#fbbf24}
+.vocal-tab:hover:not(.active){background:rgba(63,63,70,.3);color:#a1a1aa}
