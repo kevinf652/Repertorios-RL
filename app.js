@@ -1425,6 +1425,18 @@ function seekRepAudioTouch(e) {
 }
 
 // ============= VOCAL AUDIO FUNCTIONS =============
+function stopVocalAudioProgress() {
+    if (vocalAudioInterval) { clearInterval(vocalAudioInterval);
+        vocalAudioInterval = null }
+}
+
+function startVocalAudioProgress() {
+    stopVocalAudioProgress();
+    vocalAudioInterval = setInterval(function() {
+        updateVocalAudioProgress(vocalAudioCurrentKey);
+    }, 250);
+}
+
 function setupVocalAudioProgress(audio, key) {
     audio.addEventListener('loadedmetadata', function() {
         updateVocalAudioProgress(key);
