@@ -272,6 +272,20 @@ async function adminDeleteDuplicateCopy(rowId, userId, title) {
 }
 
 // ---------- Duplicados en Almacenamiento R2 (solo storage, no toca tablas) ----------
+
+// Helper: Normalizar key de R2 quitando el timestamp del nombre de archivo
+// Ej: "vocal-audios/1787610144649-msvv4vx9bre1d0n1b_coro3_lunes.mp3" → "msvv4vx9bre1d0n1b_coro3_lunes.mp3"
+function normalizeVocalKey(key) {
+    if (!key) return '';
+    const parts = key.split('/');
+    const filename = parts[parts.length - 1] || '';
+    // Quitar timestamp tipo "1787610144649-" del inicio del nombre
+    const normalized = filename.replace(/^\d{13}-/, '');
+    // Reconstruir con la carpeta
+    parts[parts.length - 1] = normalized;
+    return parts.join('/');
+}
+
 function extractDuplicateGroupKey(key) {
     const isVocal = key.includes('vocal-audios');
     const isSong = key.includes('songs/');
@@ -334,7 +348,9 @@ async function renderAdminR2Duplicates(force) {
             } catch (e) {}
 
             const rowsHtml = objs.map(o => {
-                const isLinked = linkedKey && (o.key === linkedKey || o.key.endsWith(linkedKey) || linkedKey.endsWith(o.key));
+                const normKey = normalizeVocalKey(o.key);
+                const normLinked = normalizeVocalKey(linkedKey);
+                const isLinked = linkedKey && (normKey === normLinked || o.key === linkedKey);
                 const sizeMBVal = ((o.size || 0) / (1024 * 1024)).toFixed(2);
                 const dateStr = o.uploaded ? new Date(o.uploaded).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
                 const keyEsc = o.key.replace(/'/g, "\\'");
@@ -365,7 +381,8 @@ async function adminDeleteR2OnlyFile(key) {
     if (!isAdmin()) return;
     if (!confirm('¿Eliminar este archivo SOLO de Almacenamiento (R2)?\n\nNo se tocará ninguna canción, repertorio ni tabla de la base de datos — es solo limpieza del archivo sobrante. Esta acción no se puede deshacer.')) return;
     try {
-        await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(key), { method: 'DELETE' });
+        const deleteUrl = getR2DeleteUrl(key);
+        await fetch(deleteUrl, { method: 'DELETE' });
         showNotification('Archivo eliminado de Storage', 'success');
         logActivity('r2_file_deleted', { key: key }, 'storage', null);
         r2Cache = null;

@@ -1296,7 +1296,7 @@ function playVocalAudio(key, url) {
             if (pathMatch) {
                 const storagePath = pathMatch[1];
                 console.log('Trying R2 fallback for:', storagePath);
-                const r2Url = R2_WORKER_URL + '/file/' + encodeURIComponent(storagePath);
+                const r2Url = getR2DeleteUrl(storagePath);
                 audio.src = r2Url;
                 audio.play().catch(function(e2) {
                     console.error('R2 fallback also failed:', e2);
@@ -3780,6 +3780,17 @@ async function handleVocalAudioUpload(e) {
         let audioUrl = uploadData.url;
         if (audioUrl) audioUrl = normalizeVocalAudioUrl(audioUrl);
 
+        // ✅ Extraer el R2 key real de la URL del worker (incluye timestamp)
+        // para que coincida con el archivo subido a R2
+        let actualStoragePath = storagePath;
+        if (uploadData.url) {
+            const r2Key = extractR2Key(uploadData.url);
+            if (r2Key && r2Key !== storagePath) {
+                actualStoragePath = r2Key;
+                console.log('📎 R2 key real:', actualStoragePath, '(original:', storagePath, ')');
+            }
+        }
+
         if (!audioUrl || !audioUrl.includes(sourceSongId)) {
             audioUrl = SUPABASE_URL + '/storage/v1/object/public/vocal-audios/' + storagePath;
         }
@@ -3791,7 +3802,7 @@ async function handleVocalAudioUpload(e) {
                 .from('vocal_audios')
                 .update({
                     audio_url: audioUrl,
-                    audio_path: storagePath,
+                    audio_path: actualStoragePath,
                     updated_at: Date.now()
                 })
                 .eq('id', existingAudio.id);
@@ -3807,7 +3818,7 @@ async function handleVocalAudioUpload(e) {
                     dia: vocalAudioUploadDia,
                     vocalista_name: '',
                     audio_url: audioUrl,
-                    audio_path: storagePath,
+                    audio_path: actualStoragePath,
                     updated_at: Date.now()
                 });
             if (dbErr) throw dbErr;
