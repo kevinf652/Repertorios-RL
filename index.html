@@ -443,7 +443,19 @@
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div class="admin-section-title">Canciones duplicadas</div>
+    <div class="admin-section-subtitle">Mismo título/artista guardado con distinto ID entre usuarios</div>
     <div id="admin-duplicados-content"></div>
+
+    <div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div>
+          <div class="admin-section-title" style="margin-bottom:2px">Duplicados en Almacenamiento (R2)</div>
+          <div class="admin-section-subtitle">Mismo audio guardado 2 veces en Storage — no afecta a la base de datos</div>
+        </div>
+        <button class="btn btn-zinc" onclick="renderAdminR2Duplicates(true)">🔄 Refrescar</button>
+      </div>
+      <div id="admin-r2-duplicates-content"></div>
+    </div>
   </div>
 </div>
 
@@ -530,6 +542,7 @@
         <option value="activity_created">Actividad creada</option>
         <option value="activity_deleted">Actividad eliminada</option>
         <option value="social_profile_updated">Mis Datos actualizado</option>
+        <option value="r2_file_deleted">Duplicado de Storage borrado</option>
       </select>
       <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todos los roles</option>
@@ -690,6 +703,16 @@
   </div>
 </div>
 
+<!-- Modal: Cumpleañeros del mes (fijo, calculado, no se puede borrar) -->
+<div id="birthday-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">🎂 Cumpleañeros del mes</div>
+    <div class="auth-subtitle" id="birthday-modal-subtitle">Cargando...</div>
+    <div id="birthday-modal-content" style="margin:14px 0;max-height:55vh;overflow-y:auto"></div>
+    <button type="button" class="btn btn-zinc" onclick="closeBirthdayModal()" style="width:100%;justify-content:center">Cerrar</button>
+  </div>
+</div>
+
 <!-- Vocal Editor Modal (Per-Day) -->
 <div id="vocal-editor-modal" class="login-modal hidden" onclick="if(event.target===this)hideVocalEditor()">
   <div class="login-box" style="width:400px;max-height:85vh;overflow-y:auto">
@@ -815,7 +838,7 @@
       <span>Admin</span>
     </button>
 
-    <button class="nav-btn" id="nav-social" style="display:none" onclick="showPage('social')">
+    <button class="nav-btn" id="nav-social" style="display:none;position:relative" onclick="showPage('social')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/></svg>
       <span>Social</span>
     </button>

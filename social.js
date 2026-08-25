@@ -92,11 +92,17 @@ async function renderSocialActividades(force) {
     c.innerHTML = '<div class="admin-empty">Cargando...</div>';
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
     const activities = await loadSocialActivities(force);
+
+    const pinnedCard = '<div class="card social-birthday-card" onclick="showBirthdayModal()" style="margin-bottom:10px">'
+        + '<div class="card-title">🎂 Cumpleañeros del mes</div>'
+        + '<div class="card-artist">Ver quién cumple años este mes</div>'
+        + '</div>';
+
     if (activities.length === 0) {
-        c.innerHTML = '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/></svg></div><h2>Sin actividades aún</h2><p>Propón la primera idea para el grupo</p></div>';
+        c.innerHTML = pinnedCard + '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/></svg></div><h2>Sin actividades aún</h2><p>Propón la primera idea para el grupo</p></div>';
         return;
     }
-    c.innerHTML = activities.map(a => {
+    c.innerHTML = pinnedCard + activities.map(a => {
         return '<div class="card" onclick="showViewActivityModal(\'' + a.id + '\')" style="margin-bottom:10px">'
             + '<div style="display:flex;justify-content:space-between;gap:8px">'
             + '<div style="flex:1;min-width:0">'
@@ -105,6 +111,98 @@ async function renderSocialActividades(force) {
             + '<div class="card-meta"><span class="tag tag-zinc">Creado por ' + esc(a.created_by || '-') + '</span></div>'
             + '</div></div></div>';
     }).join('');
+}
+
+// ---------- Cumpleañeros del mes (card fija, calculada, no se puede borrar) ----------
+async function loadBirthdaysThisMonth(force) {
+    const users = await loadSocialUsersData(force);
+    const now = new Date();
+    const curMonth = now.getMonth() + 1;
+    const curDay = now.getDate();
+    return users
+        .filter(u => u.profile && u.profile.fecha_cumpleanos)
+        .map(u => {
+            const parts = u.profile.fecha_cumpleanos.split('-').map(Number);
+            return Object.assign({}, u, { bMonth: parts[1], bDay: parts[2] });
+        })
+        .filter(u => u.bMonth === curMonth && u.bDay >= curDay)
+        .sort((a, b) => a.bDay - b.bDay)
+        .map(u => Object.assign(u, { isToday: u.bDay === curDay }));
+}
+
+async function showBirthdayModal() {
+    const modal = document.getElementById('birthday-modal');
+    const content = document.getElementById('birthday-modal-content');
+    if (!modal || !content) return;
+    content.innerHTML = '<div class="admin-empty">Cargando...</div>';
+    modal.classList.add('active');
+    if (!supabaseReady) { content.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
+
+    const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const curMonthName = monthNames[new Date().getMonth()];
+    document.getElementById('birthday-modal-subtitle').textContent = 'Cumpleaños restantes de ' + curMonthName;
+
+    const list = await loadBirthdaysThisMonth(false);
+    if (list.length === 0) {
+        content.innerHTML = '<div class="admin-empty">No quedan cumpleaños este mes 🎈</div>';
+        return;
+    }
+    content.innerHTML = list.map(u => {
+        const fullName = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.id;
+        return '<div class="birthday-item' + (u.isToday ? ' birthday-today' : '') + '">'
+            + '<div class="birthday-day">' + u.bDay + '</div>'
+            + '<div class="birthday-info"><div class="birthday-name">' + esc(fullName) + '</div>'
+            + (u.isToday ? '<div class="birthday-badge">🎉 ¡Hoy!</div>' : '') + '</div>'
+            + '</div>';
+    }).join('');
+}
+
+function closeBirthdayModal() {
+    const modal = document.getElementById('birthday-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+// ---------- Notificación (punto) sobre la pestaña Social ----------
+// Local por dispositivo (localStorage): marca hasta qué actividad ya se vio.
+const SOCIAL_LAST_SEEN_KEY = 'cb_social_last_seen_activity';
+
+async function updateSocialNotificationDot() {
+    const navSocial = document.getElementById('nav-social');
+    if (!navSocial) return;
+    if (!canAccessSocial() || !supabaseReady) {
+        const dot = navSocial.querySelector('.nav-dot');
+        if (dot) dot.remove();
+        return;
+    }
+    let hasNotif = false;
+    try {
+        const birthdays = await loadBirthdaysThisMonth(false);
+        if (birthdays.some(u => u.isToday)) hasNotif = true;
+    } catch (e) {}
+    if (!hasNotif) {
+        try {
+            const activities = await loadSocialActivities(false);
+            const lastSeen = parseInt(localStorage.getItem(SOCIAL_LAST_SEEN_KEY) || '0', 10);
+            if (activities.some(a => (a.created_at || 0) > lastSeen)) hasNotif = true;
+        } catch (e) {}
+    }
+    let dot = navSocial.querySelector('.nav-dot');
+    if (hasNotif && !dot) {
+        dot = document.createElement('span');
+        dot.className = 'nav-dot';
+        navSocial.appendChild(dot);
+    } else if (!hasNotif && dot) {
+        dot.remove();
+    }
+}
+
+async function markActivitiesAsSeen() {
+    try {
+        const activities = await loadSocialActivities(false);
+        const maxTs = activities.reduce((m, a) => Math.max(m, a.created_at || 0), 0);
+        localStorage.setItem(SOCIAL_LAST_SEEN_KEY, String(maxTs || Date.now()));
+    } catch (e) {}
+    updateSocialNotificationDot();
 }
 
 function showAddActivityModal() {
@@ -235,7 +333,7 @@ if (typeof showPage === 'function') {
         _socialOriginalShowPage(name);
         if (name === 'social') renderSocialPanel();
         if (name === 'social-usuarios') renderSocialUsuarios(true);
-        if (name === 'social-actividades') renderSocialActividades(true);
+        if (name === 'social-actividades') { renderSocialActividades(true).then(markActivitiesAsSeen); }
         if (name === 'mis-datos') renderMisDatos();
     };
 }
@@ -246,6 +344,7 @@ if (typeof updateUserUI === 'function') {
         _socialOriginalUpdateUserUI();
         const navSocial = document.getElementById('nav-social');
         if (navSocial) navSocial.style.display = canAccessSocial() ? '' : 'none';
+        updateSocialNotificationDot();
 
         // Inyectar botón "Mis Datos" en el menú de usuario, antes de "Cambiar contraseña"
         const dropdownContent = document.getElementById('user-dropdown-content');
@@ -264,4 +363,21 @@ if (typeof updateUserUI === 'function') {
 if (canAccessSocial()) {
     const navSocial = document.getElementById('nav-social');
     if (navSocial) navSocial.style.display = '';
+    updateSocialNotificationDot();
+}
+
+// Fallback: si la sesión ya estaba restaurada antes de que este script cargara
+// (initAuth llama a updateUserUI antes de que admin.js/social.js lo envuelvan),
+// inyectamos el botón "Mis Datos" aquí también para que no dependa de un login nuevo.
+if (currentUser) {
+    const dropdownContent = document.getElementById('user-dropdown-content');
+    if (dropdownContent) {
+        const pwBtn = dropdownContent.querySelector('button[onclick="showChangePasswordModal()"]');
+        if (pwBtn && !dropdownContent.querySelector('.mis-datos-btn')) {
+            pwBtn.insertAdjacentHTML('beforebegin',
+                '<button class="user-dropdown-item mis-datos-btn" onclick="showPage(\'mis-datos\')">'
+                + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+                + 'Mis Datos</button>');
+        }
+    }
 }

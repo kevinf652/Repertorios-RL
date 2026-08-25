@@ -58,7 +58,8 @@ async function renderAdminSummary() {
                     rep_created: 'creó un repertorio', rep_deleted: 'eliminó un repertorio', rep_song_added: 'agregó una canción a un repertorio',
                     rep_song_removed: 'quitó una canción de un repertorio', user_role_changed: 'cambió el rol de un usuario',
                     password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento',
-                    activity_created: 'propuso una actividad', activity_deleted: 'eliminó una actividad', social_profile_updated: 'actualizó sus datos'
+                    activity_created: 'propuso una actividad', activity_deleted: 'eliminó una actividad', social_profile_updated: 'actualizó sus datos',
+                    r2_file_deleted: 'limpió un duplicado de Storage'
                 };
                 const when = new Date(recent[0].created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
                 recentHtml = '<div class="admin-summary-recent">🕒 Última actividad: <b style="color:#e4e4e7">' + esc(recent[0].user_name || '') + '</b> ' + (labels[recent[0].action] || recent[0].action) + ' · ' + when + '</div>';
@@ -265,6 +266,110 @@ async function adminDeleteDuplicateCopy(rowId, userId, title) {
             targetUser: userId
         }, 'song', null);
         renderAdminDuplicados();
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
+}
+
+// ---------- Duplicados en Almacenamiento R2 (solo storage, no toca tablas) ----------
+function extractDuplicateGroupKey(key) {
+    const isVocal = key.includes('vocal-audios');
+    const isSong = key.includes('songs/');
+    if (isVocal) {
+        const idMatch = key.match(/([a-z0-9]+)_coro/i);
+        const coroMatch = key.match(/coro(\d+)_(domingo|lunes)/i);
+        if (idMatch && coroMatch) return 'vocal|' + idMatch[1] + '|' + coroMatch[1] + '|' + coroMatch[2];
+        return null;
+    }
+    if (isSong) {
+        const filename = key.split('/').pop() || '';
+        const base = filename.replace(/\.[^/.]+$/, '');
+        const parts = base.split('-');
+        const songId = parts.length >= 2 ? parts[parts.length - 1] : base;
+        return 'song|' + songId;
+    }
+    return null;
+}
+
+async function renderAdminR2Duplicates(force) {
+    const c = document.getElementById('admin-r2-duplicates-content');
+    if (!c) return;
+    c.innerHTML = '<div class="admin-empty">Buscando duplicados en Storage...</div>';
+    try {
+        const data = await loadR2StorageData(force);
+        if (!data || !data.objects) { c.innerHTML = '<div class="admin-empty">No se pudo cargar Storage.</div>'; return }
+
+        const groups = {};
+        data.objects.forEach(o => {
+            const gKey = extractDuplicateGroupKey(o.key);
+            if (!gKey) return;
+            if (!groups[gKey]) groups[gKey] = [];
+            groups[gKey].push(o);
+        });
+        const dupGroups = Object.entries(groups).filter(([k, arr]) => arr.length > 1);
+
+        if (dupGroups.length === 0) {
+            c.innerHTML = '<div class="admin-empty">No se encontraron archivos duplicados en Storage 🎉</div>';
+            return;
+        }
+
+        const parts = [];
+        for (const [gKey, objs] of dupGroups) {
+            const isVocal = gKey.startsWith('vocal|');
+            const songData = await resolveSongDataForKey(objs[0].key);
+            const title = songData ? (songData.title + (songData.artist ? ' - ' + songData.artist : '')) : 'Audio sin identificar';
+
+            // Intentar detectar cuál archivo es el que realmente está enlazado en la base de datos
+            let linkedKey = null;
+            try {
+                if (isVocal) {
+                    const [, sourceSongId, coroNum, dia] = gKey.split('|');
+                    const { data: rows } = await supabaseClient.from('vocal_audios').select('audio_url,audio_path').eq('source_song_id', sourceSongId).eq('coro_number', parseInt(coroNum, 10)).eq('dia', dia);
+                    if (rows && rows[0]) linkedKey = extractR2Key(rows[0].audio_path || rows[0].audio_url);
+                } else {
+                    const songId = gKey.split('|')[1];
+                    const { data: rows } = await supabaseClient.from('canciones_repertorio').select('audio_url').eq('source_song_id', songId).limit(1);
+                    if (rows && rows[0]) linkedKey = extractR2Key(rows[0].audio_url);
+                }
+            } catch (e) {}
+
+            const rowsHtml = objs.map(o => {
+                const isLinked = linkedKey && (o.key === linkedKey || o.key.endsWith(linkedKey) || linkedKey.endsWith(o.key));
+                const sizeMBVal = ((o.size || 0) / (1024 * 1024)).toFixed(2);
+                const dateStr = o.uploaded ? new Date(o.uploaded).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+                const keyEsc = o.key.replace(/'/g, "\\'");
+                return '<tr>'
+                    + '<td style="font-size:.68rem;color:#a1a1aa;word-break:break-all">' + esc(o.key) + '</td>'
+                    + '<td style="font-size:.72rem">' + sizeMBVal + ' MB</td>'
+                    + '<td style="font-size:.68rem;color:#71717a">' + dateStr + '</td>'
+                    + '<td>' + (isLinked
+                        ? '<span style="background:rgba(52,211,153,.15);color:#34d399;font-size:.65rem;padding:3px 8px;border-radius:6px;font-weight:600">✅ En uso</span>'
+                        : '<button class="btn-danger-sm" onclick="adminDeleteR2OnlyFile(\'' + keyEsc + '\')">🗑️ Borrar solo de Storage</button>')
+                    + '</td>'
+                    + '</tr>';
+            }).join('');
+
+            parts.push('<div style="margin-bottom:14px">'
+                + '<div style="font-size:.82rem;font-weight:600;color:#e4e4e7;margin-bottom:6px">' + esc(title) + ' <span style="color:#71717a;font-weight:400;font-size:.7rem">(' + objs.length + ' copias en Storage)</span></div>'
+                + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Archivo</th><th>Tamaño</th><th>Subido</th><th>Acción</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+                + '</div>');
+        }
+        c.innerHTML = parts.join('');
+    } catch (e) {
+        console.error('renderAdminR2Duplicates error:', e);
+        c.innerHTML = '<div class="admin-empty">Error al buscar duplicados en Storage.</div>';
+    }
+}
+
+async function adminDeleteR2OnlyFile(key) {
+    if (!isAdmin()) return;
+    if (!confirm('¿Eliminar este archivo SOLO de Almacenamiento (R2)?\n\nNo se tocará ninguna canción, repertorio ni tabla de la base de datos — es solo limpieza del archivo sobrante. Esta acción no se puede deshacer.')) return;
+    try {
+        await fetch(R2_WORKER_URL + '/file/' + encodeURIComponent(key), { method: 'DELETE' });
+        showNotification('Archivo eliminado de Storage', 'success');
+        logActivity('r2_file_deleted', { key: key }, 'storage', null);
+        r2Cache = null;
+        renderAdminR2Duplicates(true);
     } catch (e) {
         alert('Error al eliminar: ' + e.message);
     }
@@ -821,7 +926,7 @@ if (typeof showPage === 'function') {
         _adminOriginalShowPage(name);
         if (name === 'admin') renderAdminPanel();
         if (name === 'admin-usuarios') initAdminUsuariosPage();
-        if (name === 'admin-duplicados') renderAdminDuplicados();
+        if (name === 'admin-duplicados') { renderAdminDuplicados(); renderAdminR2Duplicates(); }
         if (name === 'admin-repertorios') renderAdminRepertorios();
         if (name === 'admin-mantenimiento') renderAdminMantenimiento();
         if (name === 'admin-storage') renderAdminStorage();
@@ -927,7 +1032,8 @@ async function renderAdminLogs() {
             backfill_created_by: '🛠️ Rellenó "creado por" (mantenimiento)',
             activity_created: '🎉 Creó actividad',
             activity_deleted: '🗑️ Eliminó actividad',
-            social_profile_updated: '📝 Actualizó Mis Datos'
+            social_profile_updated: '📝 Actualizó Mis Datos',
+            r2_file_deleted: '🧹 Borró duplicado de Storage'
         };
         
         const roleColors = {

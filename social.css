@@ -31,3 +31,78 @@
   font-size: .75rem;
   color: #71717a;
 }
+
+/* Card fija "Cumpleañeros del mes" */
+.social-birthday-card {
+  border: 1px solid rgba(52, 211, 153, .3);
+  background: rgba(52, 211, 153, .06);
+}
+.social-birthday-card .card-title { color: #34d399; }
+
+.birthday-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(39, 39, 42, .5);
+  margin-bottom: 8px;
+  transition: all .2s;
+}
+
+.birthday-day {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(161, 161, 170, .15);
+  color: #d4d4d8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: .85rem;
+  flex-shrink: 0;
+}
+
+.birthday-name {
+  font-size: .85rem;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+
+.birthday-badge {
+  font-size: .68rem;
+  color: #34d399;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+/* Resalte para quien cumple justo hoy */
+.birthday-item.birthday-today {
+  background: rgba(52, 211, 153, .15);
+  border: 1px solid rgba(52, 211, 153, .4);
+  padding: 14px;
+  transform: scale(1.03);
+}
+.birthday-item.birthday-today .birthday-day {
+  background: #34d399;
+  color: #000;
+  width: 40px;
+  height: 40px;
+  font-size: 1rem;
+}
+.birthday-item.birthday-today .birthday-name {
+  font-size: .95rem;
+}
+
+/* Punto de notificación sobre la pestaña Social */
+.nav-dot {
+  position: absolute;
+  top: 2px;
+  right: calc(50% - 16px);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f87171;
+  box-shadow: 0 0 0 2px rgba(24, 24, 27, .9);
+}
