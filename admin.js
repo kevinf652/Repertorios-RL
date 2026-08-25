@@ -353,10 +353,9 @@ async function renderAdminR2Duplicates(force) {
             } catch (e) { console.warn('Error detecting linked key:', e); }
 
             const rowsHtml = objs.map(o => {
-                // Comparar normalizando: quitar timestamp del nombre para comparar
-                const normR2Key = normalizeVocalKey(o.key);
-                const normLinked = normalizeVocalKey(linkedKey);
-                const isLinked = linkedKey && (normR2Key === normLinked || o.key === linkedKey);
+                // Comparar con igualdad EXACTA: no usar normalización porque
+                // ambos duplicados tienen la misma base y los dos matchearían.
+                const isLinked = linkedKey && o.key === linkedKey;
                 const sizeMBVal = ((o.size || 0) / (1024 * 1024)).toFixed(2);
                 const dateStr = o.uploaded ? new Date(o.uploaded).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
                 const keyEsc = o.key.replace(/'/g, "\\'");
