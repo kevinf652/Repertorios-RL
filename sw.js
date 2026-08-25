@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v2.452';
+const CACHE_NAME = 'repertorios-rl-v2.5';
 const urlsToCache = [  
 './',  
 './index.html',  
@@ -9,6 +9,8 @@ const urlsToCache = [
 './styles.css',  
 './admin.js',  
 './admin.css'
+'./social.js',
+'./social.css,
 ];
 // INSTALL - Cache app shell
 self.addEventListener('install', function(event) {  
