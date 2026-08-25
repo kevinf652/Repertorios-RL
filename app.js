@@ -3459,8 +3459,6 @@ function renderVocalAudioList(day) {
         const el = document.getElementById('vocal-coro-' + i);
         coroNames.push(el ? el.value.trim() : '');
     }
-    const isDom = day === 'domingo';
-    const dayColor = isDom ? '#fbbf24' : '#c084fc';
     let html = '';
     const isDom = day === 'domingo';
     const dayColor = isDom ? '#fbbf24' : '#c084fc';
