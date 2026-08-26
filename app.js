@@ -3688,7 +3688,11 @@ function triggerVocalAudioUpload(repId, songId, coro, sourceSongId, dia, part) {
     vocalAudioUploadCoro = coro;
     vocalAudioUploadDia = dia || 'domingo';
     vocalAudioUploadPart = part || 'a';
-    document.getElementById('vocal-audio-upload-input').click();
+    if (isIOS()) {
+        openAudioUploadMenu('vocal');
+    } else {
+        document.getElementById('vocal-audio-upload-input').click();
+    }
 }
 
 async function handleVocalAudioUpload(e) {
@@ -3992,8 +3996,10 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let recordingStartTime = null;
+let audioRecordingTarget = 'song'; // 'song' (canción en Biblioteca) o 'vocal' (coro en repertorio)
 
-async function startAudioRecording() {
+async function startAudioRecording(target) {
+    audioRecordingTarget = target || 'song';
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         showNotification('❌ Tu navegador no soporta grabación de audio.', 'error');
         return;
@@ -4178,8 +4184,9 @@ function useAudioRecording() {
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(file);
     
-    // Buscar el input de audio y asignar el archivo
-    const input = document.getElementById('audio-upload-input');
+    // Buscar el input correcto (canción o coro) y asignar el archivo
+    const inputId = audioRecordingTarget === 'vocal' ? 'vocal-audio-upload-input' : 'audio-upload-input';
+    const input = document.getElementById(inputId);
     if (input) {
         input.files = dataTransfer.files;
         input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -4209,8 +4216,11 @@ function isIOS() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-// Modificar el triggerAudioUpload para incluir opción de grabar
-function triggerAudioUploadWithRecording(songId) {
+// Menú para elegir entre seleccionar archivo o grabar. target: 'song' o 'vocal'
+function openAudioUploadMenu(target) {
+    audioRecordingTarget = target || 'song';
+    const inputId = audioRecordingTarget === 'vocal' ? 'vocal-audio-upload-input' : 'audio-upload-input';
+
     // Crear menú contextual
     const modal = document.createElement('div');
     modal.id = 'audio-upload-menu';
@@ -4236,10 +4246,10 @@ function triggerAudioUploadWithRecording(songId) {
         ">
             <h3 style="color:#fff;font-size:1rem;text-align:center;margin-bottom:16px;">🎵 Subir audio</h3>
             <div style="display:flex;flex-direction:column;gap:10px;">
-                <button onclick="document.getElementById('audio-upload-input').click();closeAudioUploadMenu()" class="btn btn-amber" style="width:100%;padding:12px;">
+                <button onclick="document.getElementById('${inputId}').click();closeAudioUploadMenu()" class="btn btn-amber" style="width:100%;padding:12px;">
                     📁 Seleccionar archivo
                 </button>
-                <button onclick="closeAudioUploadMenu();startAudioRecording()" class="btn btn-zinc" style="width:100%;padding:12px;">
+                <button onclick="closeAudioUploadMenu();startAudioRecording('${audioRecordingTarget}')" class="btn btn-zinc" style="width:100%;padding:12px;">
                     🎙️ Grabar audio
                 </button>
                 <button onclick="closeAudioUploadMenu()" class="btn btn-zinc" style="width:100%;padding:10px;background:transparent;border:1px solid rgba(63,63,70,0.5);">
@@ -4251,9 +4261,12 @@ function triggerAudioUploadWithRecording(songId) {
     `;
     
     document.body.appendChild(modal);
-    
-    // Guardar songId para usarlo después
-    window._audioUploadSongId = songId;
+}
+
+// Se mantiene por compatibilidad (subir audio de canción en Biblioteca)
+function triggerAudioUploadWithRecording(songId) {
+    audioUploadSongId = songId;
+    openAudioUploadMenu('song');
 }
 
 function closeAudioUploadMenu() {
