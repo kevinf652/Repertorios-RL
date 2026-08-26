@@ -1071,7 +1071,7 @@ async function loadRepertorios() {
                 const key = s.source_song_id || s.id;
                 if (vocalAudiosBySong[key]) {
                     vocalAudiosBySong[key].forEach(va => {
-                        if (!repVocalAudios.find(x => x.source_song_id === va.source_song_id && x.coro_number === va.coro_number && x.dia === va.dia)) {
+                        if (!repVocalAudios.find(x => x.source_song_id === va.source_song_id && x.coro_number === va.coro_number && x.dia === va.dia && (x.part || 'a') === (va.part || 'a'))) {
                             repVocalAudios.push(va);
                         }
                     });
