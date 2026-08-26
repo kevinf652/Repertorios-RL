@@ -303,8 +303,11 @@ function extractDuplicateGroupKey(key) {
     const isSong = key.includes('songs/');
     if (isVocal) {
         const idMatch = key.match(/([a-z0-9]+)_coro/i);
-        const coroMatch = key.match(/coro(\d+)_(domingo|lunes)/i);
-        if (idMatch && coroMatch) return 'vocal|' + idMatch[1] + '|' + coroMatch[1] + '|' + coroMatch[2];
+        const coroMatch = key.match(/coro(\d+)(?:_([ab]))?_(domingo|lunes)/i);
+        if (idMatch && coroMatch) {
+            const part = coroMatch[2] || 'a';
+            return 'vocal|' + idMatch[1] + '|' + coroMatch[1] + '|' + part + '|' + coroMatch[3];
+        }
         return null;
     }
     if (isSong) {
@@ -350,8 +353,8 @@ async function renderAdminR2Duplicates(force) {
             let linkedKey = null;
             try {
                 if (isVocal) {
-                    const [, sourceSongId, coroNum, dia] = gKey.split('|');
-                    const { data: rows } = await supabaseClient.from('vocal_audios').select('audio_url,audio_path').eq('source_song_id', sourceSongId).eq('coro_number', parseInt(coroNum, 10)).eq('dia', dia);
+                    const [, sourceSongId, coroNum, part, dia] = gKey.split('|');
+                    const { data: rows } = await supabaseClient.from('vocal_audios').select('audio_url,audio_path').eq('source_song_id', sourceSongId).eq('coro_number', parseInt(coroNum, 10)).eq('dia', dia).eq('part', part || 'a');
                     if (rows && rows[0]) {
                         // Usar audio_url como fuente de truth (tiene el timestamp completo del worker)
                         linkedKey = extractR2Key(rows[0].audio_url);
@@ -507,9 +510,10 @@ function getFriendlyAudioName(key, songData) {
         const title = songData.title || 'Sin título';
         const artist = songData.artist || 'Desconocido';
         if (isVocal) {
-            const match = key.match(/coro(\d+)_(domingo|lunes)/i);
+            const match = key.match(/coro(\d+)(?:_([ab]))?_(domingo|lunes)/i);
             if (match) {
-                return '🎤 Coro ' + match[1] + ' (' + match[2] + ') de ' + title + ' - ' + artist;
+                const partLabel = match[2] ? match[2].toUpperCase() : '';
+                return '🎤 Coro ' + match[1] + partLabel + ' (' + match[3] + ') de ' + title + ' - ' + artist;
             }
             return '🎤 Audio vocal de ' + title + ' - ' + artist;
         }
@@ -520,9 +524,10 @@ function getFriendlyAudioName(key, songData) {
     }
 
     if (isVocal) {
-        const match = key.match(/coro(\d+)_(domingo|lunes)/i);
+        const match = key.match(/coro(\d+)(?:_([ab]))?_(domingo|lunes)/i);
         if (match) {
-            return '🎤 Coro ' + match[1] + ' (' + match[2] + ') - ID: ' + filename.replace(/\.[^/.]+$/, '');
+            const partLabel = match[2] ? match[2].toUpperCase() : '';
+            return '🎤 Coro ' + match[1] + partLabel + ' (' + match[3] + ') - ID: ' + filename.replace(/\.[^/.]+$/, '');
         }
         return '🎤 Audio vocal - ' + filename;
     }
@@ -759,11 +764,12 @@ async function renderAdminStorageCategory(category) {
 // ---------- Borrar / reemplazar audio desde Almacenamiento R2 ----------
 function parseVocalKeyParts(key) {
     const songIdMatch = key.match(/([a-z0-9]+)_coro/i);
-    const coroMatch = key.match(/coro(\d+)_(domingo|lunes)/i);
+    const coroMatch = key.match(/coro(\d+)(?:_([ab]))?_(domingo|lunes)/i);
     return {
         sourceSongId: songIdMatch ? songIdMatch[1] : null,
         coro: coroMatch ? parseInt(coroMatch[1], 10) : null,
-        dia: coroMatch ? coroMatch[2] : null
+        part: coroMatch ? (coroMatch[2] || 'a') : null,
+        dia: coroMatch ? coroMatch[3] : null
     };
 }
 
@@ -842,7 +848,8 @@ async function adminDeleteStorageAudio(key) {
                         .delete()
                         .eq('source_song_id', parts.sourceSongId)
                         .eq('coro_number', parts.coro)
-                        .eq('dia', parts.dia);
+                        .eq('dia', parts.dia)
+                        .eq('part', parts.part || 'a');
                     
                     if (!error) {
                         console.log('✅ Referencia eliminada de vocal_audios');
@@ -855,6 +862,7 @@ async function adminDeleteStorageAudio(key) {
             logActivity('audio_deleted', { 
                 type: 'vocal', 
                 coro: parts.coro, 
+                part: parts.part,
                 dia: parts.dia 
             }, 'vocal', parts.sourceSongId);
         }
@@ -898,7 +906,8 @@ async function handleAdminStorageReplace(e) {
 
         if (type === 'song') {
             const songId = (songData && songData.id) || parseSongIdFromKey(key);
-            const renamedFile = new File([file], songId + '.mp3', { type: file.type || 'audio/mpeg' });
+            const fileBuffer = await file.arrayBuffer();
+            const renamedFile = new File([fileBuffer], songId + '.mp3', { type: file.type || 'audio/mpeg' });
             const formData = new FormData();
             formData.append('file', renamedFile);
             formData.append('folder', 'songs');
@@ -925,9 +934,10 @@ async function handleAdminStorageReplace(e) {
         } else {
             const parts = parseVocalKeyParts(key);
             if (!parts.sourceSongId || !parts.coro || !parts.dia) throw new Error('No se pudo identificar la canción/coro de este archivo.');
-            const filename = parts.sourceSongId + '_coro' + parts.coro + '_' + parts.dia + '.mp3';
+            const filename = parts.sourceSongId + '_coro' + parts.coro + '_' + (parts.part || 'a') + '_' + parts.dia + '.mp3';
             const storagePath = 'vocal-audios/' + filename;
-            const renamedFile = new File([file], filename, { type: file.type || 'audio/mpeg' });
+            const fileBuffer = await file.arrayBuffer();
+            const renamedFile = new File([fileBuffer], filename, { type: file.type || 'audio/mpeg' });
             const formData = new FormData();
             formData.append('file', renamedFile);
             formData.append('folder', 'vocal-audios');
@@ -940,12 +950,12 @@ async function handleAdminStorageReplace(e) {
                 audioUrl = SUPABASE_URL + '/storage/v1/object/public/vocal-audios/' + storagePath;
             }
 
-            const { data: existingRows } = await supabaseClient.from('vocal_audios').select('id').eq('source_song_id', parts.sourceSongId).eq('coro_number', parts.coro).eq('dia', parts.dia);
+            const { data: existingRows } = await supabaseClient.from('vocal_audios').select('id').eq('source_song_id', parts.sourceSongId).eq('coro_number', parts.coro).eq('dia', parts.dia).eq('part', parts.part || 'a');
             if (existingRows && existingRows[0]) {
                 await supabaseClient.from('vocal_audios').update({ audio_url: audioUrl, audio_path: storagePath, updated_at: Date.now() }).eq('id', existingRows[0].id);
             }
             try { await loadRepertorios() } catch (e) {}
-            logActivity('audio_uploaded', { type: 'vocal', coro: parts.coro, dia: parts.dia }, 'vocal', parts.sourceSongId);
+            logActivity('audio_uploaded', { type: 'vocal', coro: parts.coro, part: parts.part, dia: parts.dia }, 'vocal', parts.sourceSongId);
         }
 
         showNotification('Audio reemplazado', 'success');

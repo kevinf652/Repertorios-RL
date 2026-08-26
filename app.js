@@ -1695,7 +1695,8 @@ async function handleAudioUpload(e) {
 
         if (fill) fill.style.width = '35%';
 
-        const renamedFile = new File([file], sendFilename, { type: file.type || 'audio/mpeg' });
+        const fileBuffer = await file.arrayBuffer();
+        const renamedFile = new File([fileBuffer], sendFilename, { type: file.type || 'audio/mpeg' });
         const formData = new FormData();
         formData.append('file', renamedFile);
         formData.append('folder', 'songs');
@@ -3772,7 +3773,8 @@ async function handleVocalAudioUpload(e) {
             }
         }
 
-        const renamedFile = new File([file], filename, { type: file.type || 'audio/mpeg' });
+        const fileBuffer = await file.arrayBuffer();
+        const renamedFile = new File([fileBuffer], filename, { type: file.type || 'audio/mpeg' });
         const formData = new FormData();
         formData.append('file', renamedFile);
         formData.append('folder', 'vocal-audios');

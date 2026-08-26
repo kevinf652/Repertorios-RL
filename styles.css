@@ -38,7 +38,7 @@ input,textarea,button{font-family:inherit}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(9,9,11,.95);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-bottom:1px solid rgba(39,39,42,.5);padding-bottom:env(safe-area-inset-bottom,0px)}
 .bottom-nav-inner{max-width:56rem;margin:0 auto;display:flex;align-items:center;justify-content:space-around;padding:6px 0}
 .nav-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 14px;border:none;background:transparent;border-radius:10px;cursor:pointer;transition:all .2s;color:#71717a;-webkit-user-select:none;user-select:none}
-.nav-btn.active{color:#f59e0b}
+.nav-btn.active{color:#f59e0b;background:rgba(245,158,11,.12);font-weight:700}
 .nav-btn:hover{color:#d4d4d8}
 .nav-btn-label{font-size:9px;font-weight:500}
 .nav-btn-add{width:48px;height:48px;margin-top:-20px;background:#f59e0b;border-radius:14px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;box-shadow:0 8px 12px -2px rgba(245,158,11,.3);transition:all .2s;color:#000}
