@@ -1768,8 +1768,16 @@ logActivity('audio_uploaded', {
 }, 'song', songId);
 }
 
-function triggerAudioUpload(songId) { audioUploadSongId = songId;
-    document.getElementById('audio-upload-input').click() }
+function triggerAudioUpload(songId) {
+    // Si es iOS, mostrar menú con opción de grabar
+    if (isIOS()) {
+        triggerAudioUploadWithRecording(songId);
+    } else {
+        // Comportamiento normal en Android/Desktop
+        audioUploadSongId = songId;
+        document.getElementById('audio-upload-input').click();
+    }
+}
 
 async function removeSongAudio(songId) {
     if (!confirm('¿Eliminar el audio vinculado a esta canción?')) return;
@@ -3978,6 +3986,280 @@ document.getElementById('vocal-audio-upload-input').addEventListener('change', h
 // ============= INIT =============
 showConnectionStatus();
 loadRepertorios().then(() => renderLibrary());
+
+// ============= GRABADORA DE AUDIO (iOS/Android) =============
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let recordingStartTime = null;
+
+async function startAudioRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showNotification('❌ Tu navegador no soporta grabación de audio.', 'error');
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // Detectar formato compatible con iOS
+        const mimeTypes = [
+            'audio/mp4',           // iOS Safari
+            'audio/aac',           // iOS Safari
+            'audio/webm',          // Android/Chrome
+            'audio/ogg',           // Firefox
+            'audio/wav'            // Universal
+        ];
+        
+        let selectedType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+        if (!selectedType) {
+            selectedType = 'audio/mp4'; // Fallback para iOS
+        }
+
+        mediaRecorder = new MediaRecorder(stream, { 
+            mimeType: selectedType,
+            audioBitsPerSecond: 128000
+        });
+        
+        audioChunks = [];
+        isRecording = true;
+        recordingStartTime = Date.now();
+
+        mediaRecorder.ondataavailable = event => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = async () => {
+            isRecording = false;
+            const duration = ((Date.now() - recordingStartTime) / 1000).toFixed(1);
+            
+            if (audioChunks.length === 0) {
+                showNotification('❌ No se grabó audio.', 'error');
+                return;
+            }
+
+            // Crear blob con el formato correcto
+            const mimeType = mediaRecorder.mimeType || 'audio/mp4';
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            
+            // Determinar extensión
+            let extension = 'm4a';
+            if (mimeType.includes('webm')) extension = 'webm';
+            else if (mimeType.includes('ogg')) extension = 'ogg';
+            else if (mimeType.includes('wav')) extension = 'wav';
+            else if (mimeType.includes('mp3')) extension = 'mp3';
+            
+            const fileName = `grabacion_${new Date().toISOString().slice(0,10)}.${extension}`;
+            const file = new File([audioBlob], fileName, { type: mimeType });
+            
+            // Crear URL para previsualización
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            // Mostrar opción para usar o descartar
+            showAudioRecordingPreview(file, audioUrl, duration);
+            
+            // Detener todas las pistas
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start(1000); // Guardar cada segundo
+        showNotification('🎙️ Grabando... (toca "Detener" cuando termines)', 'success');
+        
+        // Mostrar botón de detener
+        showRecordingControls();
+
+    } catch (err) {
+        console.error('Error al iniciar grabación:', err);
+        showNotification('❌ No se pudo acceder al micrófono: ' + err.message, 'error');
+    }
+}
+
+function stopAudioRecording() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        hideRecordingControls();
+    }
+}
+
+function showRecordingControls() {
+    // Mostrar botón de detener en la interfaz
+    let controls = document.getElementById('recording-controls');
+    if (!controls) {
+        controls = document.createElement('div');
+        controls.id = 'recording-controls';
+        controls.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(239, 68, 68, 0.9);
+            padding: 12px 20px;
+            border-radius: 16px;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        `;
+        controls.innerHTML = `
+            <span style="color:#fff;font-size:.9rem;">🔴 Grabando...</span>
+            <button onclick="stopAudioRecording()" style="
+                background: #fff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: .8rem;
+                color: #ef4444;
+                cursor: pointer;
+            ">Detener</button>
+        `;
+        document.body.appendChild(controls);
+    }
+}
+
+function hideRecordingControls() {
+    const controls = document.getElementById('recording-controls');
+    if (controls) controls.remove();
+}
+
+function showAudioRecordingPreview(file, audioUrl, duration) {
+    // Crear modal de previsualización
+    const modal = document.createElement('div');
+    modal.id = 'audio-preview-modal';
+    modal.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.8);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    `;
+    
+    modal.innerHTML = `
+        <div style="
+            background: #27272a;
+            border-radius: 16px;
+            max-width: 400px;
+            width: 100%;
+            padding: 24px;
+            border: 1px solid rgba(63,63,70,0.3);
+        ">
+            <h3 style="color:#fff;font-size:1rem;margin-bottom:8px;">🎙️ Grabación lista</h3>
+            <p style="color:#a1a1aa;font-size:.8rem;margin-bottom:12px;">Duración: ${duration} segundos</p>
+            <audio controls src="${audioUrl}" style="width:100%;margin-bottom:16px;"></audio>
+            <div style="display:flex;gap:8px;">
+                <button onclick="useAudioRecording()" class="btn btn-amber" style="flex:1;padding:10px;">
+                    ✅ Usar grabación
+                </button>
+                <button onclick="discardAudioRecording()" class="btn btn-zinc" style="flex:1;padding:10px;">
+                    ❌ Descartar
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Guardar referencia global
+    window._pendingAudioFile = file;
+    window._pendingAudioUrl = audioUrl;
+}
+
+function useAudioRecording() {
+    const file = window._pendingAudioFile;
+    if (!file) return;
+    
+    // Simular el evento de selección de archivo
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    
+    // Buscar el input de audio y asignar el archivo
+    const input = document.getElementById('audio-upload-input');
+    if (input) {
+        input.files = dataTransfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    
+    // Cerrar modal
+    closeAudioPreview();
+    showNotification('✅ Grabación cargada', 'success');
+}
+
+function discardAudioRecording() {
+    closeAudioPreview();
+    showNotification('Grabación descartada', 'success');
+}
+
+function closeAudioPreview() {
+    const modal = document.getElementById('audio-preview-modal');
+    if (modal) modal.remove();
+    if (window._pendingAudioUrl) {
+        URL.revokeObjectURL(window._pendingAudioUrl);
+        window._pendingAudioUrl = null;
+    }
+    window._pendingAudioFile = null;
+}
+
+function isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// Modificar el triggerAudioUpload para incluir opción de grabar
+function triggerAudioUploadWithRecording(songId) {
+    // Crear menú contextual
+    const modal = document.createElement('div');
+    modal.id = 'audio-upload-menu';
+    modal.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.7);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    `;
+    
+    modal.innerHTML = `
+        <div style="
+            background: #27272a;
+            border-radius: 16px;
+            max-width: 320px;
+            width: 100%;
+            padding: 24px;
+            border: 1px solid rgba(63,63,70,0.3);
+        ">
+            <h3 style="color:#fff;font-size:1rem;text-align:center;margin-bottom:16px;">🎵 Subir audio</h3>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <button onclick="document.getElementById('audio-upload-input').click();closeAudioUploadMenu()" class="btn btn-amber" style="width:100%;padding:12px;">
+                    📁 Seleccionar archivo
+                </button>
+                <button onclick="closeAudioUploadMenu();startAudioRecording()" class="btn btn-zinc" style="width:100%;padding:12px;">
+                    🎙️ Grabar audio
+                </button>
+                <button onclick="closeAudioUploadMenu()" class="btn btn-zinc" style="width:100%;padding:10px;background:transparent;border:1px solid rgba(63,63,70,0.5);">
+                    Cancelar
+                </button>
+            </div>
+            ${isIOS() ? '<p style="color:#71717a;font-size:.65rem;text-align:center;margin-top:12px;">📱 En iOS, la grabación usa el micrófono directamente</p>' : ''}
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Guardar songId para usarlo después
+    window._audioUploadSongId = songId;
+}
+
+function closeAudioUploadMenu() {
+    const modal = document.getElementById('audio-upload-menu');
+    if (modal) modal.remove();
+}
 
 // ============= PWA =============
 let deferredPrompt = null;
