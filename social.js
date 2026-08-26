@@ -7,7 +7,7 @@ function isSocial() {
     return userRole === 'Social';
 }
 function canAccessSocial() {
-    return (typeof isAdmin === 'function' && isAdmin()) || isSocial();
+    return (typeof isAdmin === 'function' && isAdmin()) || isSocial() || (typeof isSubAdmin === 'function' && isSubAdmin());
 }
 
 // ---------- Menú principal ----------

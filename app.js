@@ -162,10 +162,11 @@ let vocalAudioUploadPart = 'a';
 function isAdmin() { return userRole === 'admin' }
 function isDMusicos() { return userRole === 'D_Musicos' }
 function isDVoces() { return userRole === 'D_Voces' }
-function canEditRepSongs() { return isAdmin() || isDMusicos() }
-function canEditVocals() { return isAdmin() || isDVoces() }
-function canUploadAudio() { return isAdmin() }
-function canManageReps() { return isAdmin() }
+function isSubAdmin() { return userRole === 'SubAdmin' }
+function canEditRepSongs() { return isAdmin() || isDMusicos() || isSubAdmin() }
+function canEditVocals() { return isAdmin() || isDVoces() || isSubAdmin() }
+function canUploadAudio() { return isAdmin() || isSubAdmin() }
+function canManageReps() { return isAdmin() || isSubAdmin() }
 
 function isSongInAnyRepertorio(songId) {
     if (!songId || !Array.isArray(repertorios)) return false;
@@ -750,7 +751,7 @@ function initAuth() {
         try {
             currentUser = JSON.parse(saved);
             userRole = currentUser.role || 'usuario';
-            repAdmin = (userRole === 'admin');
+            repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
             if (currentUser && supabaseReady) {
                 console.log('User logged in, loading songs from cloud...');
                 loadSongsFromCloud().then(cloudSongs => {
@@ -877,7 +878,7 @@ async function handleLogin(e) {
         currentUser = { id: data.id, nombre: data.nombre || '', apellido: data.apellido || '', role: data.role || 'usuario' };
         localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
         userRole = currentUser.role;
-        repAdmin = (userRole === 'admin');
+        repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
         if (userRole === 'admin') localStorage.setItem('cb_rep_admin', 'true');
         updateUserUI();
         closeAuthModal();
@@ -3159,24 +3160,25 @@ function renderRepSongView() {
                     const cc = coroColors[coro - 1];
                     const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_a';
                     const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_b';
-                    vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">';
-                    // Parte A
-                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
-                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>';
-                    if (audioA && audioA.audio_url) {
-                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    const hasA = !!(coroNameA || (audioA && audioA.audio_url));
+                    const hasB = !!(coroNameB || (audioB && audioB.audio_url));
+                    const cellA = '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">'
+                        + '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>'
+                        + (audioA && audioA.audio_url ? '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>' : '')
+                        + '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameA ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameA ? esc(coroNameA) : (audioA && audioA.audio_url ? 'Audio' : '—')) + '</div>'
+                        + '</div>';
+                    const cellB = '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">'
+                        + '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'B</span>'
+                        + (audioB && audioB.audio_url ? '<button class="btn-icon" data-vocal-key="' + audioKeyB + '" onclick="playVocalAudio(\'' + audioKeyB + '\',\'' + audioB.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>' : '')
+                        + '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameB ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameB ? esc(coroNameB) : (audioB && audioB.audio_url ? 'Audio' : '—')) + '</div>'
+                        + '</div>';
+                    if (hasA === hasB) {
+                        vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">' + cellA + cellB + '</div>';
+                    } else if (hasA) {
+                        vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr;gap:4px">' + cellA + '</div>';
+                    } else {
+                        vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr;gap:4px">' + cellB + '</div>';
                     }
-                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameA ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameA ? esc(coroNameA) : (audioA && audioA.audio_url ? 'Audio' : '—')) + '</div>';
-                    vocalAudiosHtml += '</div>';
-                    // Parte B
-                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
-                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'B</span>';
-                    if (audioB && audioB.audio_url) {
-                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyB + '" onclick="playVocalAudio(\'' + audioKeyB + '\',\'' + audioB.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-                    }
-                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameB ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameB ? esc(coroNameB) : (audioB && audioB.audio_url ? 'Audio' : '—')) + '</div>';
-                    vocalAudiosHtml += '</div>';
-                    vocalAudiosHtml += '</div>';
                 }
                 vocalAudiosHtml += '</div></div>';
             }
@@ -3196,24 +3198,25 @@ function renderRepSongView() {
                     const cc = coroColors[coro - 1];
                     const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_a';
                     const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_b';
-                    vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">';
-                    // Parte A
-                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
-                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>';
-                    if (audioA && audioA.audio_url) {
-                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
+                    const hasA = !!(coroNameA || (audioA && audioA.audio_url));
+                    const hasB = !!(coroNameB || (audioB && audioB.audio_url));
+                    const cellA = '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">'
+                        + '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>'
+                        + (audioA && audioA.audio_url ? '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>' : '')
+                        + '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameA ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameA ? esc(coroNameA) : (audioA && audioA.audio_url ? 'Audio' : '—')) + '</div>'
+                        + '</div>';
+                    const cellB = '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">'
+                        + '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'B</span>'
+                        + (audioB && audioB.audio_url ? '<button class="btn-icon" data-vocal-key="' + audioKeyB + '" onclick="playVocalAudio(\'' + audioKeyB + '\',\'' + audioB.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>' : '')
+                        + '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameB ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameB ? esc(coroNameB) : (audioB && audioB.audio_url ? 'Audio' : '—')) + '</div>'
+                        + '</div>';
+                    if (hasA === hasB) {
+                        vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">' + cellA + cellB + '</div>';
+                    } else if (hasA) {
+                        vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr;gap:4px">' + cellA + '</div>';
+                    } else {
+                        vocalAudiosHtml += '<div style="display:grid;grid-template-columns:1fr;gap:4px">' + cellB + '</div>';
                     }
-                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameA ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameA ? esc(coroNameA) : (audioA && audioA.audio_url ? 'Audio' : '—')) + '</div>';
-                    vocalAudiosHtml += '</div>';
-                    // Parte B
-                    vocalAudiosHtml += '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">';
-                    vocalAudiosHtml += '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'B</span>';
-                    if (audioB && audioB.audio_url) {
-                        vocalAudiosHtml += '<button class="btn-icon" data-vocal-key="' + audioKeyB + '" onclick="playVocalAudio(\'' + audioKeyB + '\',\'' + audioB.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-                    }
-                    vocalAudiosHtml += '<div style="flex:1;min-width:0;font-size:.6rem;color:' + (coroNameB ? '#d4d4d8' : '#52525b') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (coroNameB ? esc(coroNameB) : (audioB && audioB.audio_url ? 'Audio' : '—')) + '</div>';
-                    vocalAudiosHtml += '</div>';
-                    vocalAudiosHtml += '</div>';
                 }
                 vocalAudiosHtml += '</div></div>';
             }

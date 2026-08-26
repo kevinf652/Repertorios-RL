@@ -10,17 +10,17 @@ let adminSongCountsCache = null;
 function renderAdminPanel() {
     const c = document.getElementById('admin-content');
     if (!c) return;
-    if (!isAdmin()) {
+    if (!isAdmin() && !isSubAdmin()) {
         c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>';
         return;
     }
     c.innerHTML = '<div class="admin-cards-grid">'
         + '<div class="admin-summary-panel" id="admin-summary-panel"><div class="admin-summary-title">Vistazo rápido</div><div class="admin-empty" style="padding:10px 0">Cargando...</div></div>'
         + adminCardHtml('admin-usuarios', 'Usuarios', 'Ver registrados y su biblioteca', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>')
-        + adminCardHtml('admin-duplicados', 'Duplicados', 'Detectar canciones repetidas', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>')
+        + (isAdmin() ? adminCardHtml('admin-duplicados', 'Duplicados', 'Detectar canciones repetidas', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>') : '')
         + adminCardHtml('admin-repertorios', 'Repertorios', 'Ver todos, activos y archivados', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>')
         + adminCardHtml('admin-mantenimiento', 'Mantenimiento', 'Datos y limpieza pendiente', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.77z"/></svg>')
-        + adminCardHtml('admin-storage', 'Almacenamiento R2', 'Ver archivos y espacio usado', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>')
+        + (isAdmin() ? adminCardHtml('admin-storage', 'Almacenamiento R2', 'Ver archivos y espacio usado', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>') : '')
 	+ adminCardHtml('admin-logs', 'Registro de actividades', 'Ver acciones de usuarios', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>')
         + '</div>';
     renderAdminSummary();
@@ -85,7 +85,7 @@ function adminCardHtml(page, title, subtitle, icon) {
 }
 
 function roleBadgeHtml(role) {
-    const map = { admin: ['admin', 'Admin'], D_Musicos: ['dmusicos', 'D. Músicos'], D_Voces: ['dvoces', 'D. Voces'], Social: ['social', 'Social'] };
+    const map = { admin: ['admin', 'Admin'], D_Musicos: ['dmusicos', 'D. Músicos'], D_Voces: ['dvoces', 'D. Voces'], Social: ['social', 'Social'], SubAdmin: ['subadmin', 'Subadmin'] };
     const m = map[role] || ['usuario', 'Usuario'];
     return '<span class="admin-badge-role ' + m[0] + '">' + m[1] + '</span>';
 }
@@ -118,8 +118,11 @@ async function renderAdminUsuarios(force) {
     const filtered = users.filter(u => !q || (u.nombre || '').toLowerCase().includes(q) || (u.apellido || '').toLowerCase().includes(q) || u.id.toLowerCase().includes(q));
     if (filtered.length === 0) { c.innerHTML = '<div class="admin-empty">No se encontraron usuarios.</div>'; return; }
 
-    const roleOptions = ['usuario', 'D_Voces', 'D_Musicos', 'Social', 'admin'];
-    const roleLabels = { admin: 'Admin', D_Musicos: 'D. Músicos', D_Voces: 'D. Voces', Social: 'Social', usuario: 'Usuario' };
+    const roleOptions = ['usuario', 'D_Voces', 'D_Musicos', 'Social', 'SubAdmin', 'admin'];
+    const roleLabels = { admin: 'Admin', D_Musicos: 'D. Músicos', D_Voces: 'D. Voces', Social: 'Social', SubAdmin: 'Subadmin', usuario: 'Usuario' };
+    // Un Subadmin no puede tocar el rol de un Admin, ni asignarle el rol Admin a nadie
+    const viewerIsSubAdmin = !isAdmin() && isSubAdmin();
+    const assignableOptions = viewerIsSubAdmin ? roleOptions.filter(r => r !== 'admin') : roleOptions;
 
     c.innerHTML = `
         <div class="admin-table-wrap">
@@ -143,11 +146,11 @@ async function renderAdminUsuarios(force) {
         : 'Nunca';
     return `<tr class="admin-row-clickable" onclick="viewAdminUserSongs('${u.id}')">
         <td>${esc((u.nombre || '') + ' ' + (u.apellido || '')).trim()}<br><span style="color:#71717a;font-size:.68rem">@${esc(u.id)}</span></td>
-        <td>${isSelf ? roleBadgeHtml(u.role) : `<select class="admin-role-select" onclick="event.stopPropagation()" onchange="updateUserRole('${u.id}',this.value)">${roleOptions.map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${roleLabels[r]}</option>`).join('')}</select>`}</td>
+        <td>${(isSelf || (viewerIsSubAdmin && u.role === 'admin')) ? roleBadgeHtml(u.role) : `<select class="admin-role-select" onclick="event.stopPropagation()" onchange="updateUserRole('${u.id}',this.value)">${assignableOptions.map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${roleLabels[r]}</option>`).join('')}</select>`}</td>
         <td>${adminSongCountsCache[u.id] || 0}</td>
         <td style="font-size:.7rem;color:#71717a">${u.created_at ? new Date(u.created_at).toLocaleDateString('es-ES') : '-'}</td>
         <td style="font-size:.7rem;color:#a1a1aa">${lastLogin}</td>
-        <td>${isSelf ? '' : `<button class="btn-outline-sm" onclick="event.stopPropagation(); resetUserPassword('${u.id}')">🔑 Restablecer</button>`}</td>
+        <td>${(isSelf || (viewerIsSubAdmin && u.role === 'admin')) ? '' : `<button class="btn-outline-sm" onclick="event.stopPropagation(); resetUserPassword('${u.id}')">🔑 Restablecer</button>`}</td>
     </tr>`;
 }).join('')}
                 </tbody>
@@ -163,9 +166,13 @@ function initAdminUsuariosPage() {
 
 // ---------- Editar rol de usuario ----------
 async function updateUserRole(userId, newRole) {
-    if (!isAdmin() || !supabaseReady) return;
-    if (!confirm('¿Cambiar el rol de este usuario a "' + newRole + '"?')) return;
+    if ((!isAdmin() && !isSubAdmin()) || !supabaseReady) return;
     const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
+    if (!isAdmin() && isSubAdmin()) {
+        if (newRole === 'admin') { alert('Un Subadmin no puede asignar el rol Admin.'); return }
+        if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede cambiar el rol de un Admin.'); return }
+    }
+    if (!confirm('¿Cambiar el rol de este usuario a "' + newRole + '"?')) return;
     const oldRole = userRef ? userRef.role : '';
     try {
         const { error } = await supabaseClient.from('admin_users').update({ role: newRole }).eq('id', userId);
@@ -185,7 +192,11 @@ async function updateUserRole(userId, newRole) {
 
 // ---------- Restablecer contraseña de usuario ----------
 async function resetUserPassword(userId) {
-    if (!isAdmin() || !supabaseReady) return;
+    if ((!isAdmin() && !isSubAdmin()) || !supabaseReady) return;
+    if (!isAdmin() && isSubAdmin()) {
+        const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
+        if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede restablecer la contraseña de un Admin.'); return }
+    }
     if (!confirm('¿Restablecer la contraseña de "' + userId + '" a "1234"? La persona podrá entrar con esa clave y luego cambiarla.')) return;
     try {
         const { error } = await supabaseClient.from('admin_users').update({ password_hash: '1234' }).eq('id', userId);
@@ -225,6 +236,7 @@ async function viewAdminUserSongs(userId) {
 async function renderAdminDuplicados() {
     const c = document.getElementById('admin-duplicados-content');
     if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
     c.innerHTML = '<div class="admin-empty">Buscando duplicados...</div>';
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
     try {
@@ -308,6 +320,7 @@ function extractDuplicateGroupKey(key) {
 async function renderAdminR2Duplicates(force) {
     const c = document.getElementById('admin-r2-duplicates-content');
     if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
     c.innerHTML = '<div class="admin-empty">Buscando duplicados en Storage...</div>';
     try {
         const data = await loadR2StorageData(force);
@@ -578,6 +591,7 @@ async function resolveSongDataForKey(key) {
 async function renderAdminStorage() {
     const c = document.getElementById('admin-storage-content');
     if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
     c.innerHTML = '<div class="admin-empty">Cargando datos de almacenamiento...</div>';
     
     const data = await loadR2StorageData(true);
@@ -967,11 +981,11 @@ if (typeof updateUserUI === 'function') {
     updateUserUI = function() {
         _adminOriginalUpdateUserUI();
         const navAdmin = document.getElementById('nav-admin');
-        if (navAdmin) navAdmin.style.display = (typeof isAdmin === 'function' && isAdmin()) ? '' : 'none';
+        if (navAdmin) navAdmin.style.display = (typeof isAdmin === 'function' && (isAdmin() || isSubAdmin())) ? '' : 'none';
     };
 }
 
-if (typeof isAdmin === 'function' && isAdmin()) {
+if (typeof isAdmin === 'function' && (isAdmin() || isSubAdmin())) {
     const navAdmin = document.getElementById('nav-admin');
     if (navAdmin) navAdmin.style.display = '';
 }
@@ -1069,6 +1083,7 @@ async function renderAdminLogs() {
             D_Musicos: '#60a5fa',
             D_Voces: '#c084fc',
             Social: '#34d399',
+            SubAdmin: '#fb7185',
             usuario: '#a1a1aa'
         };
         
