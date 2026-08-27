@@ -1695,10 +1695,8 @@ async function handleAudioUpload(e) {
 
         if (fill) fill.style.width = '35%';
 
-        const fileBuffer = await file.arrayBuffer();
-        const renamedFile = new File([fileBuffer], sendFilename, { type: file.type || 'audio/mpeg' });
         const formData = new FormData();
-        formData.append('file', renamedFile);
+        formData.append('file', file, sendFilename);
         formData.append('folder', 'songs');
         const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
@@ -3773,10 +3771,8 @@ async function handleVocalAudioUpload(e) {
             }
         }
 
-        const fileBuffer = await file.arrayBuffer();
-        const renamedFile = new File([fileBuffer], filename, { type: file.type || 'audio/mpeg' });
         const formData = new FormData();
-        formData.append('file', renamedFile);
+        formData.append('file', file, filename);
         formData.append('folder', 'vocal-audios');
         formData.append('filename', filename);
         const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });

@@ -906,10 +906,8 @@ async function handleAdminStorageReplace(e) {
 
         if (type === 'song') {
             const songId = (songData && songData.id) || parseSongIdFromKey(key);
-            const fileBuffer = await file.arrayBuffer();
-            const renamedFile = new File([fileBuffer], songId + '.mp3', { type: file.type || 'audio/mpeg' });
             const formData = new FormData();
-            formData.append('file', renamedFile);
+            formData.append('file', file, songId + '.mp3');
             formData.append('folder', 'songs');
             const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
             const uploadData = await uploadRes.json();
@@ -936,10 +934,8 @@ async function handleAdminStorageReplace(e) {
             if (!parts.sourceSongId || !parts.coro || !parts.dia) throw new Error('No se pudo identificar la canción/coro de este archivo.');
             const filename = parts.sourceSongId + '_coro' + parts.coro + '_' + (parts.part || 'a') + '_' + parts.dia + '.mp3';
             const storagePath = 'vocal-audios/' + filename;
-            const fileBuffer = await file.arrayBuffer();
-            const renamedFile = new File([fileBuffer], filename, { type: file.type || 'audio/mpeg' });
             const formData = new FormData();
-            formData.append('file', renamedFile);
+            formData.append('file', file, filename);
             formData.append('folder', 'vocal-audios');
             formData.append('filename', filename);
             const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
