@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v2.78';
+const CACHE_NAME = 'repertorios-rl-v2.85';
 const urlsToCache = [  
 './',  
 './index.html',  
@@ -13,37 +13,24 @@ const urlsToCache = [
 './social.css'
 ];
 // INSTALL - Cache app shell
-self.addEventListener('install', function(event) {  
-  event.waitUntil(    
-    caches.open(CACHE_NAME)
-      .then(function(cache) {        
-        console.log('[SW] Cache opened');        
-        return cache.addAll(urlsToCache);      
-      })  
-  ); 
-  self.skipWaiting();
+self.addEventListener('install', function(event) {    
+event.waitUntil(        
+caches.open(CACHE_NAME)
+      .then(function(cache) {                
+console.log('[SW] Cache opened');                
+return cache.addAll(urlsToCache);            
+})    
+);   
+self.skipWaiting();
 });
 // ACTIVATE - Clean old caches
-self.addEventListener('activate', function(event) {  
-  event.waitUntil(    
-    caches.keys().then(function(cacheNames) {      
-      return Promise.all(        
-        cacheNames.map(function(cacheName) {          
-          if (cacheName !== CACHE_NAME) {            
-            console.log('[SW] Deleting old cache:', cacheName);            
-            return caches.delete(cacheName);          
-          }        
-        })      
-      );    
-    })  
-  );
-  self.clients.claim();
-});
-// FETCH - Network first, fallback to cache
-self.addEventListener('fetch', function(event) {
-  event.respondWith(
-    fetch(event.request).catch(function() {
-      return caches.match(event.request);
-    })
-  );
-});
+self.addEventListener('activate', function(event) {    
+event.waitUntil(        
+caches.keys().then(function(cacheNames) {            
+return Promise.all(                
+cacheNames.map(function(cacheName) {                    
+if (cacheName !== CACHE_NAME) {                        
+console.log('[SW] Deleting old cache:', cacheName);                        
+return caches.delete(cacheName);                    
+}                
+})      
