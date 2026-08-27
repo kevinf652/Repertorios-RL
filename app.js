@@ -57,6 +57,30 @@ const KEY_VALUES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 function load(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d } catch { return d } }
 function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch { } }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 9) }
+
+// Detecta la extensión real de un audio subido por el usuario (no forzar siempre .mp3,
+// porque el contenido real puede ser .m4a/.wav/etc y Safari es estricto con eso).
+function getAudioExtension(file) {
+    const nameMatch = (file.name || '').match(/\.([a-zA-Z0-9]+)$/);
+    if (nameMatch) {
+        const ext = nameMatch[1].toLowerCase();
+        if (['mp3', 'm4a', 'wav', 'aac', 'ogg', 'webm', 'caf', 'mp4', 'flac'].includes(ext)) return ext;
+    }
+    const typeMap = {
+        'audio/mpeg': 'mp3',
+        'audio/mp3': 'mp3',
+        'audio/mp4': 'm4a',
+        'audio/x-m4a': 'm4a',
+        'audio/aac': 'aac',
+        'audio/wav': 'wav',
+        'audio/x-wav': 'wav',
+        'audio/ogg': 'ogg',
+        'audio/webm': 'webm',
+        'audio/flac': 'flac'
+    };
+    if (file.type && typeMap[file.type]) return typeMap[file.type];
+    return 'mp3';
+}
 let useFlats = load('cb_use_flats', false);
 
 function dn(note) { if (!note) return ''; const idx = NOTE_MAP[note]; if (idx === undefined) return note; return useFlats ? FLATS[idx] : SHARPS[idx] }
@@ -1633,7 +1657,7 @@ async function handleAudioUpload(e) {
     const songTitle = songs[si].title;
     const songId = songs[si].id;
 
-    const sendFilename = songId + '.mp3';
+    const sendFilename = songId + '.' + getAudioExtension(file);
 
     const zone = document.getElementById('view-upload-zone');
     if (zone) { zone.innerHTML = '<div class="upload-progress"><div class="upload-progress-bar"><div class="upload-progress-fill" id="upload-fill" style="width:10%"></div></div><p style="font-size:.75rem;color:#a1a1aa;margin-top:8px">Subiendo ' + esc(songTitle) + '...</p></div>' }
@@ -3717,7 +3741,7 @@ async function handleVocalAudioUpload(e) {
         return;
     }
 
-    const filename = sourceSongId + '_coro' + vocalAudioUploadCoro + '_' + (vocalAudioUploadPart || 'a') + '_' + vocalAudioUploadDia + '.mp3';
+    const filename = sourceSongId + '_coro' + vocalAudioUploadCoro + '_' + (vocalAudioUploadPart || 'a') + '_' + vocalAudioUploadDia + '.' + getAudioExtension(file);
     const storagePath = 'vocal-audios/' + filename;
 
     // ✅ PRIMERO: Verificar si ya existe un audio para este coro en la base de datos

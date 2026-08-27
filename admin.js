@@ -907,7 +907,7 @@ async function handleAdminStorageReplace(e) {
         if (type === 'song') {
             const songId = (songData && songData.id) || parseSongIdFromKey(key);
             const formData = new FormData();
-            formData.append('file', file, songId + '.mp3');
+            formData.append('file', file, songId + '.' + getAudioExtension(file));
             formData.append('folder', 'songs');
             const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
             const uploadData = await uploadRes.json();
@@ -932,7 +932,7 @@ async function handleAdminStorageReplace(e) {
         } else {
             const parts = parseVocalKeyParts(key);
             if (!parts.sourceSongId || !parts.coro || !parts.dia) throw new Error('No se pudo identificar la canción/coro de este archivo.');
-            const filename = parts.sourceSongId + '_coro' + parts.coro + '_' + (parts.part || 'a') + '_' + parts.dia + '.mp3';
+            const filename = parts.sourceSongId + '_coro' + parts.coro + '_' + (parts.part || 'a') + '_' + parts.dia + '.' + getAudioExtension(file);
             const storagePath = 'vocal-audios/' + filename;
             const formData = new FormData();
             formData.append('file', file, filename);
