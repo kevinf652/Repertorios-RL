@@ -889,42 +889,28 @@ function showAuthSuccess(msg) {
     document.getElementById('auth-error').classList.remove('show');
 }
 
-async function handleLogin(e) {
-    e.preventDefault();
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value;
-    if (!username || !password) { showAuthError('Por favor completa todos los campos'); return }
-    if (!supabaseReady) { showAuthError('Sin conexión a internet. No se puede iniciar sesión.'); return }
-    try {
-        const { data, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
-        if (error || !data) { showAuthError('Usuario o contraseña incorrectos'); return }
-        await supabaseClient.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', data.id);
-        currentUser = { id: data.id, nombre: data.nombre || '', apellido: data.apellido || '', role: data.role || 'usuario' };
-        localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
-        userRole = currentUser.role;
-        repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
-        if (userRole === 'admin') localStorage.setItem('cb_rep_admin', 'true');
-        updateUserUI();
-        closeAuthModal();
-        setupRealtimeSubscriptions();
-
-        const cloudSongs = await loadSongsFromCloud();
-        if (cloudSongs && cloudSongs.length > 0) {
-            songs = cloudSongs;
-            renderLibrary();
-            showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + cloudSongs.length + ' canciones sincronizadas.', 'success');
-        } else {
-            if (songs.length > 0) {
-                await syncSongsToCloud();
-                showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + songs.length + ' canciones subidas al servidor.', 'success');
-            } else {
-                showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Tu biblioteca está vacía.', 'success');
+function initAuth() {
+    const saved = localStorage.getItem('rl_current_user');
+    if (saved) {
+        try {
+            currentUser = JSON.parse(saved);
+            userRole = currentUser.role || 'usuario';
+            repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
+            if (currentUser && supabaseReady) {
+                console.log('User logged in, loading songs from cloud...');
+                // ✅ NUEVO: Actualizar último acceso al cargar la app
+                updateLastAccess();
+                loadSongsFromCloud().then(cloudSongs => {
+                    if (cloudSongs && cloudSongs.length > 0) {
+                        songs = cloudSongs;
+                        renderLibrary();
+                        console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
+                    }
+                });
             }
-            renderLibrary();
-        }
-    } catch (e) {
-        showAuthError('Error al conectar: ' + e.message);
+        } catch (e) { currentUser = null }
     }
+    updateUserUI();
 }
 
 async function handleRegister(e) {
