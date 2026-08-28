@@ -4385,6 +4385,26 @@ function closeAudioUploadMenu() {
     const modal = document.getElementById('audio-upload-menu');
     if (modal) modal.remove();
 }
+// ============= ACTUALIZAR ÚLTIMO ACCESO =============
+async function updateLastAccess() {
+    if (!currentUser || !supabaseReady) return;
+    try {
+        // Solo actualiza si pasaron más de 5 minutos desde la última actualización
+        const lastUpdate = localStorage.getItem('cb_last_access_' + currentUser.id);
+        const now = Date.now();
+        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) return; // 5 min
+
+        await supabaseClient
+            .from('admin_users')
+            .update({ last_login: new Date().toISOString() })
+            .eq('id', currentUser.id);
+        
+        localStorage.setItem('cb_last_access_' + currentUser.id, String(now));
+        console.log('✅ Último acceso actualizado para', currentUser.id);
+    } catch (e) {
+        console.warn('⚠️ No se pudo actualizar last_access:', e.message);
+    }
+}
 
 // ============= PWA =============
 let deferredPrompt = null;
