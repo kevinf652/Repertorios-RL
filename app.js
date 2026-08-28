@@ -767,7 +767,6 @@ function setupRealtimeSubscriptions() {
 }
 
 setTimeout(setupRealtimeSubscriptions, 2000);
-
 // ============= AUTH SYSTEM =============
 function initAuth() {
     const saved = localStorage.getItem('rl_current_user');
@@ -784,9 +783,17 @@ function initAuth() {
                         renderLibrary();
                         console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
                     }
+                    // ✅ Actualizar último acceso DESPUÉS de cargar canciones
+                    updateLastAccess();
+                }).catch(() => {
+                    // Si falla la carga, igual intentamos actualizar
+                    updateLastAccess();
                 });
             }
-        } catch (e) { currentUser = null }
+        } catch (e) { 
+            console.error('Error en initAuth:', e);
+            currentUser = null; 
+        }
     }
     updateUserUI();
 }
@@ -888,36 +895,7 @@ function showAuthSuccess(msg) {
     el.classList.add('show');
     document.getElementById('auth-error').classList.remove('show');
 }
-function initAuth() {
-    const saved = localStorage.getItem('rl_current_user');
-    if (saved) {
-        try {
-            currentUser = JSON.parse(saved);
-            userRole = currentUser.role || 'usuario';
-            repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
-            if (currentUser && supabaseReady) {
-                console.log('User logged in, loading songs from cloud...');
-                // ✅ Cargar canciones primero, luego actualizar acceso
-                loadSongsFromCloud().then(cloudSongs => {
-                    if (cloudSongs && cloudSongs.length > 0) {
-                        songs = cloudSongs;
-                        renderLibrary();
-                        console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
-                    }
-                    // ✅ Actualizar último acceso DESPUÉS de cargar canciones
-                    updateLastAccess();
-                }).catch(() => {
-                    // Si falla la carga, igual intentamos actualizar
-                    updateLastAccess();
-                });
-            }
-        } catch (e) { 
-            console.error('Error en initAuth:', e);
-            currentUser = null; 
-        }
-    }
-    updateUserUI();
-}
+
 async function handleLogin(e) {
     e.preventDefault();
     const username = document.getElementById('login-username').value.trim();
@@ -943,10 +921,9 @@ async function handleLogin(e) {
         closeAuthModal();
         setupRealtimeSubscriptions();
 
-        // ✅ Actualizar last_login en Supabase (esto es lo que ya hacías)
+        // ✅ Actualizar last_login en Supabase
         try {
             await supabaseClient.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', data.id);
-            // ✅ Guardar también en localStorage para no repetir
             localStorage.setItem('cb_last_access_' + data.id, String(Date.now()));
         } catch (updateErr) {
             console.warn('⚠️ No se pudo actualizar last_login:', updateErr.message);
@@ -970,6 +947,40 @@ async function handleLogin(e) {
     } catch (e) {
         console.error('Error en handleLogin:', e);
         showAuthError('Error al conectar: ' + e.message);
+    }
+}
+
+// ============= ACTUALIZAR ÚLTIMO ACCESO =============
+async function updateLastAccess() {
+    if (!currentUser || !currentUser.id || !supabaseReady) {
+        console.log('⏭️ No se puede actualizar último acceso: faltan datos');
+        return;
+    }
+    
+    try {
+        const lastUpdate = localStorage.getItem('cb_last_access_' + currentUser.id);
+        const now = Date.now();
+        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) {
+            console.log('⏭️ Último acceso actualizado recientemente, omitiendo');
+            return;
+        }
+
+        console.log('📝 Actualizando último acceso para:', currentUser.id);
+        
+        const { error } = await supabaseClient
+            .from('admin_users')
+            .update({ last_login: new Date().toISOString() })
+            .eq('id', currentUser.id);
+        
+        if (error) {
+            console.warn('⚠️ Error al actualizar last_login:', error.message);
+            return;
+        }
+        
+        localStorage.setItem('cb_last_access_' + currentUser.id, String(now));
+        console.log('✅ Último acceso actualizado');
+    } catch (e) {
+        console.warn('⚠️ No se pudo actualizar last_access:', e.message);
     }
 }
 async function handleRegister(e) {
@@ -1075,8 +1086,6 @@ async function handleChangePassword(e) {
         document.getElementById('cp-error').classList.add('show');
     }
 }
-
-initAuth();
 
 // ============= REPERTORIOS FUNCTIONS =============
 async function loadRepertorios() {
