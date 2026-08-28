@@ -767,7 +767,17 @@ function setupRealtimeSubscriptions() {
 }
 
 setTimeout(setupRealtimeSubscriptions, 2000);
+
 // ============= AUTH SYSTEM =============
+function isAdmin() { return userRole === 'admin' }
+function isDMusicos() { return userRole === 'D_Musicos' }
+function isDVoces() { return userRole === 'D_Voces' }
+function isSubAdmin() { return userRole === 'SubAdmin' }
+function canEditRepSongs() { return isAdmin() || isDMusicos() || isSubAdmin() }
+function canEditVocals() { return isAdmin() || isDVoces() || isSubAdmin() }
+function canUploadAudio() { return isAdmin() || isSubAdmin() }
+function canManageReps() { return isAdmin() || isSubAdmin() }
+
 function initAuth() {
     const saved = localStorage.getItem('rl_current_user');
     if (saved) {
@@ -775,6 +785,10 @@ function initAuth() {
             currentUser = JSON.parse(saved);
             userRole = currentUser.role || 'usuario';
             repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
+            
+            // Actualizar UI inmediatamente
+            updateUserUI();
+            
             if (currentUser && supabaseReady) {
                 console.log('User logged in, loading songs from cloud...');
                 loadSongsFromCloud().then(cloudSongs => {
@@ -783,25 +797,31 @@ function initAuth() {
                         renderLibrary();
                         console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
                     }
-                    // ✅ Actualizar último acceso DESPUÉS de cargar canciones
+                    // Actualizar último acceso DESPUÉS de cargar canciones
                     updateLastAccess();
                 }).catch(() => {
-                    // Si falla la carga, igual intentamos actualizar
                     updateLastAccess();
                 });
             }
         } catch (e) { 
             console.error('Error en initAuth:', e);
             currentUser = null; 
+            updateUserUI();
         }
+    } else {
+        updateUserUI();
     }
-    updateUserUI();
 }
 
 function updateUserUI() {
     const avatar = document.getElementById('user-avatar-btn');
     const nameBtn = document.getElementById('user-name-btn');
     const dropdownContent = document.getElementById('user-dropdown-content');
+    
+    if (!avatar || !nameBtn || !dropdownContent) {
+        console.warn('Elementos de UI no encontrados');
+        return;
+    }
 
     if (currentUser) {
         const displayName = currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id;
@@ -906,7 +926,7 @@ async function handleLogin(e) {
         const { data, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
         if (error || !data) { showAuthError('Usuario o contraseña incorrectos'); return }
         
-        // ✅ Establecer currentUser ANTES de cualquier otra operación
+        // ✅ Establecer currentUser
         currentUser = { 
             id: data.id, 
             nombre: data.nombre || '', 
@@ -917,11 +937,13 @@ async function handleLogin(e) {
         userRole = currentUser.role;
         repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
         if (userRole === 'admin') localStorage.setItem('cb_rep_admin', 'true');
+        
+        // ✅ Actualizar UI ANTES de cualquier otra cosa
         updateUserUI();
         closeAuthModal();
         setupRealtimeSubscriptions();
 
-        // ✅ Actualizar last_login en Supabase
+        // ✅ Actualizar last_login (sin await para no bloquear)
         try {
             await supabaseClient.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', data.id);
             localStorage.setItem('cb_last_access_' + data.id, String(Date.now()));
@@ -950,39 +972,6 @@ async function handleLogin(e) {
     }
 }
 
-// ============= ACTUALIZAR ÚLTIMO ACCESO =============
-async function updateLastAccess() {
-    if (!currentUser || !currentUser.id || !supabaseReady) {
-        console.log('⏭️ No se puede actualizar último acceso: faltan datos');
-        return;
-    }
-    
-    try {
-        const lastUpdate = localStorage.getItem('cb_last_access_' + currentUser.id);
-        const now = Date.now();
-        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) {
-            console.log('⏭️ Último acceso actualizado recientemente, omitiendo');
-            return;
-        }
-
-        console.log('📝 Actualizando último acceso para:', currentUser.id);
-        
-        const { error } = await supabaseClient
-            .from('admin_users')
-            .update({ last_login: new Date().toISOString() })
-            .eq('id', currentUser.id);
-        
-        if (error) {
-            console.warn('⚠️ Error al actualizar last_login:', error.message);
-            return;
-        }
-        
-        localStorage.setItem('cb_last_access_' + currentUser.id, String(now));
-        console.log('✅ Último acceso actualizado');
-    } catch (e) {
-        console.warn('⚠️ No se pudo actualizar last_access:', e.message);
-    }
-}
 async function handleRegister(e) {
     e.preventDefault();
     const nombre = document.getElementById('reg-nombre').value.trim();
@@ -998,13 +987,12 @@ async function handleRegister(e) {
     try {
         const { data: existing } = await supabaseClient.from('admin_users').select('id').eq('id', username.toLowerCase()).single();
         if (existing) { showAuthError('Este usuario ya está registrado'); return }
-        // ✅ FORZAR role = 'usuario' siempre al registrarse
         const { error } = await supabaseClient.from('admin_users').insert({ 
             id: username.toLowerCase(), 
             nombre: nombre, 
             apellido: apellido, 
             password_hash: password, 
-            role: 'usuario',  // <-- SIEMPRE usuario
+            role: 'usuario',
             created_at: Date.now() 
         });
         if (error) throw error;
@@ -1087,6 +1075,47 @@ async function handleChangePassword(e) {
     }
 }
 
+// ============= ACTUALIZAR ÚLTIMO ACCESO =============
+async function updateLastAccess() {
+    // Verificar que todo esté listo
+    if (!currentUser || !currentUser.id) {
+        console.log('⏭️ No se puede actualizar último acceso: no hay usuario');
+        return;
+    }
+    
+    if (!supabaseReady || !supabaseClient) {
+        console.log('⏭️ Supabase no está listo, reintentando en 2s...');
+        setTimeout(updateLastAccess, 2000);
+        return;
+    }
+    
+    try {
+        // Solo actualiza si pasaron más de 5 minutos desde la última actualización
+        const lastUpdate = localStorage.getItem('cb_last_access_' + currentUser.id);
+        const now = Date.now();
+        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) {
+            console.log('⏭️ Último acceso actualizado recientemente, omitiendo');
+            return;
+        }
+
+        console.log('📝 Actualizando último acceso para:', currentUser.id);
+        
+        const { error } = await supabaseClient
+            .from('admin_users')
+            .update({ last_login: new Date().toISOString() })
+            .eq('id', currentUser.id);
+        
+        if (error) {
+            console.warn('⚠️ Error al actualizar last_login:', error.message);
+            return;
+        }
+        
+        localStorage.setItem('cb_last_access_' + currentUser.id, String(now));
+        console.log('✅ Último acceso actualizado');
+    } catch (e) {
+        console.warn('⚠️ No se pudo actualizar last_access:', e.message);
+    }
+}
 // ============= REPERTORIOS FUNCTIONS =============
 async function loadRepertorios() {
     if (!supabaseReady) return;
@@ -4155,8 +4184,20 @@ document.getElementById('vocal-audio-upload-input').addEventListener('change', h
 
 // ============= INIT =============
 showConnectionStatus();
-loadRepertorios().then(() => renderLibrary());
 
+// ✅ Inicializar auth después de que Supabase esté listo
+if (supabaseReady) {
+    initAuth();
+} else {
+    // Esperar a que Supabase esté listo
+    const checkSupabase = setInterval(() => {
+        if (supabaseReady) {
+            clearInterval(checkSupabase);
+            initAuth();
+        }
+    }, 500);
+}
+loadRepertorios().then(() => renderLibrary());
 // ============= GRABADORA DE AUDIO (iOS/Android) =============
 let mediaRecorder = null;
 let audioChunks = [];
@@ -4439,43 +4480,6 @@ function closeAudioUploadMenu() {
     const modal = document.getElementById('audio-upload-menu');
     if (modal) modal.remove();
 }
-// ============= ACTUALIZAR ÚLTIMO ACCESO =============
-async function updateLastAccess() {
-    // Verificar que todo esté listo
-    if (!currentUser || !currentUser.id || !supabaseReady) {
-        console.log('⏭️ No se puede actualizar último acceso: faltan datos');
-        return;
-    }
-    
-    try {
-        // Solo actualiza si pasaron más de 5 minutos desde la última actualización
-        const lastUpdate = localStorage.getItem('cb_last_access_' + currentUser.id);
-        const now = Date.now();
-        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) {
-            console.log('⏭️ Último acceso actualizado recientemente, omitiendo');
-            return;
-        }
-
-        console.log('📝 Actualizando último acceso para:', currentUser.id);
-        
-        const { error } = await supabaseClient
-            .from('admin_users')
-            .update({ last_login: new Date().toISOString() })
-            .eq('id', currentUser.id);
-        
-        if (error) {
-            console.warn('⚠️ Error al actualizar last_login:', error.message);
-            return;
-        }
-        
-        localStorage.setItem('cb_last_access_' + currentUser.id, String(now));
-        console.log('✅ Último acceso actualizado');
-    } catch (e) {
-        // Nunca debe bloquear la app
-        console.warn('⚠️ No se pudo actualizar last_access:', e.message);
-    }
-}
-
 // ============= PWA =============
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', e => {
