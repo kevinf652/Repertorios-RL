@@ -842,6 +842,51 @@
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
 </button>
 
+<!-- Campanita de notificaciones (flotante, visible en cualquier pantalla) -->
+<button class="notif-bell-float" id="notif-bell-btn" onclick="openNotificationsPanel()" title="Notificaciones">
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+</button>
+
+<!-- Panel deslizante de notificaciones -->
+<div class="notifications-backdrop" id="notifications-backdrop" onclick="closeNotificationsPanel()"></div>
+<div class="notifications-panel" id="notifications-panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="font-size:1rem;font-weight:700;color:#fff">🔔 Notificaciones</div>
+    <button class="btn-icon" onclick="closeNotificationsPanel()" style="color:#a1a1aa">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div id="notif-send-btn-wrap" style="display:none;margin-bottom:12px">
+    <button class="btn btn-amber" style="width:100%;justify-content:center" onclick="showSendNotificationModal()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Enviar notificación
+    </button>
+  </div>
+  <div id="notifications-list" style="flex:1;overflow-y:auto"></div>
+</div>
+
+<!-- Modal: Enviar notificación manual -->
+<div id="send-notification-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">Enviar notificación</div>
+    <div class="auth-subtitle">Se mostrará a todos en el panel de notificaciones</div>
+    <form onsubmit="submitSendNotification(event)">
+      <div class="form-group">
+        <label class="label">Título</label>
+        <input type="text" id="send-notif-title" class="input" placeholder="Ej: Ensayo cambiado de horario" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Cuerpo</label>
+        <textarea id="send-notif-body" class="input textarea" placeholder="Detalles del aviso..." style="min-height:90px"></textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-zinc" onclick="closeSendNotificationModal()" style="flex:1;justify-content:center">Cancelar</button>
+        <button type="submit" class="btn btn-amber" style="flex:1;justify-content:center">Enviar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- iOS Install Modal -->
 <div id="ios-install-modal" class="ios-install-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
   <div class="install-ios-box">
@@ -889,8 +934,10 @@
 
 <link rel="stylesheet" href="./admin.css">
 <link rel="stylesheet" href="./social.css">
+<link rel="stylesheet" href="./notifications.css">
 <script src="./app.js"></script>
 <script src="./admin.js"></script>
 <script src="./social.js"></script>
+<script src="./notifications.js"></script>
 </body>
 </html>

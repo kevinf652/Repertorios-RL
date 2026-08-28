@@ -1,0 +1,92 @@
+/* ============= Módulo Notificaciones — estilos propios ============= */
+
+.notif-bell-float {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  z-index: 60;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(39, 39, 42, .85);
+  border: 1px solid rgba(63, 63, 70, .6);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #d4d4d8;
+  transition: all .2s;
+}
+.notif-bell-float:active { transform: scale(.9); }
+
+.bell-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f87171;
+  box-shadow: 0 0 0 2px rgba(24, 24, 27, .9);
+}
+
+.notifications-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  z-index: 98;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s;
+}
+.notifications-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.notifications-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 75%;
+  max-width: 360px;
+  background: #18181b;
+  border-left: 1px solid rgba(63, 63, 70, .5);
+  z-index: 99;
+  transform: translateX(100%);
+  transition: transform .3s ease;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+}
+.notifications-panel.active {
+  transform: translateX(0);
+}
+
+.notif-item {
+  background: rgba(39, 39, 42, .5);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.notif-item-system {
+  border: 1px solid rgba(96, 165, 250, .25);
+}
+.notif-item-title {
+  font-size: .85rem;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+.notif-item-body {
+  font-size: .78rem;
+  color: #d4d4d8;
+  margin-top: 3px;
+}
+.notif-item-meta {
+  font-size: .65rem;
+  color: #71717a;
+  margin-top: 5px;
+}

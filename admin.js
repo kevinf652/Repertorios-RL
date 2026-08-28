@@ -97,7 +97,7 @@ async function loadAdminUsersData(force) {
     try {
         const { data: users, error } = await supabaseClient
             .from('admin_users')
-            .select('id,nombre,apellido,role,created_at,last_login')
+            .select('id,nombre,apellido,role,created_at,last_login,puede_notificar')
             .order('created_at', { ascending: false });
         if (error || !users) return [];
         const { data: allSongs } = await supabaseClient.from('user_songs').select('user_id');
@@ -133,6 +133,7 @@ async function renderAdminUsuarios(force) {
                     <th>Canciones</th>
                     <th>Registrado</th>
                     <th>Último acceso</th>
+                    <th>Notificar</th>
                     <th>Acciones</th>
                 </tr></thead>
                 <tbody>
@@ -150,6 +151,7 @@ async function renderAdminUsuarios(force) {
         <td>${adminSongCountsCache[u.id] || 0}</td>
         <td style="font-size:.7rem;color:#71717a">${u.created_at ? new Date(u.created_at).toLocaleDateString('es-ES') : '-'}</td>
         <td style="font-size:.7rem;color:#a1a1aa">${lastLogin}</td>
+        <td onclick="event.stopPropagation()">${(u.role === 'admin' || u.role === 'SubAdmin') ? '<span style="font-size:.65rem;color:#71717a">Siempre</span>' : `<input type="checkbox" ${u.puede_notificar ? 'checked' : ''} onchange="toggleUserCanNotify('${u.id}', this.checked)" style="width:16px;height:16px;accent-color:#f59e0b;cursor:pointer">`}</td>
         <td>${(isSelf || (viewerIsSubAdmin && u.role === 'admin')) ? '' : `<button class="btn-outline-sm" onclick="event.stopPropagation(); resetUserPassword('${u.id}')">🔑 Restablecer</button>`}</td>
     </tr>`;
 }).join('')}
@@ -207,6 +209,28 @@ async function resetUserPassword(userId) {
         }, 'user', userId);
     } catch (e) {
         alert('Error al restablecer contraseña: ' + e.message);
+    }
+}
+
+async function toggleUserCanNotify(userId, checked) {
+    if ((!isAdmin() && !isSubAdmin()) || !supabaseReady) return;
+    if (!isAdmin() && isSubAdmin()) {
+        const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
+        if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede cambiar esto para un Admin.'); renderAdminUsuarios(true); return }
+    }
+    try {
+        const { error } = await supabaseClient.from('admin_users').update({ puede_notificar: checked }).eq('id', userId);
+        if (error) throw error;
+        const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
+        if (userRef) userRef.puede_notificar = checked;
+        showNotification(checked ? 'Ahora puede enviar notificaciones' : 'Ya no puede enviar notificaciones', 'success');
+        logActivity('user_role_changed', {
+            targetUser: userId,
+            note: checked ? 'autorizado para notificar' : 'notificar revocado'
+        }, 'user', userId);
+    } catch (e) {
+        alert('Error: ' + e.message);
+        renderAdminUsuarios(true);
     }
 }
 
