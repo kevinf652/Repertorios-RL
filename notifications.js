@@ -181,8 +181,7 @@ async function submitSendNotification(e) {
 }
 
 // Notificación automática: repertorio nuevo (se engancha a createRepertorio sin tocar app.js)
-async function notifyNewRepertorio(titulo) {
-    if (!supabaseReady) return;
+async function notifyNewRepertorio(titulo) {    if (!supabaseReady) return;
     const now = Date.now();
     try {
         await supabaseClient.from('app_notifications').insert({
@@ -197,6 +196,69 @@ async function notifyNewRepertorio(titulo) {
         notifCache = null;
         updateNotificationBellDot();
     } catch (e) { console.error('notifyNewRepertorio error:', e) }
+}
+
+// ---------- Admin: gestión de notificaciones activas (solo Admin, no Subadmin) ----------
+async function renderAdminNotificaciones() {
+    const c = document.getElementById('admin-notificaciones-content');
+    if (!c) return;
+    if (typeof isAdmin !== 'function' || !isAdmin()) {
+        c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>';
+        return;
+    }
+    c.innerHTML = '<div class="admin-empty">Cargando...</div>';
+    if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
+    const notifs = await loadNotifications(true);
+    if (notifs.length === 0) {
+        c.innerHTML = '<div class="admin-empty">No hay notificaciones activas por ahora.</div>';
+        return;
+    }
+    c.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr>'
+        + '<th>Título</th><th>Cuerpo</th><th>Tipo</th><th>Creado por</th><th>Vence</th><th>Acción</th>'
+        + '</tr></thead><tbody>'
+        + notifs.map(n => {
+            const expDate = n.expires_at ? new Date(n.expires_at).toISOString().split('T')[0] : '';
+            const tipoLabel = n.tipo === 'sistema' ? '⚙️ Sistema' : '✍️ Manual';
+            return '<tr>'
+                + '<td style="font-size:.78rem;max-width:150px">' + esc(n.titulo) + '</td>'
+                + '<td style="font-size:.72rem;color:#a1a1aa;max-width:200px">' + esc(n.cuerpo || '-') + '</td>'
+                + '<td style="font-size:.7rem;white-space:nowrap">' + tipoLabel + '</td>'
+                + '<td style="font-size:.72rem">' + esc(n.created_by || '-') + '</td>'
+                + '<td><input type="date" value="' + expDate + '" onchange="updateNotificationExpiry(\'' + n.id + '\', this.value)" style="background:#27272a;border:1px solid rgba(63,63,70,.6);color:#e4e4e7;border-radius:6px;padding:3px 6px;font-size:.72rem"></td>'
+                + '<td><button class="btn-danger-sm" onclick="deleteAdminNotification(\'' + n.id + '\')">🗑️ Borrar</button></td>'
+                + '</tr>';
+        }).join('')
+        + '</tbody></table></div>';
+}
+
+async function deleteAdminNotification(id) {
+    if (typeof isAdmin !== 'function' || !isAdmin() || !supabaseReady) return;
+    if (!confirm('¿Eliminar esta notificación antes de tiempo? Ya no se mostrará a nadie.')) return;
+    try {
+        const { error } = await supabaseClient.from('app_notifications').delete().eq('id', id);
+        if (error) throw error;
+        showNotification('Notificación eliminada', 'success');
+        notifCache = null;
+        renderAdminNotificaciones();
+        updateNotificationBellDot();
+        if (typeof logActivity === 'function') logActivity('notification_deleted', { titulo: id }, 'notification', id);
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
+}
+
+async function updateNotificationExpiry(id, dateValue) {
+    if (typeof isAdmin !== 'function' || !isAdmin() || !supabaseReady || !dateValue) return;
+    const newExpiry = new Date(dateValue + 'T23:59:59').getTime();
+    try {
+        const { error } = await supabaseClient.from('app_notifications').update({ expires_at: newExpiry }).eq('id', id);
+        if (error) throw error;
+        showNotification('Fecha de vencimiento actualizada', 'success');
+        notifCache = null;
+    } catch (e) {
+        alert('Error al actualizar: ' + e.message);
+        renderAdminNotificaciones();
+    }
 }
 
 // ---------- Enganches sin tocar app.js/admin.js/social.js ----------
@@ -217,6 +279,14 @@ if (typeof updateUserUI === 'function') {
     updateUserUI = function() {
         _notifOriginalUpdateUserUI();
         refreshCanSendNotifications().then(updateNotificationBellDot);
+    };
+}
+
+if (typeof showPage === 'function') {
+    const _notifOriginalShowPage = showPage;
+    showPage = function(name) {
+        _notifOriginalShowPage(name);
+        if (name === 'admin-notificaciones') renderAdminNotificaciones();
     };
 }
 
