@@ -888,7 +888,6 @@ function showAuthSuccess(msg) {
     el.classList.add('show');
     document.getElementById('auth-error').classList.remove('show');
 }
-
 function initAuth() {
     const saved = localStorage.getItem('rl_current_user');
     if (saved) {
@@ -898,21 +897,81 @@ function initAuth() {
             repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
             if (currentUser && supabaseReady) {
                 console.log('User logged in, loading songs from cloud...');
-                // ✅ NUEVO: Actualizar último acceso al cargar la app
-                updateLastAccess();
+                // ✅ Cargar canciones primero, luego actualizar acceso
                 loadSongsFromCloud().then(cloudSongs => {
                     if (cloudSongs && cloudSongs.length > 0) {
                         songs = cloudSongs;
                         renderLibrary();
                         console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
                     }
+                    // ✅ Actualizar último acceso DESPUÉS de cargar canciones
+                    updateLastAccess();
+                }).catch(() => {
+                    // Si falla la carga, igual intentamos actualizar
+                    updateLastAccess();
                 });
             }
-        } catch (e) { currentUser = null }
+        } catch (e) { 
+            console.error('Error en initAuth:', e);
+            currentUser = null; 
+        }
     }
     updateUserUI();
 }
+async function handleLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) { showAuthError('Por favor completa todos los campos'); return }
+    if (!supabaseReady) { showAuthError('Sin conexión a internet. No se puede iniciar sesión.'); return }
+    try {
+        const { data, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
+        if (error || !data) { showAuthError('Usuario o contraseña incorrectos'); return }
+        
+        // ✅ Establecer currentUser ANTES de cualquier otra operación
+        currentUser = { 
+            id: data.id, 
+            nombre: data.nombre || '', 
+            apellido: data.apellido || '', 
+            role: data.role || 'usuario' 
+        };
+        localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
+        userRole = currentUser.role;
+        repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
+        if (userRole === 'admin') localStorage.setItem('cb_rep_admin', 'true');
+        updateUserUI();
+        closeAuthModal();
+        setupRealtimeSubscriptions();
 
+        // ✅ Actualizar last_login en Supabase (esto es lo que ya hacías)
+        try {
+            await supabaseClient.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', data.id);
+            // ✅ Guardar también en localStorage para no repetir
+            localStorage.setItem('cb_last_access_' + data.id, String(Date.now()));
+        } catch (updateErr) {
+            console.warn('⚠️ No se pudo actualizar last_login:', updateErr.message);
+        }
+
+        // ✅ Cargar canciones
+        const cloudSongs = await loadSongsFromCloud();
+        if (cloudSongs && cloudSongs.length > 0) {
+            songs = cloudSongs;
+            renderLibrary();
+            showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + cloudSongs.length + ' canciones sincronizadas.', 'success');
+        } else {
+            if (songs.length > 0) {
+                await syncSongsToCloud();
+                showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + songs.length + ' canciones subidas al servidor.', 'success');
+            } else {
+                showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Tu biblioteca está vacía.', 'success');
+            }
+            renderLibrary();
+        }
+    } catch (e) {
+        console.error('Error en handleLogin:', e);
+        showAuthError('Error al conectar: ' + e.message);
+    }
+}
 async function handleRegister(e) {
     e.preventDefault();
     const nombre = document.getElementById('reg-nombre').value.trim();
@@ -1019,7 +1078,7 @@ async function handleChangePassword(e) {
 
 initAuth();
 
-// ============= RE PERTORIOS FUNCTIONS =============
+// ============= REPERTORIOS FUNCTIONS =============
 async function loadRepertorios() {
     if (!supabaseReady) return;
     try {
@@ -4373,21 +4432,37 @@ function closeAudioUploadMenu() {
 }
 // ============= ACTUALIZAR ÚLTIMO ACCESO =============
 async function updateLastAccess() {
-    if (!currentUser || !supabaseReady) return;
+    // Verificar que todo esté listo
+    if (!currentUser || !currentUser.id || !supabaseReady) {
+        console.log('⏭️ No se puede actualizar último acceso: faltan datos');
+        return;
+    }
+    
     try {
         // Solo actualiza si pasaron más de 5 minutos desde la última actualización
         const lastUpdate = localStorage.getItem('cb_last_access_' + currentUser.id);
         const now = Date.now();
-        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) return; // 5 min
+        if (lastUpdate && (now - parseInt(lastUpdate, 10)) < 300000) {
+            console.log('⏭️ Último acceso actualizado recientemente, omitiendo');
+            return;
+        }
 
-        await supabaseClient
+        console.log('📝 Actualizando último acceso para:', currentUser.id);
+        
+        const { error } = await supabaseClient
             .from('admin_users')
             .update({ last_login: new Date().toISOString() })
             .eq('id', currentUser.id);
         
+        if (error) {
+            console.warn('⚠️ Error al actualizar last_login:', error.message);
+            return;
+        }
+        
         localStorage.setItem('cb_last_access_' + currentUser.id, String(now));
-        console.log('✅ Último acceso actualizado para', currentUser.id);
+        console.log('✅ Último acceso actualizado');
     } catch (e) {
+        // Nunca debe bloquear la app
         console.warn('⚠️ No se pudo actualizar last_access:', e.message);
     }
 }
