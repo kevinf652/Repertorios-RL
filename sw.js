@@ -10,7 +10,9 @@ const urlsToCache = [
 './admin.js',  
 './admin.css',
 './social.js',
-'./social.css'
+'./social.css',
+'./notifications.js',
+'./notifications.css'
 ];
 // INSTALL - Cache app shell
 self.addEventListener('install', function(event) {    
