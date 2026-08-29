@@ -99,15 +99,65 @@ async function getBirthdayVirtualNotifications() {
     } catch (e) { return [] }
 }
 
+// ---------- Bienvenida a usuario nuevo (100% local, personal, se autoborra) ----------
+const WELCOME_PENDING_KEY = 'cb_notif_welcome_pending';
+const WELCOME_HOURS = 48; // cuántas horas dura visible la bienvenida
+
+function markPendingWelcome(username) {
+    localStorage.setItem(WELCOME_PENDING_KEY, username);
+}
+
+// Si el usuario que acaba de iniciar sesión es quien se acaba de registrar, crea su bienvenida local
+function maybeCreateWelcomeNotification() {
+    if (!currentUser) return;
+    const pending = localStorage.getItem(WELCOME_PENDING_KEY);
+    if (pending && pending === currentUser.id) {
+        const nombre = currentUser.nombre || currentUser.id;
+        const data = {
+            id: 'welcome-' + currentUser.id,
+            titulo: '¡Bienvenido a Repertorios RL, ' + nombre + '! 🥳',
+            cuerpo: 'Qué bueno tenerte por acá. Unos tips para arrancar:\n📖 Guarda tus canciones en tu biblioteca personal\n📅 Revisa los repertorios de Domingo y Lunes\n👤 Completa "Mis Datos" para que el equipo te conozca mejor\n¡Cualquier duda, aquí estamos!',
+            created_by: null,
+            created_at: Date.now(),
+            expires_at: Date.now() + WELCOME_HOURS * 60 * 60 * 1000,
+            tipo: 'bienvenida'
+        };
+        localStorage.setItem('cb_notif_welcome_' + currentUser.id, JSON.stringify(data));
+        localStorage.removeItem(WELCOME_PENDING_KEY);
+    }
+}
+
+// Devuelve la bienvenida local si existe y sigue vigente (solo la ve ese usuario, en ese dispositivo)
+function getLocalWelcomeNotification() {
+    if (!currentUser) return null;
+    const key = 'cb_notif_welcome_' + currentUser.id;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+        const data = JSON.parse(raw);
+        if (!data.expires_at || Date.now() > data.expires_at) {
+            localStorage.removeItem(key);
+            return null;
+        }
+        return data;
+    } catch (e) {
+        localStorage.removeItem(key);
+        return null;
+    }
+}
+
 // ---------- Punto de notificación en la campanita ----------
 async function updateNotificationBellDot() {
     const bell = document.getElementById('notif-bell-btn');
     if (!bell) return;
     let hasNotif = false;
-    try {
-        const birthdays = await getBirthdayVirtualNotifications();
-        if (birthdays.length > 0) hasNotif = true;
-    } catch (e) {}
+    if (getLocalWelcomeNotification()) hasNotif = true;
+    if (!hasNotif) {
+        try {
+            const birthdays = await getBirthdayVirtualNotifications();
+            if (birthdays.length > 0) hasNotif = true;
+        } catch (e) {}
+    }
     if (!hasNotif && supabaseReady) {
         try {
             const notifs = await loadNotifications(false);
@@ -157,8 +207,9 @@ async function renderNotificationsPanel() {
     if (sendBtnWrap) sendBtnWrap.style.display = canSendNotifications() ? '' : 'none';
 
     const birthdays = await getBirthdayVirtualNotifications();
+    const welcome = getLocalWelcomeNotification();
     const dbNotifs = await loadNotifications(true);
-    const all = [...birthdays, ...dbNotifs].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    const all = [...(welcome ? [welcome] : []), ...birthdays, ...dbNotifs].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
     const reactionsByNotif = await loadReactionsForNotifs(dbNotifs.map(n => n.id));
 
@@ -167,8 +218,8 @@ async function renderNotificationsPanel() {
     } else {
         list.innerHTML = all.map(n => {
             const when = n.created_at ? new Date(n.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-            const isSystem = n.tipo === 'sistema' || n.tipo === 'cumpleanos';
-            const canReact = !!currentUser && !n.id.startsWith('bday-');
+            const isSystem = n.tipo === 'sistema' || n.tipo === 'cumpleanos' || n.tipo === 'bienvenida';
+            const canReact = !!currentUser && n.tipo !== 'cumpleanos' && n.tipo !== 'bienvenida';
             const rx = reactionsByNotif[n.id] || { like: [], heart: [] };
             const iReactedLike = currentUser && rx.like.includes(currentUser.id);
             const iReactedHeart = currentUser && rx.heart.includes(currentUser.id);
@@ -329,7 +380,22 @@ if (typeof updateUserUI === 'function') {
     const _notifOriginalUpdateUserUI = updateUserUI;
     updateUserUI = function() {
         _notifOriginalUpdateUserUI();
+        maybeCreateWelcomeNotification();
         refreshCanSendNotifications().then(updateNotificationBellDot);
+    };
+}
+
+if (typeof handleRegister === 'function') {
+    const _notifOriginalHandleRegister = handleRegister;
+    handleRegister = async function(e) {
+        const usernameField = document.getElementById('reg-username');
+        const attemptedUsername = usernameField ? usernameField.value.trim().toLowerCase() : null;
+        await _notifOriginalHandleRegister(e);
+        // El registro exitoso deja precargado el mismo usuario en el campo de login
+        const loginField = document.getElementById('login-username');
+        if (attemptedUsername && loginField && loginField.value === attemptedUsername) {
+            markPendingWelcome(attemptedUsername);
+        }
     };
 }
 
