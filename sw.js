@@ -1,10 +1,11 @@
-const CACHE_NAME = 'repertorios-rl-v2.882';
+const CACHE_NAME = 'repertorios-rl-v2.883';
 const urlsToCache = [  
 './',  
 './index.html',  
 './manifest.json',  
 './icon-192.png',  
 './icon-512.png',  
+'./icon-512-maskable.png',
 './app.js',  
 './styles.css',  
 './admin.js',  
