@@ -29,6 +29,7 @@ async function loadNotifications(force) {
     try {
         const now = Date.now();
         // Limpieza de paso: borra las que ya vencieron antes de traer la lista
+        // (gracias a ON DELETE CASCADE en notification_reactions, sus reacciones se borran solas)
         try { await supabaseClient.from('app_notifications').delete().lt('expires_at', now) } catch (e) {}
         const { data, error } = await supabaseClient.from('app_notifications').select('*').order('created_at', { ascending: false });
         if (error || !data) return [];
@@ -37,6 +38,43 @@ async function loadNotifications(force) {
     } catch (e) {
         console.error('loadNotifications error:', e);
         return [];
+    }
+}
+
+// ---------- Reacciones (👍🏽 / ❤️) ----------
+async function loadReactionsForNotifs(notifIds) {
+    const result = {};
+    if (!notifIds || notifIds.length === 0 || !supabaseReady) return result;
+    try {
+        const { data } = await supabaseClient.from('notification_reactions').select('notification_id,user_id,reaction').in('notification_id', notifIds);
+        (data || []).forEach(r => {
+            if (!result[r.notification_id]) result[r.notification_id] = { like: [], heart: [] };
+            if (r.reaction === 'like' || r.reaction === 'heart') result[r.notification_id][r.reaction].push(r.user_id);
+        });
+    } catch (e) { console.error('loadReactionsForNotifs error:', e) }
+    return result;
+}
+
+async function toggleNotificationReaction(notifId, reactionType) {
+    if (!currentUser || !supabaseReady) return;
+    try {
+        const { data: existing } = await supabaseClient.from('notification_reactions').select('id').eq('notification_id', notifId).eq('user_id', currentUser.id).eq('reaction', reactionType).maybeSingle();
+        if (existing && existing.id) {
+            await supabaseClient.from('notification_reactions').delete().eq('id', existing.id);
+            if (typeof logActivity === 'function') logActivity('notification_reaction_removed', { reaction: reactionType }, 'notification', notifId);
+        } else {
+            await supabaseClient.from('notification_reactions').insert({
+                id: genId(),
+                notification_id: notifId,
+                user_id: currentUser.id,
+                reaction: reactionType,
+                created_at: Date.now()
+            });
+            if (typeof logActivity === 'function') logActivity('notification_reaction_added', { reaction: reactionType }, 'notification', notifId);
+        }
+        renderNotificationsPanel();
+    } catch (e) {
+        console.error('toggleNotificationReaction error:', e);
     }
 }
 
@@ -122,16 +160,29 @@ async function renderNotificationsPanel() {
     const dbNotifs = await loadNotifications(true);
     const all = [...birthdays, ...dbNotifs].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
+    const reactionsByNotif = await loadReactionsForNotifs(dbNotifs.map(n => n.id));
+
     if (all.length === 0) {
         list.innerHTML = '<div class="admin-empty">No hay notificaciones por ahora 🔔</div>';
     } else {
         list.innerHTML = all.map(n => {
             const when = n.created_at ? new Date(n.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
             const isSystem = n.tipo === 'sistema' || n.tipo === 'cumpleanos';
+            const canReact = !!currentUser && !n.id.startsWith('bday-');
+            const rx = reactionsByNotif[n.id] || { like: [], heart: [] };
+            const iReactedLike = currentUser && rx.like.includes(currentUser.id);
+            const iReactedHeart = currentUser && rx.heart.includes(currentUser.id);
+            const reactionsHtml = canReact
+                ? '<div class="notif-item-reactions">'
+                    + '<button class="notif-reaction-btn' + (iReactedLike ? ' active' : '') + '" onclick="toggleNotificationReaction(\'' + n.id + '\',\'like\')">👍🏽 ' + (rx.like.length || '') + '</button>'
+                    + '<button class="notif-reaction-btn' + (iReactedHeart ? ' active' : '') + '" onclick="toggleNotificationReaction(\'' + n.id + '\',\'heart\')">❤️ ' + (rx.heart.length || '') + '</button>'
+                    + '</div>'
+                : '';
             return '<div class="notif-item' + (isSystem ? ' notif-item-system' : '') + '">'
                 + '<div class="notif-item-title">' + esc(n.titulo) + '</div>'
                 + (n.cuerpo ? '<div class="notif-item-body">' + esc(n.cuerpo) + '</div>' : '')
                 + '<div class="notif-item-meta">' + (n.created_by ? esc(n.created_by) + ' · ' : '') + when + '</div>'
+                + reactionsHtml
                 + '</div>';
         }).join('');
     }

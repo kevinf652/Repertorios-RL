@@ -1106,7 +1106,11 @@ async function renderAdminLogs() {
             activity_created: '🎉 Creó actividad',
             activity_deleted: '🗑️ Eliminó actividad',
             social_profile_updated: '📝 Actualizó Mis Datos',
-            r2_file_deleted: '🧹 Borró duplicado de Storage'
+            r2_file_deleted: '🧹 Borró duplicado de Storage',
+            notification_sent: '📣 Envió notificación',
+            notification_deleted: '🗑️ Eliminó notificación',
+            notification_reaction_added: '👍 Reaccionó a notificación',
+            notification_reaction_removed: '↩️ Quitó reacción'
         };
         
         const roleColors = {

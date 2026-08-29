@@ -3273,6 +3273,7 @@ function setRepSongView(showChords) {
     repShowChords = showChords;
     document.getElementById('toggle-lyrics').className = showChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = showChords ? 'active' : 'inactive';
+    document.getElementById('rep-song-key').style.display = showChords ? '' : 'none';
     renderRepSongLyrics()
 }
 
@@ -3433,6 +3434,7 @@ function renderRepSongView() {
     document.getElementById('rep-song-audio').innerHTML = (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchstart="seekRepAudioTouch(event)" ontouchmove="seekRepAudioTouch(event)" style=touch-action:none"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>') + (vocalAudiosHtml ? '<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div>' : '');
     document.getElementById('toggle-lyrics').className = repShowChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = repShowChords ? 'active' : 'inactive';
+    document.getElementById('rep-song-key').style.display = repShowChords ? '' : 'none';
 
     const adminActions = document.getElementById('rep-song-admin-actions');
     if (adminActions) {

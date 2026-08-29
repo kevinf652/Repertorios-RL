@@ -378,12 +378,12 @@
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div id="rep-song-info"></div>
-    <div class="key-selector" id="rep-song-key"></div>
     <div class="toggle-btn">
       <button id="toggle-lyrics" class="inactive" onclick="setRepSongView(false)">👁 Solo letra</button>
       <button id="toggle-chords" class="active" onclick="setRepSongView(true)">🎵 Letra + Acordes</button>
     </div>
     <div id="rep-song-audio"></div>
+    <div class="key-selector" id="rep-song-key"></div>
     <div class="lyrics-container" id="rep-song-lyrics"></div>
   </div>
 </div>
@@ -543,6 +543,10 @@
         <option value="activity_deleted">Actividad eliminada</option>
         <option value="social_profile_updated">Mis Datos actualizado</option>
         <option value="r2_file_deleted">Duplicado de Storage borrado</option>
+        <option value="notification_sent">Notificación enviada</option>
+        <option value="notification_deleted">Notificación eliminada</option>
+        <option value="notification_reaction_added">Reacción agregada</option>
+        <option value="notification_reaction_removed">Reacción quitada</option>
       </select>
       <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todos los roles</option>
