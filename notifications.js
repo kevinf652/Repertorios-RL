@@ -78,6 +78,67 @@ async function toggleNotificationReaction(notifId, reactionType) {
     }
 }
 
+// ---------- Ver quién reaccionó (solo para quien puede enviar notificaciones) ----------
+function canViewReactionsFor(notif) {
+    if (typeof isAdmin === 'function' && isAdmin()) return true;
+    if (typeof isSubAdmin === 'function' && isSubAdmin()) return true;
+    // Quien solo tiene autorización puntual, únicamente ve las reacciones de lo que él mismo envió
+    return !!(currentUser && notif && notif.created_by_id && notif.created_by_id === currentUser.id);
+}
+
+async function loadReactionDetailsForNotif(notifId) {
+    const result = { like: [], heart: [] };
+    if (!supabaseReady) return result;
+    try {
+        const { data: reactions } = await supabaseClient.from('notification_reactions').select('user_id,reaction').eq('notification_id', notifId);
+        const userIds = [...new Set((reactions || []).map(r => r.user_id))];
+        let usersMap = {};
+        if (userIds.length > 0) {
+            const { data: users } = await supabaseClient.from('admin_users').select('id,nombre,apellido').in('id', userIds);
+            (users || []).forEach(u => { usersMap[u.id] = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.id; });
+        }
+        (reactions || []).forEach(r => {
+            if (result[r.reaction]) result[r.reaction].push(usersMap[r.user_id] || r.user_id);
+        });
+    } catch (e) { console.error('loadReactionDetailsForNotif error:', e) }
+    return result;
+}
+
+async function showNotificationReactionsModal(notifId, titulo) {
+    if (!canSendNotifications()) return;
+    const modal = document.getElementById('notif-reactions-modal');
+    const body = document.getElementById('notif-reactions-body');
+    if (!modal || !body) return;
+    document.getElementById('notif-reactions-title').textContent = titulo || 'Reacciones';
+    modal.classList.add('active');
+
+    const notifs = await loadNotifications(false);
+    const notif = notifs.find(n => n.id === notifId);
+    if (!notif || !canViewReactionsFor(notif)) {
+        body.innerHTML = '<div class="admin-empty">Solo puedes ver quién reaccionó a las notificaciones que tú enviaste.</div>';
+        return;
+    }
+
+    body.innerHTML = '<div class="admin-empty">Cargando...</div>';
+    const details = await loadReactionDetailsForNotif(notifId);
+    if (details.like.length === 0 && details.heart.length === 0) {
+        body.innerHTML = '<div class="admin-empty">Aún nadie ha reaccionado.</div>';
+        return;
+    }
+    const renderGroup = (emoji, label, names) => '<div style="margin-bottom:14px">'
+        + '<div style="font-size:.8rem;font-weight:600;color:#e4e4e7;margin-bottom:6px">' + emoji + ' ' + label + ' (' + names.length + ')</div>'
+        + (names.length
+            ? names.map(n => '<div style="font-size:.78rem;color:#d4d4d8;padding:3px 0">' + esc(n) + '</div>').join('')
+            : '<div style="font-size:.72rem;color:#71717a">Nadie aún</div>')
+        + '</div>';
+    body.innerHTML = renderGroup('👍🏽', 'Le gusta', details.like) + renderGroup('❤️', 'Les encanta', details.heart);
+}
+
+function closeNotificationReactionsModal() {
+    const modal = document.getElementById('notif-reactions-modal');
+    if (modal) modal.classList.remove('active');
+}
+
 // Cumpleaños de hoy como notificación "virtual" (no se guarda en la tabla, se calcula al vuelo)
 async function getBirthdayVirtualNotifications() {
     if (typeof loadBirthdaysThisMonth !== 'function') return [];
@@ -225,11 +286,15 @@ async function renderNotificationsPanel() {
             const iReactedHeart = currentUser && rx.heart.includes(currentUser.id);
             const reactionsHtml = canReact
                 ? '<div class="notif-item-reactions">'
-                    + '<button class="notif-reaction-btn' + (iReactedLike ? ' active' : '') + '" onclick="toggleNotificationReaction(\'' + n.id + '\',\'like\')">👍🏽 ' + (rx.like.length || '') + '</button>'
-                    + '<button class="notif-reaction-btn' + (iReactedHeart ? ' active' : '') + '" onclick="toggleNotificationReaction(\'' + n.id + '\',\'heart\')">❤️ ' + (rx.heart.length || '') + '</button>'
+                    + '<button class="notif-reaction-btn' + (iReactedLike ? ' active' : '') + '" onclick="event.stopPropagation();toggleNotificationReaction(\'' + n.id + '\',\'like\')">👍🏽 ' + (rx.like.length || '') + '</button>'
+                    + '<button class="notif-reaction-btn' + (iReactedHeart ? ' active' : '') + '" onclick="event.stopPropagation();toggleNotificationReaction(\'' + n.id + '\',\'heart\')">❤️ ' + (rx.heart.length || '') + '</button>'
                     + '</div>'
                 : '';
-            return '<div class="notif-item' + (isSystem ? ' notif-item-system' : '') + '">'
+            const isVirtual = n.tipo === 'cumpleanos' || n.tipo === 'bienvenida';
+            const isRealDbNotif = !isVirtual;
+            const canClickToSeeReactions = isRealDbNotif && canSendNotifications();
+            const titleEsc = esc(n.titulo).replace(/'/g, "\\'");
+            return '<div class="notif-item' + (isSystem ? ' notif-item-system' : '') + (canClickToSeeReactions ? ' notif-item-clickable' : '') + '"' + (canClickToSeeReactions ? ' onclick="showNotificationReactionsModal(\'' + n.id + '\',\'' + titleEsc + '\')"' : '') + '>'
                 + '<div class="notif-item-title">' + esc(n.titulo) + '</div>'
                 + (n.cuerpo ? '<div class="notif-item-body">' + esc(n.cuerpo) + '</div>' : '')
                 + '<div class="notif-item-meta">' + (n.created_by ? esc(n.created_by) + ' · ' : '') + when + '</div>'
@@ -268,6 +333,7 @@ async function submitSendNotification(e) {
             cuerpo: cuerpo,
             tipo: 'manual',
             created_by: creatorName,
+            created_by_id: currentUser ? currentUser.id : null,
             created_at: now,
             expires_at: now + NOTIF_EXPIRE_DAYS * 24 * 60 * 60 * 1000
         });

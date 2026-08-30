@@ -632,7 +632,9 @@ async function renderAdminStorage() {
     
     const objects = data.objects || [];
     const totalBytes = data.totalBytes || 0;
+    const STORAGE_LIMIT_GB = 10;
     const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2);
+    const usedPct = Math.min(100, (totalBytes / (STORAGE_LIMIT_GB * 1024 * 1024 * 1024)) * 100);
     
     const songs = objects.filter(o => o.key.startsWith('songs/'));
     const vocalAudios = objects.filter(o => o.key.startsWith('vocal-audios/'));
@@ -643,10 +645,14 @@ async function renderAdminStorage() {
     
     c.innerHTML = `
         <div class="admin-stat-row">
-            <div class="admin-stat-box"><div class="admin-stat-value">${totalGB}</div><div class="admin-stat-label">Espacio total (GB)</div></div>
-            <div class="admin-stat-box"><div class="admin-stat-value">${data.count}</div><div class="admin-stat-label">Archivos totales</div></div>
             <div class="admin-stat-box"><div class="admin-stat-value">${songsMB} MB</div><div class="admin-stat-label">🎵 Canciones</div></div>
             <div class="admin-stat-box"><div class="admin-stat-value">${vocalMB} MB</div><div class="admin-stat-label">🎤 Audios vocales</div></div>
+            <div class="admin-stat-box"><div class="admin-stat-value">${data.count}</div><div class="admin-stat-label">Archivos totales</div></div>
+            <div class="admin-stat-box">
+                <div class="admin-stat-value">${totalGB} GB</div>
+                <div class="admin-stat-label">Espacio total · ${usedPct.toFixed(1)}% de ${STORAGE_LIMIT_GB} GB</div>
+                <div class="storage-bar-track"><div class="storage-bar-fill" style="width:${usedPct}%"></div></div>
+            </div>
         </div>
         
         <div style="margin-bottom:10px">

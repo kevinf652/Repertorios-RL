@@ -75,6 +75,13 @@
 .notif-item-system {
   border: 1px solid rgba(96, 165, 250, .25);
 }
+.notif-item-clickable {
+  cursor: pointer;
+  transition: background .15s;
+}
+.notif-item-clickable:active {
+  background: rgba(63, 63, 70, .5);
+}
 .notif-item-title {
   font-size: .85rem;
   font-weight: 600;

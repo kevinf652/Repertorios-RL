@@ -181,6 +181,21 @@
   text-transform: uppercase;
   letter-spacing: .03em;
 }
+
+.storage-bar-track {
+  width: 100%;
+  height: 5px;
+  background: rgba(63, 63, 70, .5);
+  border-radius: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.storage-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  border-radius: 3px;
+  transition: width .3s;
+}
 .admin-role-select {
   background: rgba(39, 39, 42, .8);
   border: 1px solid rgba(63, 63, 70, .5);
@@ -251,8 +266,8 @@
 
 .admin-summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
 }
 
 .admin-summary-item {
