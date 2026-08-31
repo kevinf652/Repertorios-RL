@@ -160,11 +160,91 @@ async function renderAdminUsuarios(force) {
             </table>
         </div>
     `;
+    renderAdminInactiveUsersSection();
 }
 
 function initAdminUsuariosPage() {
     document.getElementById('admin-usuarios-search').value = '';
     renderAdminUsuarios(true);
+}
+
+// ---------- Usuarios inactivos (solo Admin) + eliminar cuenta ----------
+let inactiveUsersFilter = 'all';
+
+async function renderAdminInactiveUsersSection() {
+    const c = document.getElementById('admin-inactive-users-section');
+    if (!c) return;
+    if (!isAdmin()) { c.innerHTML = ''; return }
+
+    const users = adminUsersCache || [];
+    const now = Date.now();
+    const thresholds = { never: null, '30': 30, '60': 60, '90': 90, '180': 180 };
+
+    const filtered = users.filter(u => {
+        if (inactiveUsersFilter === 'all') return true;
+        if (inactiveUsersFilter === 'never') return !u.last_login;
+        if (!u.last_login) return true; // nunca ha entrado también cuenta como "más de X días"
+        const days = thresholds[inactiveUsersFilter];
+        const lastLoginMs = new Date(u.last_login).getTime();
+        return (now - lastLoginMs) / (1000 * 60 * 60 * 24) >= days;
+    });
+
+    c.innerHTML = `
+        <div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">
+            <div class="admin-section-title" style="margin-bottom:2px">🧹 Mantenimiento de usuarios</div>
+            <div class="admin-section-subtitle">Solo tú puedes ver esto y eliminar cuentas — acción irreversible</div>
+            <select id="inactive-users-filter" class="admin-search-input" onchange="inactiveUsersFilter = this.value; renderAdminInactiveUsersSection()">
+                <option value="all" ${inactiveUsersFilter === 'all' ? 'selected' : ''}>Todos los usuarios</option>
+                <option value="never" ${inactiveUsersFilter === 'never' ? 'selected' : ''}>Nunca han entrado</option>
+                <option value="30" ${inactiveUsersFilter === '30' ? 'selected' : ''}>Sin actividad hace +30 días</option>
+                <option value="60" ${inactiveUsersFilter === '60' ? 'selected' : ''}>Sin actividad hace +60 días</option>
+                <option value="90" ${inactiveUsersFilter === '90' ? 'selected' : ''}>Sin actividad hace +90 días</option>
+                <option value="180" ${inactiveUsersFilter === '180' ? 'selected' : ''}>Sin actividad hace +6 meses</option>
+            </select>
+            <div id="inactive-users-list"></div>
+        </div>
+    `;
+
+    const list = document.getElementById('inactive-users-list');
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="admin-empty">Nadie coincide con este filtro.</div>';
+        return;
+    }
+    list.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Nombre</th><th>Rol</th><th>Canciones</th><th>Último acceso</th><th>Acción</th></tr></thead><tbody>'
+        + filtered.map(u => {
+            const isSelf = currentUser && currentUser.id === u.id;
+            const fullName = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.id;
+            const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString('es-ES') : 'Nunca';
+            return '<tr>'
+                + '<td style="font-size:.78rem">' + esc(fullName) + '<br><span style="color:#71717a;font-size:.65rem">@' + esc(u.id) + '</span></td>'
+                + '<td>' + roleBadgeHtml(u.role) + '</td>'
+                + '<td style="font-size:.72rem">' + (adminSongCountsCache[u.id] || 0) + '</td>'
+                + '<td style="font-size:.72rem;color:#a1a1aa">' + lastLogin + '</td>'
+                + '<td>' + (isSelf || u.role === 'admin' ? '<span style="font-size:.65rem;color:#71717a">—</span>' : '<button class="btn-danger-sm" onclick="deleteAdminUser(\'' + u.id + '\')">🗑️ Eliminar</button>') + '</td>'
+                + '</tr>';
+        }).join('')
+        + '</tbody></table></div>';
+}
+
+async function deleteAdminUser(userId) {
+    if (!isAdmin() || !supabaseReady) return;
+    const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
+    if (!userRef) return;
+    if (userRef.role === 'admin') { alert('No se puede eliminar a otro Admin desde aquí.'); return }
+    if (currentUser && currentUser.id === userId) { alert('No puedes eliminar tu propia cuenta.'); return }
+    if (!confirm('¿ELIMINAR PERMANENTEMENTE la cuenta de "' + userId + '"? Se borra su biblioteca y su perfil. Esta acción no se puede deshacer.')) return;
+    if (!confirm('Confírmalo una vez más: no hay forma de recuperar esto después. ¿Continuar?')) return;
+    try {
+        await supabaseClient.from('user_songs').delete().eq('user_id', userId);
+        await supabaseClient.from('social_profiles').delete().eq('user_id', userId);
+        await supabaseClient.from('admin_users').delete().eq('id', userId);
+        showNotification('Usuario eliminado', 'success');
+        logActivity('user_deleted', { targetUser: userId }, 'user', userId);
+        adminUsersCache = null;
+        renderAdminUsuarios(true);
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
 }
 
 // ---------- Editar rol de usuario ----------
@@ -510,6 +590,135 @@ let r2Cache = null;
 let r2CacheTime = 0;
 let storageFilter = 'all';
 let storageSearch = '';
+let storageFormatFilter = 'all';
+let audioFormatCache = {};
+
+// Lee los primeros bytes reales del archivo para saber su formato de verdad
+// (la extensión del nombre no siempre es confiable — ver historial de este proyecto)
+async function detectAudioFormat(key) {
+    if (audioFormatCache[key]) return audioFormatCache[key];
+    try {
+        const url = R2_WORKER_URL + '/file/' + encodeURIComponent(key);
+        const res = await fetch(url, { headers: { 'Range': 'bytes=0-15' } });
+        const buf = await res.arrayBuffer();
+        const b = new Uint8Array(buf);
+        let format = 'Desconocido';
+        if (b.length >= 8 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) {
+            format = 'AAC/MP4'; // 'ftyp' en el byte 4
+        } else if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
+            format = 'MP3'; // ID3 tag
+        } else if (b[0] === 0xFF && (b[1] & 0xE0) === 0xE0) {
+            format = 'MP3'; // sync frame MPEG sin ID3
+        } else if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) {
+            format = 'WAV';
+        } else if (b[0] === 0x4F && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53) {
+            format = 'OGG';
+        }
+        audioFormatCache[key] = format;
+        return format;
+    } catch (e) {
+        return '—';
+    }
+}
+
+async function detectAllVisibleFormats() {
+    const data = await loadR2StorageData(false);
+    const objects = (data && data.objects) || [];
+    await Promise.all(objects.map(o => detectAudioFormat(o.key)));
+    renderAdminStorageCategory(storageFilter);
+}
+
+// ---------- Audios huérfanos (sin ninguna referencia en la base de datos) ----------
+async function renderAdminOrphanedAudios(force) {
+    const c = document.getElementById('admin-orphaned-audios-content');
+    if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
+    c.innerHTML = '<div class="admin-empty">Buscando huérfanos...</div>';
+    if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
+
+    try {
+        const data = await loadR2StorageData(force);
+        const objects = (data && data.objects) || [];
+
+        // IDs de canción con audio_url realmente asignado (repertorio + biblioteca de cada usuario)
+        const referencedSongIds = new Set();
+        try {
+            const { data: repRows } = await supabaseClient.from('canciones_repertorio').select('source_song_id,audio_url');
+            (repRows || []).forEach(r => { if (r.source_song_id && r.audio_url) referencedSongIds.add(r.source_song_id) });
+        } catch (e) {}
+        try {
+            const { data: userSongsRows } = await supabaseClient.from('user_songs').select('song_data');
+            (userSongsRows || []).forEach(r => {
+                try {
+                    const sd = typeof r.song_data === 'string' ? JSON.parse(r.song_data) : r.song_data;
+                    if (sd && sd.audio_url) {
+                        if (sd.id) referencedSongIds.add(sd.id);
+                        if (sd.sourceId) referencedSongIds.add(sd.sourceId);
+                    }
+                } catch (e) {}
+            });
+        } catch (e) {}
+
+        // Combinaciones canción+coro+parte+día que sí tienen fila en vocal_audios
+        const referencedVocalCombos = new Set();
+        try {
+            const { data: vocalRows } = await supabaseClient.from('vocal_audios').select('source_song_id,coro_number,part,dia');
+            (vocalRows || []).forEach(v => {
+                referencedVocalCombos.add(v.source_song_id + '|' + v.coro_number + '|' + (v.part || 'a') + '|' + v.dia);
+            });
+        } catch (e) {}
+
+        const orphans = [];
+        objects.forEach(o => {
+            if (o.key.startsWith('songs/')) {
+                const songId = parseSongIdFromKey(o.key);
+                if (songId && !referencedSongIds.has(songId)) orphans.push({ obj: o, tipo: 'Canción', detalle: 'ID: ' + songId });
+            } else if (o.key.startsWith('vocal-audios/')) {
+                const parts = parseVocalKeyParts(o.key);
+                if (parts.sourceSongId && parts.coro && parts.dia) {
+                    const combo = parts.sourceSongId + '|' + parts.coro + '|' + (parts.part || 'a') + '|' + parts.dia;
+                    if (!referencedVocalCombos.has(combo)) orphans.push({ obj: o, tipo: 'Coro', detalle: 'Coro ' + parts.coro + (parts.part || 'a').toUpperCase() + ' · ' + parts.dia });
+                }
+            }
+        });
+
+        if (orphans.length === 0) {
+            c.innerHTML = '<div class="admin-empty">No se encontraron audios huérfanos 🎉</div>';
+            return;
+        }
+
+        c.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Tipo</th><th>Detalle</th><th>Tamaño</th><th>Acción</th></tr></thead><tbody>'
+            + orphans.map(({ obj, tipo, detalle }) => {
+                const sizeMBVal = ((obj.size || 0) / (1024 * 1024)).toFixed(2);
+                const keyEsc = obj.key.replace(/'/g, "\\'");
+                return '<tr>'
+                    + '<td style="font-size:.72rem">' + tipo + '</td>'
+                    + '<td style="font-size:.7rem;color:#a1a1aa">' + esc(detalle) + '</td>'
+                    + '<td style="font-size:.72rem">' + sizeMBVal + ' MB</td>'
+                    + '<td><button class="btn-danger-sm" onclick="adminDeleteOrphanedAudio(\'' + keyEsc + '\')">🗑️ Borrar</button></td>'
+                    + '</tr>';
+            }).join('')
+            + '</tbody></table></div>'
+            + '<div style="margin-top:8px;font-size:.65rem;color:#71717a;text-align:right">' + orphans.length + ' archivo(s) sin ninguna referencia — se puede borrar con seguridad</div>';
+    } catch (e) {
+        console.error('renderAdminOrphanedAudios error:', e);
+        c.innerHTML = '<div class="admin-empty">Error al buscar huérfanos.</div>';
+    }
+}
+
+async function adminDeleteOrphanedAudio(key) {
+    if (!isAdmin()) return;
+    if (!confirm('¿Eliminar este archivo huérfano de Storage? Ya se confirmó que ninguna canción, coro o repertorio lo usa.')) return;
+    try {
+        await fetch(getR2DeleteUrl(key), { method: 'DELETE' });
+        showNotification('Archivo huérfano eliminado', 'success');
+        logActivity('r2_file_deleted', { key: key, note: 'huérfano' }, 'storage', null);
+        r2Cache = null;
+        renderAdminOrphanedAudios(true);
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
+}
 
 async function loadR2StorageData(force) {
     if (r2Cache && !force && (Date.now() - r2CacheTime) < 60000) return r2Cache;
@@ -670,11 +879,24 @@ async function renderAdminStorage() {
                     onclick="storageFilter = 'vocal'; renderAdminStorageCategory('vocal')">🎤 Vocales</button>
             <button class="btn btn-zinc" onclick="loadR2StorageData(true); renderAdminStorage()">🔄 Refrescar</button>
         </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+            <select id="storage-format-filter" class="admin-search-input" style="flex:1;min-width:160px;margin-bottom:0" onchange="storageFormatFilter = this.value; renderAdminStorageCategory(storageFilter)">
+                <option value="all">Todos los formatos</option>
+                <option value="MP3">MP3 (recomendado convertir)</option>
+                <option value="AAC/MP4">AAC / MP4</option>
+                <option value="WAV">WAV</option>
+                <option value="OGG">OGG</option>
+                <option value="Desconocido">Sin detectar aún</option>
+            </select>
+            <button class="btn btn-zinc" onclick="detectAllVisibleFormats()">🔍 Detectar formatos</button>
+        </div>
         
         <div id="admin-storage-category" style="margin-top:8px"></div>
     `;
     
     renderAdminStorageCategory(storageFilter);
+    renderAdminOrphanedAudios(false);
 }
 
 async function renderAdminStorageCategory(category) {
@@ -708,6 +930,10 @@ async function renderAdminStorageCategory(category) {
     
     objects.sort((a, b) => (b.uploaded || 0) - (a.uploaded || 0));
     
+    if (storageFormatFilter !== 'all') {
+        objects = objects.filter(o => (audioFormatCache[o.key] || 'Desconocido') === storageFormatFilter);
+    }
+    
     if (objects.length === 0) {
         container.innerHTML = '<div class="admin-empty">No hay archivos en esta categoría.</div>';
         return;
@@ -728,6 +954,7 @@ async function renderAdminStorageCategory(category) {
             <table class="admin-table">
                 <thead><tr>
                     <th>Archivo</th>
+                    <th>Formato</th>
                     <th>Tamaño</th>
                     <th>Fecha de subida</th>
                     <th>Acciones</th>
@@ -770,6 +997,12 @@ async function renderAdminStorageCategory(category) {
                             + '</div>'
                         ) : '-';
                         
+                        const keyEscForFormat = o.key.replace(/'/g, "\\'");
+                        const detectedFormat = audioFormatCache[o.key];
+                        const formatCell = detectedFormat
+                            ? '<span style="font-size:.68rem;font-weight:600;' + (detectedFormat === 'MP3' ? 'color:#fbbf24' : 'color:#4ade80') + '">' + detectedFormat + '</span>'
+                            : '<button class="btn-outline-sm" onclick="detectAudioFormat(\'' + keyEscForFormat + '\').then(()=>renderAdminStorageCategory(storageFilter))">🔍</button>';
+
                         return `<tr>
                             <td>
                                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
@@ -778,6 +1011,7 @@ async function renderAdminStorageCategory(category) {
                                 </div>
                                 ${songId !== '—' ? `<div style="font-size:.6rem;color:#52525b;margin-top:2px">ID: ${songId}</div>` : ''}
                             </td>
+                            <td>${formatCell}</td>
                             <td style="font-size:.72rem;color:#a1a1aa">${sizeMB(o)} MB</td>
                             <td style="font-size:.7rem;color:#71717a">${formatDate(o.uploaded)}</td>
                             <td>${actionsHtml}</td>
@@ -1116,7 +1350,8 @@ async function renderAdminLogs() {
             notification_sent: '📣 Envió notificación',
             notification_deleted: '🗑️ Eliminó notificación',
             notification_reaction_added: '👍 Reaccionó a notificación',
-            notification_reaction_removed: '↩️ Quitó reacción'
+            notification_reaction_removed: '↩️ Quitó reacción',
+            user_deleted: '🗑️ Eliminó usuario'
         };
         
         const roleColors = {

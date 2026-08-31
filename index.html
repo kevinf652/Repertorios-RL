@@ -412,6 +412,7 @@
     <div class="admin-section-title">Usuarios</div>
     <input type="text" id="admin-usuarios-search" class="admin-search-input" placeholder="Buscar usuario..." oninput="renderAdminUsuarios()">
     <div id="admin-usuarios-content"></div>
+    <div id="admin-inactive-users-section"></div>
   </div>
 </div>
 
@@ -505,6 +506,17 @@
     <div class="admin-section-title">📦 Almacenamiento R2</div>
     <div class="admin-section-subtitle">Archivos de audio subidos al Cloudflare R2</div>
     <div id="admin-storage-content"></div>
+
+    <div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div>
+          <div class="admin-section-title" style="margin-bottom:2px">🧹 Audios huérfanos</div>
+          <div class="admin-section-subtitle">Archivos que ya no enlaza ninguna canción, coro o repertorio</div>
+        </div>
+        <button class="btn btn-zinc" onclick="renderAdminOrphanedAudios(true)">🔄 Buscar</button>
+      </div>
+      <div id="admin-orphaned-audios-content"></div>
+    </div>
   </div>
 </div>
 
@@ -547,6 +559,7 @@
         <option value="notification_deleted">Notificación eliminada</option>
         <option value="notification_reaction_added">Reacción agregada</option>
         <option value="notification_reaction_removed">Reacción quitada</option>
+        <option value="user_deleted">Usuario eliminado</option>
       </select>
       <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todos los roles</option>
