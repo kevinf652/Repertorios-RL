@@ -412,7 +412,6 @@
     <div class="admin-section-title">Usuarios</div>
     <input type="text" id="admin-usuarios-search" class="admin-search-input" placeholder="Buscar usuario..." oninput="renderAdminUsuarios()">
     <div id="admin-usuarios-content"></div>
-    <div id="admin-inactive-users-section"></div>
   </div>
 </div>
 
@@ -492,6 +491,22 @@
   </div>
 </div>
 
+<!-- PAGE: Admin Eliminar Usuarios -->
+<div id="page-admin-delete-users" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin-mantenimiento')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Mantenimiento</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">🗑️ Eliminar usuarios</div>
+    <div id="admin-delete-users-content"></div>
+  </div>
+</div>
+
 <!-- PAGE: Admin Almacenamiento -->
 <div id="page-admin-storage" class="page">
   <div class="header">
@@ -506,17 +521,6 @@
     <div class="admin-section-title">📦 Almacenamiento R2</div>
     <div class="admin-section-subtitle">Archivos de audio subidos al Cloudflare R2</div>
     <div id="admin-storage-content"></div>
-
-    <div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div>
-          <div class="admin-section-title" style="margin-bottom:2px">🧹 Audios huérfanos</div>
-          <div class="admin-section-subtitle">Archivos que ya no enlaza ninguna canción, coro o repertorio</div>
-        </div>
-        <button class="btn btn-zinc" onclick="renderAdminOrphanedAudios(true)">🔄 Buscar</button>
-      </div>
-      <div id="admin-orphaned-audios-content"></div>
-    </div>
   </div>
 </div>
 

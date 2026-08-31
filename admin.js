@@ -160,7 +160,7 @@ async function renderAdminUsuarios(force) {
             </table>
         </div>
     `;
-    renderAdminInactiveUsersSection();
+    // Sección de usuarios eliminados movida a Mantenimiento
 }
 
 function initAdminUsuariosPage() {
@@ -172,7 +172,7 @@ function initAdminUsuariosPage() {
 let inactiveUsersFilter = 'all';
 
 async function renderAdminInactiveUsersSection() {
-    const c = document.getElementById('admin-inactive-users-section');
+    const c = document.getElementById('admin-delete-users-content');
     if (!c) return;
     if (!isAdmin()) { c.innerHTML = ''; return }
 
@@ -530,9 +530,33 @@ function renderAdminRepertorios() {
     if (!c) return;
     if (!Array.isArray(repertorios) || repertorios.length === 0) { c.innerHTML = '<div class="admin-empty">No hay repertorios.</div>'; return }
     const sorted = repertorios.slice().sort((a, b) => (b.fecha_domingo || '').localeCompare(a.fecha_domingo || ''));
-    c.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Título</th><th>Fecha</th><th>Estado</th><th>Canciones</th></tr></thead><tbody>'
-        + sorted.map(r => '<tr class="admin-row-clickable" onclick="viewRepertorio(\'' + r.id + '\')"><td>' + esc(r.titulo || '') + '</td><td>' + fmtDate(r.fecha_domingo) + '</td><td>' + (r.estado === 'activo' ? '<span class="admin-badge-role admin">Activo</span>' : '<span class="admin-badge-role usuario">Archivado</span>') + '</td><td>' + (r.canciones ? r.canciones.length : 0) + '</td></tr>').join('')
-        + '</tbody></table></div>';
+    c.innerHTML = sorted.map(r => {
+        const sc = r.canciones ? r.canciones.length : 0;
+        const estadoBadge = r.estado === 'activo'
+            ? '<span class="admin-badge-role admin">Activo</span>'
+            : '<span class="admin-badge-role usuario">Archivado</span>';
+        const ambos = (r.canciones || []).filter(s => s.dia === 'ambos');
+        const dom = (r.canciones || []).filter(s => s.dia === 'domingo');
+        const lun = (r.canciones || []).filter(s => s.dia === 'lunes');
+        function songListHtml(songs, label) {
+            if (songs.length === 0) return '';
+            return '<div style="margin-top:6px">'
+                + '<div style="font-size:.65rem;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">' + label + '</div>'
+                + songs.map(s => '<div style="font-size:.72rem;color:#d4d4d8;padding:2px 0;border-bottom:1px solid rgba(63,63,70,.3)">' + esc(s.titulo || 'Sin título') + ' <span style="color:#71717a">—</span> ' + esc(s.artista || '') + '</div>').join('')
+                + '</div>';
+        }
+        const songLists = songListHtml(ambos, 'Ambos días') + songListHtml(dom, 'Domingo') + songListHtml(lun, 'Lunes');
+        return '<div style="background:rgba(39,39,42,.6);border:1px solid rgba(63,63,70,.4);border-radius:10px;padding:12px;margin-bottom:10px">'
+            + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:pointer" onclick="viewRepertorio(\'' + r.id + '\')">'
+            + '<div style="flex:1;min-width:0"><div style="font-weight:600;color:#fff;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(r.titulo || '') + '</div>'
+            + '<div style="font-size:.72rem;color:#a1a1aa">' + fmtDate(r.fecha_domingo) + '</div></div>'
+            + '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' + estadoBadge
+            + '<span style="font-size:.75rem;color:#a1a1aa">' + sc + ' canc.</span>'
+            + '<button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>'
+            + '</div></div>'
+            + (sc > 0 ? songLists : '<div style="font-size:.7rem;color:#52525b;font-style:italic;margin-top:6px">Sin canciones</div>')
+            + '</div>';
+    }).join('');
 }
 
 // ---------- Mantenimiento ----------
@@ -542,7 +566,7 @@ function renderAdminMantenimiento() {
     const totalUsers = adminUsersCache ? adminUsersCache.length : '-';
     const totalReps = Array.isArray(repertorios) ? repertorios.length : '-';
     c.innerHTML = '<div class="admin-stat-row">'
-        + '<div class="admin-stat-box"><div class="admin-stat-value">' + totalUsers + '</div><div class="admin-stat-label">Usuarios</div></div>'
+        + (isAdmin() ? '<div class="admin-stat-box" onclick="showPage(\'admin-delete-users\')" style="cursor:pointer"><div class="admin-stat-value">' + totalUsers + '</div><div class="admin-stat-label">Usuarios 🗑️</div></div>' : '<div class="admin-stat-box"><div class="admin-stat-value">' + totalUsers + '</div><div class="admin-stat-label">Usuarios</div></div>')
         + '<div class="admin-stat-box"><div class="admin-stat-value">' + totalReps + '</div><div class="admin-stat-label">Repertorios</div></div>'
         + '</div>'
         + '<div class="admin-card" style="align-items:flex-start;text-align:left;cursor:default">'
@@ -550,7 +574,19 @@ function renderAdminMantenimiento() {
         + '<div class="admin-card-subtitle" style="margin-bottom:10px">Busca canciones de repertorio con created_by/modified_by en NULL y trata de completarlos usando la biblioteca de origen (source_song_id).</div>'
         + '<button class="btn btn-amber" onclick="runAdminBackfillCreatedBy()">Ejecutar</button>'
         + '<div id="admin-backfill-result" style="margin-top:8px;font-size:.75rem;color:#a1a1aa"></div>'
+        + '</div>'
+        // === Sección: Audios huérfanos ===
+        + '<div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'
+        + '<div>'
+        + '<div class="admin-section-title" style="margin-bottom:2px">🧹 Audios huérfanos</div>'
+        + '<div class="admin-section-subtitle">Archivos en R2 que ya no enlaza ninguna canción, coro o repertorio</div>'
+        + '</div>'
+        + '<button class="btn btn-zinc" onclick="renderAdminOrphanedAudios(true)">🔄 Buscar</button>'
+        + '</div>'
+        + '<div id="admin-mantenimiento-orphaned-audios"></div>'
         + '</div>';
+    renderAdminOrphanedAudios(false);
 }
 
 async function runAdminBackfillCreatedBy() {
@@ -597,28 +633,45 @@ let audioFormatCache = {};
 // (la extensión del nombre no siempre es confiable — ver historial de este proyecto)
 async function detectAudioFormat(key) {
     if (audioFormatCache[key]) return audioFormatCache[key];
+    // 1. Intentar detectar por magic bytes (Range request)
     try {
         const url = R2_WORKER_URL + '/file/' + encodeURIComponent(key);
         const res = await fetch(url, { headers: { 'Range': 'bytes=0-15' } });
-        const buf = await res.arrayBuffer();
-        const b = new Uint8Array(buf);
-        let format = 'Desconocido';
-        if (b.length >= 8 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) {
-            format = 'AAC/MP4'; // 'ftyp' en el byte 4
-        } else if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
-            format = 'MP3'; // ID3 tag
-        } else if (b[0] === 0xFF && (b[1] & 0xE0) === 0xE0) {
-            format = 'MP3'; // sync frame MPEG sin ID3
-        } else if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) {
-            format = 'WAV';
-        } else if (b[0] === 0x4F && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53) {
-            format = 'OGG';
+        if (res.ok || res.status === 206) {
+            const buf = await res.arrayBuffer();
+            const b = new Uint8Array(buf);
+            let format = null;
+            if (b.length >= 8 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) {
+                format = 'AAC/MP4'; // 'ftyp' en el byte 4
+            } else if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
+                format = 'MP3'; // ID3 tag
+            } else if (b[0] === 0xFF && (b[1] & 0xE0) === 0xE0) {
+                format = 'MP3'; // sync frame MPEG sin ID3
+            } else if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) {
+                format = 'WAV';
+            } else if (b[0] === 0x4F && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53) {
+                format = 'OGG';
+            }
+            if (format) {
+                audioFormatCache[key] = format;
+                return format;
+            }
         }
-        audioFormatCache[key] = format;
-        return format;
     } catch (e) {
-        return '—';
+        // Range request falló, continuar con fallback
     }
+    // 2. Fallback: detectar por extensión del archivo
+    const ext = (key.split('.').pop() || '').toLowerCase();
+    const extMap = {
+        'mp3': 'MP3', 'mp2': 'MP3', 'mp1': 'MP3',
+        'm4a': 'AAC/MP4', 'aac': 'AAC/MP4', 'mp4': 'AAC/MP4', 'm4b': 'AAC/MP4', 'm4p': 'AAC/MP4',
+        'ogg': 'OGG', 'oga': 'OGG', 'opus': 'OGG',
+        'wav': 'WAV', 'wave': 'WAV', 'wv': 'WAV',
+        'flac': 'FLAC', 'webm': 'WebM'
+    };
+    const format = extMap[ext] || 'Desconocido';
+    audioFormatCache[key] = format;
+    return format;
 }
 
 async function detectAllVisibleFormats() {
@@ -630,7 +683,7 @@ async function detectAllVisibleFormats() {
 
 // ---------- Audios huérfanos (sin ninguna referencia en la base de datos) ----------
 async function renderAdminOrphanedAudios(force) {
-    const c = document.getElementById('admin-orphaned-audios-content');
+    const c = document.getElementById('admin-mantenimiento-orphaned-audios');
     if (!c) return;
     if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
     c.innerHTML = '<div class="admin-empty">Buscando huérfanos...</div>';
@@ -640,24 +693,38 @@ async function renderAdminOrphanedAudios(force) {
         const data = await loadR2StorageData(force);
         const objects = (data && data.objects) || [];
 
-        // IDs de canción con audio_url realmente asignado (repertorio + biblioteca de cada usuario)
+        // IDs de canción que existen en la base de datos (con o sin audio_url)
+        // Un archivo R2 NO es huérfano si la canción existe en cualquier tabla
         const referencedSongIds = new Set();
+
+        // 1. Canciones del usuario local (array global songs)
+        if (typeof songs !== 'undefined' && Array.isArray(songs)) {
+            songs.forEach(s => {
+                if (s.id) referencedSongIds.add(s.id);
+                if (s.sourceId) referencedSongIds.add(s.sourceId);
+            });
+        }
+
+        // 2. Tabla canciones_repertorio
         try {
-            const { data: repRows } = await supabaseClient.from('canciones_repertorio').select('source_song_id,audio_url');
-            (repRows || []).forEach(r => { if (r.source_song_id && r.audio_url) referencedSongIds.add(r.source_song_id) });
+            const { data: repRows } = await supabaseClient.from('canciones_repertorio').select('source_song_id');
+            (repRows || []).forEach(r => { if (r.source_song_id) referencedSongIds.add(r.source_song_id) });
         } catch (e) {}
+        // 3. Tabla user_songs (song_data JSON)
         try {
             const { data: userSongsRows } = await supabaseClient.from('user_songs').select('song_data');
             (userSongsRows || []).forEach(r => {
                 try {
                     const sd = typeof r.song_data === 'string' ? JSON.parse(r.song_data) : r.song_data;
-                    if (sd && sd.audio_url) {
+                    if (sd) {
                         if (sd.id) referencedSongIds.add(sd.id);
                         if (sd.sourceId) referencedSongIds.add(sd.sourceId);
                     }
                 } catch (e) {}
             });
         } catch (e) {}
+
+        console.log('[OrphanDetector] referencedSongIds:', Array.from(referencedSongIds));
 
         // Combinaciones canción+coro+parte+día que sí tienen fila en vocal_audios
         const referencedVocalCombos = new Set();
@@ -669,18 +736,27 @@ async function renderAdminOrphanedAudios(force) {
         } catch (e) {}
 
         const orphans = [];
+        const r2SongIds = [];
         objects.forEach(o => {
             if (o.key.startsWith('songs/')) {
                 const songId = parseSongIdFromKey(o.key);
+                r2SongIds.push(songId);
                 if (songId && !referencedSongIds.has(songId)) orphans.push({ obj: o, tipo: 'Canción', detalle: 'ID: ' + songId });
             } else if (o.key.startsWith('vocal-audios/')) {
                 const parts = parseVocalKeyParts(o.key);
                 if (parts.sourceSongId && parts.coro && parts.dia) {
                     const combo = parts.sourceSongId + '|' + parts.coro + '|' + (parts.part || 'a') + '|' + parts.dia;
                     if (!referencedVocalCombos.has(combo)) orphans.push({ obj: o, tipo: 'Coro', detalle: 'Coro ' + parts.coro + (parts.part || 'a').toUpperCase() + ' · ' + parts.dia });
+                } else {
+                    // No se pudo parsear el nombre → no está asignado a ninguna canción → huérfano
+                    const filename = o.key.split('/').pop() || o.key;
+                    orphans.push({ obj: o, tipo: 'Vocal', detalle: filename });
                 }
             }
         });
+
+        console.log('[OrphanDetector] R2 songIds:', r2SongIds);
+        console.log('[OrphanDetector] Orphans found:', orphans.length);
 
         if (orphans.length === 0) {
             c.innerHTML = '<div class="admin-empty">No se encontraron audios huérfanos 🎉</div>';
@@ -710,8 +786,11 @@ async function adminDeleteOrphanedAudio(key) {
     if (!isAdmin()) return;
     if (!confirm('¿Eliminar este archivo huérfano de Storage? Ya se confirmó que ninguna canción, coro o repertorio lo usa.')) return;
     try {
-        await fetch(getR2DeleteUrl(key), { method: 'DELETE' });
-        showNotification('Archivo huérfano eliminado', 'success');
+        const deleteUrl = getR2DeleteUrl(key);
+        console.log('[OrphanDelete] Deleting:', key, '→ URL:', deleteUrl);
+        const response = await fetch(deleteUrl, { method: 'DELETE' });
+        console.log('[OrphanDelete] Response:', response.status, response.ok);
+        showNotification('Solicitud de eliminación enviada. Refresca para verificar.', 'success');
         logActivity('r2_file_deleted', { key: key, note: 'huérfano' }, 'storage', null);
         r2Cache = null;
         renderAdminOrphanedAudios(true);
@@ -896,7 +975,6 @@ async function renderAdminStorage() {
     `;
     
     renderAdminStorageCategory(storageFilter);
-    renderAdminOrphanedAudios(false);
 }
 
 async function renderAdminStorageCategory(category) {
@@ -1028,8 +1106,25 @@ async function renderAdminStorageCategory(category) {
 
 // ---------- Borrar / reemplazar audio desde Almacenamiento R2 ----------
 function parseVocalKeyParts(key) {
-    const songIdMatch = key.match(/([a-z0-9]+)_coro/i);
-    const coroMatch = key.match(/coro(\d+)(?:_([ab]))?_(domingo|lunes)/i);
+    // El R2 worker agrega un timestamp al inicio: "1787187389145-songId_coro2_lunes.mp3"
+    // Necesitamos extraer solo la parte del songId (después del guión que separa el timestamp)
+    const filename = key.split('/').pop() || '';
+    const withoutExt = filename.replace(/\.[^/.]+$/, '');
+
+    // Buscar el patrón timestamp-songId_coro...
+    const match = withoutExt.match(/^(\d+)-(.+?)_coro(\d+)(?:_([ab]))?_(domingo|lunes)$/i);
+    if (match) {
+        return {
+            sourceSongId: match[2],
+            coro: parseInt(match[3], 10),
+            part: match[4] || 'a',
+            dia: match[5]
+        };
+    }
+
+    // Fallback: formato sin timestamp (legacy)
+    const songIdMatch = withoutExt.match(/^(.+?)_coro/i);
+    const coroMatch = withoutExt.match(/coro(\d+)(?:_([ab]))?_(domingo|lunes)/i);
     return {
         sourceSongId: songIdMatch ? songIdMatch[1] : null,
         coro: coroMatch ? parseInt(coroMatch[1], 10) : null,
@@ -1040,7 +1135,18 @@ function parseVocalKeyParts(key) {
 
 function parseSongIdFromKey(key) {
     const filename = key.split('/').pop() || '';
-    return filename.replace(/\.[^/.]+$/, '');
+    const withoutExt = filename.replace(/\.[^/.]+$/, '');
+    // El R2 worker agrega un timestamp al inicio: "1787062021193-songId.mp3"
+    // Necesitamos extraer solo la parte del songId después del guión
+    const dashIndex = withoutExt.indexOf('-');
+    if (dashIndex !== -1) {
+        const possibleTimestamp = withoutExt.substring(0, dashIndex);
+        // Si la parte antes del guión es solo números (timestamp), quitarla
+        if (/^\d+$/.test(possibleTimestamp)) {
+            return withoutExt.substring(dashIndex + 1);
+        }
+    }
+    return withoutExt;
 }
 
 async function adminDeleteStorageAudio(key) {
@@ -1242,6 +1348,7 @@ if (typeof showPage === 'function') {
         if (name === 'admin-duplicados') { renderAdminDuplicados(); renderAdminR2Duplicates(); }
         if (name === 'admin-repertorios') renderAdminRepertorios();
         if (name === 'admin-mantenimiento') renderAdminMantenimiento();
+        if (name === 'admin-delete-users') { loadAdminUsersData(true).then(() => renderAdminInactiveUsersSection()); }
         if (name === 'admin-storage') renderAdminStorage();
 	if (name === 'admin-logs') { logsPage = 0; renderAdminLogs(); }
     };
@@ -1396,7 +1503,7 @@ async function renderAdminLogs() {
                                 if (d.newRole) parts.push('➡️ ' + d.newRole);
                                 if (d.targetUser) parts.push('👤 @' + d.targetUser);
                                 if (d.repertorio) parts.push('📁 ' + d.repertorio);
-                                if (d.type === 'vocal') parts.push('🎤 Vocal');
+                                 if (d.type === 'vocal') parts.push('🎤 Vocal');
                                 if (d.type === 'song') parts.push('🎵 Canción');
                                 if (d.fileSize) parts.push('📦 ' + (d.fileSize / 1024 / 1024).toFixed(2) + ' MB');
                                 if (d.mode === 'add') parts.push('➕ Nueva');
