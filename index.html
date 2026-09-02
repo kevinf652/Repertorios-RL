@@ -564,6 +564,9 @@
         <option value="notification_reaction_added">Reacción agregada</option>
         <option value="notification_reaction_removed">Reacción quitada</option>
         <option value="user_deleted">Usuario eliminado</option>
+        <option value="help_video_added">Video de ayuda agregado</option>
+        <option value="help_video_updated">Video de ayuda editado</option>
+        <option value="help_video_deleted">Video de ayuda eliminado</option>
       </select>
       <select id="log-filter-role" class="admin-search-input" style="flex:1;min-width:120px;margin-bottom:0" onchange="logsPage = 0; renderAdminLogs()">
         <option value="">Todos los roles</option>
@@ -698,6 +701,92 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
         Guardar mis datos
       </button>
+    </form>
+  </div>
+</div>
+
+<!-- PAGE: Ayuda (todos los usuarios; agregar/borrar video solo Admin) -->
+<div id="page-ayuda" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('library')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Volver</span>
+      </button>
+      <button class="btn btn-amber" id="ayuda-add-btn" style="display:none" onclick="showAddHelpVideoModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span class="hide-mobile">Agregar video</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">🎬 Ayuda</div>
+    <div class="admin-section-subtitle">Videos explicativos sobre cómo usar la app</div>
+    <div id="ayuda-content"></div>
+  </div>
+</div>
+
+<!-- Modal: Agregar video de ayuda (solo Admin) -->
+<div id="add-help-video-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">Nuevo video de ayuda</div>
+    <div class="auth-subtitle">Se sube directo al almacenamiento (R2)</div>
+    <div id="add-help-video-error" class="auth-error"></div>
+    <form onsubmit="saveHelpVideo(event)">
+      <div class="form-group">
+        <label class="label">Título</label>
+        <input type="text" id="add-help-video-title" class="input" placeholder="Ej: Cómo crear un repertorio" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Descripción breve</label>
+        <textarea id="add-help-video-desc" class="input textarea" placeholder="Explica brevemente de qué trata" style="min-height:70px"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="label">Video</label>
+        <input type="file" id="add-help-video-file" class="input" accept="video/*" required>
+      </div>
+      <div id="add-help-video-progress" style="display:none;font-size:.7rem;color:#a1a1aa;margin-bottom:10px">⏳ Subiendo video, no cierres esta ventana...</div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-zinc" onclick="closeAddHelpVideoModal()" style="flex:1;justify-content:center">Cancelar</button>
+        <button type="submit" class="btn btn-amber" id="add-help-video-submit-btn" style="flex:1;justify-content:center">Subir</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Ver / eliminar video de ayuda -->
+<div id="view-help-video-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title" id="view-help-video-title">-</div>
+    <video id="view-help-video-player" controls playsinline style="width:100%;border-radius:8px;margin:12px 0;background:#000"></video>
+    <p style="font-size:.85rem;color:#d4d4d8;white-space:pre-wrap;margin-bottom:14px" id="view-help-video-desc"></p>
+    <div style="display:flex;gap:8px">
+      <button type="button" class="btn btn-zinc" onclick="closeViewHelpVideoModal()" style="flex:1;justify-content:center">Cerrar</button>
+      <button type="button" class="btn" id="view-help-video-edit-btn" onclick="showEditHelpVideoModal()" style="flex:1;justify-content:center;background:rgba(245,158,11,.15);color:#fbbf24">✏️ Editar</button>
+      <button type="button" class="btn" id="view-help-video-delete-btn" onclick="deleteHelpVideo()" style="flex:1;justify-content:center;background:rgba(239,68,68,.15);color:#f87171">🗑️ Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Editar título/descripción de video de ayuda (solo Admin) -->
+<div id="edit-help-video-modal" class="auth-modal">
+  <div class="auth-card">
+    <div class="auth-title">Editar video de ayuda</div>
+    <div class="auth-subtitle">El archivo de video no cambia, solo el texto</div>
+    <div id="edit-help-video-error" class="auth-error"></div>
+    <form onsubmit="saveEditHelpVideo(event)">
+      <div class="form-group">
+        <label class="label">Título</label>
+        <input type="text" id="edit-help-video-title" class="input" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Descripción breve</label>
+        <textarea id="edit-help-video-desc" class="input textarea" style="min-height:70px"></textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-zinc" onclick="closeEditHelpVideoModal()" style="flex:1;justify-content:center">Cancelar</button>
+        <button type="submit" class="btn btn-amber" style="flex:1;justify-content:center">Guardar</button>
+      </div>
     </form>
   </div>
 </div>
@@ -900,6 +989,12 @@
       Enviar notificación
     </button>
   </div>
+  <div id="propose-activity-btn-wrap" style="display:none;margin-bottom:12px">
+    <button class="btn btn-zinc" style="width:100%;justify-content:center" onclick="closeNotificationsPanel(); showAddActivityModal();">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+      Proponer actividad
+    </button>
+  </div>
   <div id="notifications-list" style="flex:1;overflow-y:auto"></div>
 </div>
 
@@ -982,9 +1077,12 @@
 <link rel="stylesheet" href="./admin.css">
 <link rel="stylesheet" href="./social.css">
 <link rel="stylesheet" href="./notifications.css">
+<link rel="stylesheet" href="./help.css">
 <script src="./app.js"></script>
 <script src="./admin.js"></script>
 <script src="./social.js"></script>
+<script src="./help.js"></script>
 <script src="./notifications.js"></script>
+<script src="./guest-lock.js"></script>
 </body>
 </html>

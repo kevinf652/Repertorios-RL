@@ -266,6 +266,8 @@ async function renderNotificationsPanel() {
     list.innerHTML = '<div class="admin-empty">Cargando...</div>';
     await refreshCanSendNotifications();
     if (sendBtnWrap) sendBtnWrap.style.display = canSendNotifications() ? '' : 'none';
+    const proposeBtnWrap = document.getElementById('propose-activity-btn-wrap');
+    if (proposeBtnWrap) proposeBtnWrap.style.display = currentUser ? '' : 'none';
 
     const birthdays = await getBirthdayVirtualNotifications();
     const welcome = getLocalWelcomeNotification();

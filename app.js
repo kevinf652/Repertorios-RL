@@ -710,6 +710,7 @@ async function loadSongsFromCloud() {
 
 // ============= REALTIME SUBSCRIPTIONS =============
 let _userSongsChannelActive = false;
+let _userRoleChannelActive = false;
 function setupRealtimeSubscriptions() {
     if (!supabaseReady || !supabaseClient) return;
     console.log('Setting up Supabase Realtime subscriptions...');
@@ -763,6 +764,31 @@ function setupRealtimeSubscriptions() {
             .subscribe();
     }
 
+    // Para que un cambio de rol hecho por Admin se aplique sin que el usuario
+    // tenga que cerrar sesión: se escucha en vivo su propia fila en admin_users.
+    if (currentUser && currentUser.id && !_userRoleChannelActive) {
+        _userRoleChannelActive = true;
+        supabaseClient.channel('user-role-changes')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'admin_users', filter: 'id=eq.' + currentUser.id }, function(payload) {
+                const newRole = payload.new && payload.new.role;
+                if (!newRole || newRole === userRole) return;
+                console.log('Realtime role change:', userRole, '->', newRole);
+                userRole = newRole;
+                currentUser.role = newRole;
+                repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
+                localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
+                updateUserUI();
+                showNotification('Tu rol fue actualizado', 'success');
+                // Refresca la página visible por si cambian los botones/permisos en ella
+                const activeId = (document.querySelector('.page.active') || {}).id;
+                if (activeId === 'page-library') renderLibrary();
+                else if (activeId === 'page-repertorios') renderRepertorios();
+                else if (activeId === 'page-repertorio') renderRepertorioView();
+                else if (activeId === 'page-rep-song') renderRepSongView();
+            })
+            .subscribe();
+    }
+
     console.log('Realtime subscriptions active');
 }
 
@@ -777,6 +803,29 @@ function canEditRepSongs() { return isAdmin() || isDMusicos() || isSubAdmin() }
 function canEditVocals() { return isAdmin() || isDVoces() || isSubAdmin() }
 function canUploadAudio() { return isAdmin() || isSubAdmin() }
 function canManageReps() { return isAdmin() || isSubAdmin() }
+
+// Verificación puntual (una sola vez por carga) del rol real en la base de datos,
+// para que un cambio de rol se refleje al recargar la app sin tener que cerrar sesión.
+async function verifyCurrentUserRole() {
+    if (!currentUser || !currentUser.id || !supabaseReady) return;
+    try {
+        const { data, error } = await supabaseClient.from('admin_users').select('role').eq('id', currentUser.id).single();
+        if (error || !data) return;
+        const freshRole = data.role || 'usuario';
+        if (freshRole === userRole) return;
+        console.log('Rol actualizado al cargar la app:', userRole, '->', freshRole);
+        userRole = freshRole;
+        currentUser.role = freshRole;
+        repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
+        localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
+        updateUserUI();
+        const activeId = (document.querySelector('.page.active') || {}).id;
+        if (activeId === 'page-library') renderLibrary();
+        else if (activeId === 'page-repertorios') renderRepertorios();
+        else if (activeId === 'page-repertorio') renderRepertorioView();
+        else if (activeId === 'page-rep-song') renderRepSongView();
+    } catch (e) { console.error('verifyCurrentUserRole error:', e) }
+}
 
 function initAuth() {
     const saved = localStorage.getItem('rl_current_user');
@@ -802,6 +851,9 @@ function initAuth() {
                 }).catch(() => {
                     updateLastAccess();
                 });
+                // Una sola consulta puntual (no repetida) para saber si el rol cambió mientras
+                // no se tenía la app abierta — así no hace falta cerrar sesión para verlo.
+                verifyCurrentUserRole();
             }
         } catch (e) { 
             console.error('Error en initAuth:', e);
@@ -2845,8 +2897,20 @@ function importListData(d) {
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-function fmtDate(ds) { const d = new Date(ds + 'T12:00:00'); return DAY_NAMES[d.getDay()] + ' ' + d.getDate() + '/' + MONTH_NAMES[d.getMonth()] }
+const DAY_NAMES_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function fmtDate(ds) { const d = new Date(ds + 'T12:00:00'); return DAY_NAMES_SHORT[d.getDay()] + ' ' + d.getDate() + '/' + MONTH_NAMES[d.getMonth()].slice(0, 3) }
 function fmtShortDate(ds) { const d = new Date(ds + 'T12:00:00'); return d.getDate() + ' ' + MONTH_NAMES[d.getMonth()].slice(0, 3) }
+
+// Quita lo que esté entre paréntesis en un nombre (ej: "Kevin (2da voz)" -> "Kevin"),
+// para que el resumen de "quiénes cantan" no arrastre anotaciones sueltas.
+function cleanSingerName(name) {
+    if (!name) return '';
+    let n = String(name).replace(/\([^)]*\)/g, '');
+    const slashIdx = n.indexOf('/');
+    if (slashIdx !== -1) n = n.slice(0, slashIdx);
+    return n.trim();
+}
 
 async function createRepertorio() {
     if (!repAdmin || !supabaseReady) return;
@@ -3053,7 +3117,34 @@ function renderRepertorios() {
             const lunVoices = songsLun.filter(sng => (sng.vocalista_lunes || sng.vocalista_domingo)).length;
             const isNext = idx === 0;
             const vocesMeta = sc > 0 ? '<span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Domingo: ' + domVoices + ' · Lunes: ' + lunVoices + '</span>' : '';
-            return '<div class="rep-card' + (isNext ? ' rep-card-next' : '') + '" onclick="viewRepertorio(\'' + r.id + '\')">' + (isNext ? '<span class="rep-card-badge">Actual</span>' : '') + '<div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ' + fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes) + '</div><div class="rep-card-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + sc + ' canciones</span>' + vocesMeta + '</div>' + (sc === 0 ? '<p style="font-size:.7rem;color:#71717a;margin-top:6px;font-style:italic">Aún sin canciones asignadas</p>' : '') + '</div>' + (canManageReps() ? '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn-icon" onclick="event.stopPropagation();addSongToRepertorio(\'' + r.id + '\')" title="Agregar canción" style="color:#f59e0b"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepertorio(\'' + r.id + '\')" title="Eliminar" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div>' : '') + '</div></div>';
+
+            // Resumen rápido, SOLO en la tarjeta "Actual": quién dirige, cuántas canciones y
+            // quiénes cantan cada día (nombres sin repetir, sin lo que esté entre paréntesis
+            // y cortando en la primera "/"). El resto de tarjetas se queda igual que antes.
+            let summaryHtml = '';
+            if (isNext) {
+                const namesForDay = (daySongs, day) => {
+                    const names = new Set();
+                    daySongs.forEach(sng => {
+                        const lead = day === 'domingo' ? sng.vocalista_domingo : (sng.vocalista_lunes || sng.vocalista_domingo);
+                        const coros = day === 'domingo' ? (sng.coros_domingo || []) : (sng.coros_lunes || sng.coros_domingo || []);
+                        [lead, ...(Array.isArray(coros) ? coros : [])].forEach(n => { const clean = cleanSingerName(n); if (clean) names.add(clean) });
+                    });
+                    return Array.from(names);
+                };
+                const dayBlock = (label, emoji, color, dayKey, daySongs, dirigeName, isLast) => {
+                    const dirigeTxt = dirigeName ? esc(dirigeName) : 'sin asignar';
+                    const names = namesForDay(daySongs, dayKey);
+                    const vocesTxt = names.length ? (names.length + ' voces: ' + names.map(esc).join(', ')) : 'voces: sin asignar';
+                    return '<div style="color:' + color + ';font-weight:600;margin-bottom:1px">' + emoji + ' ' + label + '</div>'
+                        + '<div style="color:#d4d4d8;margin-bottom:' + (isLast ? '0' : '8px') + '">Dirige: ' + dirigeTxt + ' • ' + daySongs.length + ' canciones • ' + vocesTxt + '</div>';
+                };
+                summaryHtml = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(63,63,70,.4);font-size:.75rem;line-height:1.5">'
+                    + dayBlock('Domingo', '🌞', '#60a5fa', 'domingo', songsDom, r.dirige_domingo, false)
+                    + dayBlock('Lunes', '🌙', '#c084fc', 'lunes', songsLun, r.dirige_lunes, true)
+                    + '</div>';
+            }
+            return '<div class="rep-card' + (isNext ? ' rep-card-next' : '') + '" onclick="viewRepertorio(\'' + r.id + '\')">' + (isNext ? '<span class="rep-card-badge">Actual</span>' : '') + '<div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ' + fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes) + '</div>' + (isNext ? '' : ('<div class="rep-card-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + sc + ' canciones</span>' + vocesMeta + '</div>' + (sc === 0 ? '<p style="font-size:.7rem;color:#71717a;margin-top:6px;font-style:italic">Aún sin canciones asignadas</p>' : ''))) + summaryHtml + '</div>' + (canManageReps() ? '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn-icon" onclick="event.stopPropagation();addSongToRepertorio(\'' + r.id + '\')" title="Agregar canción" style="color:#f59e0b"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepertorio(\'' + r.id + '\')" title="Eliminar" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div>' : '') + '</div></div>';
         }).join('');
     } else {
         const uniqueYears = [...new Set(archived.map(r => r.año))].sort((a, b) => b - a);
@@ -3320,7 +3411,7 @@ function renderRepSongView() {
     const ntBtn = document.getElementById('notation-toggle');
     if (ntBtn) ntBtn.innerHTML = useFlats ? '♭' : '#';
 
-    const dayName = repDay === 'domingo' ? 'Domingo' : 'Lunes';
+    const dayName = fmtDate(repDay === 'domingo' ? r.fecha_domingo : r.fecha_lunes);
     const dayColor = repDay === 'domingo' ? '#60a5fa' : '#c084fc';
     const dayEmoji = repDay === 'domingo' ? '🌞' : '🌙';
 

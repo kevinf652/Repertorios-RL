@@ -60,6 +60,7 @@ async function renderAdminSummary() {
                     rep_song_removed: 'quitó una canción de un repertorio', user_role_changed: 'cambió el rol de un usuario',
                     password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento',
                     activity_created: 'propuso una actividad', activity_deleted: 'eliminó una actividad', social_profile_updated: 'actualizó sus datos',
+                    help_video_added: 'agregó un video de ayuda', help_video_deleted: 'eliminó un video de ayuda', help_video_updated: 'editó un video de ayuda',
                     r2_file_deleted: 'limpió un duplicado de Storage'
                 };
                 const when = new Date(recent[0].created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -926,15 +927,19 @@ async function renderAdminStorage() {
     
     const songs = objects.filter(o => o.key.startsWith('songs/'));
     const vocalAudios = objects.filter(o => o.key.startsWith('vocal-audios/'));
+    const helpVideos = objects.filter(o => o.key.startsWith('help_videos/'));
     const songsBytes = songs.reduce((sum, o) => sum + (o.size || 0), 0);
     const vocalBytes = vocalAudios.reduce((sum, o) => sum + (o.size || 0), 0);
+    const helpBytes = helpVideos.reduce((sum, o) => sum + (o.size || 0), 0);
     const songsMB = (songsBytes / (1024 * 1024)).toFixed(2);
     const vocalMB = (vocalBytes / (1024 * 1024)).toFixed(2);
+    const helpMB = (helpBytes / (1024 * 1024)).toFixed(2);
     
     c.innerHTML = `
         <div class="admin-stat-row">
             <div class="admin-stat-box"><div class="admin-stat-value">${songsMB} MB</div><div class="admin-stat-label">🎵 Canciones</div></div>
             <div class="admin-stat-box"><div class="admin-stat-value">${vocalMB} MB</div><div class="admin-stat-label">🎤 Audios vocales</div></div>
+            <div class="admin-stat-box"><div class="admin-stat-value">${helpMB} MB</div><div class="admin-stat-label">🎬 Videos de ayuda</div></div>
             <div class="admin-stat-box"><div class="admin-stat-value">${data.count}</div><div class="admin-stat-label">Archivos totales</div></div>
             <div class="admin-stat-box">
                 <div class="admin-stat-value">${totalGB} GB</div>
@@ -956,6 +961,8 @@ async function renderAdminStorage() {
                     onclick="storageFilter = 'songs'; renderAdminStorageCategory('songs')">🎵 Canciones</button>
             <button class="btn ${storageFilter === 'vocal' ? 'btn-amber' : 'btn-zinc'}" 
                     onclick="storageFilter = 'vocal'; renderAdminStorageCategory('vocal')">🎤 Vocales</button>
+            <button class="btn ${storageFilter === 'help' ? 'btn-amber' : 'btn-zinc'}" 
+                    onclick="storageFilter = 'help'; renderAdminStorageCategory('help')">🎬 Ayuda</button>
             <button class="btn btn-zinc" onclick="loadR2StorageData(true); renderAdminStorage()">🔄 Refrescar</button>
         </div>
 
@@ -990,6 +997,7 @@ async function renderAdminStorageCategory(category) {
     let objects = data.objects || [];
     if (category === 'songs') objects = objects.filter(o => o.key.startsWith('songs/'));
     else if (category === 'vocal') objects = objects.filter(o => o.key.startsWith('vocal-audios/'));
+    else if (category === 'help') objects = objects.filter(o => o.key.startsWith('help_videos/'));
     
     const searchTerm = storageSearch || '';
     if (searchTerm) {
@@ -1062,13 +1070,16 @@ async function renderAdminStorageCategory(category) {
                         
                         const isVocal = o.key.includes('vocal-audios');
                         const isSong = o.key.includes('songs/');
+                        const isHelp = o.key.startsWith('help_videos/');
+                        if (isHelp) displayName = '🎬 Video de ayuda - ' + (o.key.split('/').pop() || o.key);
                         let badge = '';
                         if (isVocal) badge = '<span style="background:rgba(192,132,252,.2);color:#c084fc;font-size:.6rem;padding:1px 6px;border-radius:4px;margin-right:4px">VOCAL</span>';
                         else if (isSong) badge = '<span style="background:rgba(96,165,250,.2);color:#60a5fa;font-size:.6rem;padding:1px 6px;border-radius:4px;margin-right:4px">CANCIÓN</span>';
+                        else if (isHelp) badge = '<span style="background:rgba(245,158,11,.2);color:#fbbf24;font-size:.6rem;padding:1px 6px;border-radius:4px;margin-right:4px">AYUDA</span>';
                         else badge = '<span style="background:rgba(161,161,170,.15);color:#a1a1aa;font-size:.6rem;padding:1px 6px;border-radius:4px;margin-right:4px">OTRO</span>';
                         
                         const keyEsc = o.key.replace(/'/g, "\\'");
-                        const actionsHtml = (isVocal || isSong) ? (
+                        const actionsHtml = isHelp ? '<span style="font-size:.65rem;color:#71717a">Gestionar desde Ayuda</span>' : (isVocal || isSong) ? (
                             '<div style="display:flex;gap:6px;flex-wrap:wrap">'
                             + '<button class="btn-outline-sm" onclick="triggerAdminStorageReplace(\'' + keyEsc + '\')">🔄 Reemplazar</button>'
                             + '<button class="btn-danger-sm" onclick="adminDeleteStorageAudio(\'' + keyEsc + '\')">🗑️ Borrar</button>'
@@ -1458,7 +1469,10 @@ async function renderAdminLogs() {
             notification_deleted: '🗑️ Eliminó notificación',
             notification_reaction_added: '👍 Reaccionó a notificación',
             notification_reaction_removed: '↩️ Quitó reacción',
-            user_deleted: '🗑️ Eliminó usuario'
+            user_deleted: '🗑️ Eliminó usuario',
+            help_video_added: '🎬 Agregó video de ayuda',
+            help_video_updated: '✏️ Editó video de ayuda',
+            help_video_deleted: '🗑️ Eliminó video de ayuda'
         };
         
         const roleColors = {

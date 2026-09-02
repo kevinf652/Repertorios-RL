@@ -206,7 +206,7 @@ async function markActivitiesAsSeen() {
 }
 
 function showAddActivityModal() {
-    if (!canAccessSocial()) return;
+    if (!currentUser) return;
     document.getElementById('add-activity-title').value = '';
     document.getElementById('add-activity-fecha').value = '';
     document.getElementById('add-activity-desc').value = '';
@@ -218,7 +218,7 @@ function closeAddActivityModal() {
 
 async function saveActivity(e) {
     if (e) e.preventDefault();
-    if (!canAccessSocial() || !supabaseReady) return;
+    if (!currentUser || !supabaseReady) return;
     const titulo = document.getElementById('add-activity-title').value.trim();
     const fecha = document.getElementById('add-activity-fecha').value;
     const descripcion = document.getElementById('add-activity-desc').value.trim();
@@ -238,7 +238,8 @@ async function saveActivity(e) {
         if (error) throw error;
         closeAddActivityModal();
         renderSocialActividades(true);
-        showNotification('Actividad agregada', 'success');
+        // Quien no es del equipo Social solo recibe la confirmación; no ve el listado de Actividades.
+        showNotification(canAccessSocial() ? 'Actividad agregada' : '¡Gracias! Tu propuesta fue enviada al equipo Social', 'success');
         logActivity('activity_created', { titulo: titulo, fecha: fecha }, 'social_activity', id);
     } catch (err) {
         alert('Error al guardar: ' + err.message);
