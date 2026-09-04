@@ -99,7 +99,7 @@ async function saveHelpVideo(e) {
         const formData = new FormData();
         formData.append('file', file, filename);
         formData.append('folder', 'help_videos');
-        const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+        const uploadRes = await r2Fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
         if (uploadData.error) throw new Error(uploadData.error);
         const videoUrl = uploadData.url;
@@ -209,7 +209,7 @@ async function deleteHelpVideo() {
     if (!confirm('¿Eliminar el video "' + (v ? v.titulo : '') + '"? También se borrará el archivo del almacenamiento (R2). Esta acción no se puede deshacer.')) return;
     try {
         if (v && v.video_path) {
-            try { await fetch(getR2DeleteUrl(v.video_path), { method: 'DELETE' }); }
+            try { await r2Fetch(getR2DeleteUrl(v.video_path), { method: 'DELETE' }); }
             catch (e) { console.warn('No se pudo eliminar el archivo de R2:', e.message); }
         }
         const { error } = await supabaseClient.from('help_videos').delete().eq('id', viewingHelpVideoId);

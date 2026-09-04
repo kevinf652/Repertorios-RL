@@ -510,7 +510,7 @@ async function adminDeleteR2OnlyFile(key) {
     try {
         const deleteUrl = getR2DeleteUrl(key);
         console.log('🗑️ [Duplicados] Deleting:', key, '→ URL:', deleteUrl);
-        const response = await fetch(deleteUrl, { method: 'DELETE' });
+        const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
         console.log('🗑️ [Duplicados] Response:', response.status, response.ok);
         if (!response.ok) {
             const errText = await response.text();
@@ -789,7 +789,7 @@ async function adminDeleteOrphanedAudio(key) {
     try {
         const deleteUrl = getR2DeleteUrl(key);
         console.log('[OrphanDelete] Deleting:', key, '→ URL:', deleteUrl);
-        const response = await fetch(deleteUrl, { method: 'DELETE' });
+        const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
         console.log('[OrphanDelete] Response:', response.status, response.ok);
         showNotification('Solicitud de eliminación enviada. Refresca para verificar.', 'success');
         logActivity('r2_file_deleted', { key: key, note: 'huérfano' }, 'storage', null);
@@ -803,7 +803,7 @@ async function adminDeleteOrphanedAudio(key) {
 async function loadR2StorageData(force) {
     if (r2Cache && !force && (Date.now() - r2CacheTime) < 60000) return r2Cache;
     try {
-        const res = await fetch(R2_WORKER_URL + '/list');
+        const res = await r2Fetch(R2_WORKER_URL + '/list');
         if (!res.ok) throw new Error('Error al listar archivos');
         const data = await res.json();
         r2Cache = data;
@@ -1175,7 +1175,7 @@ async function adminDeleteStorageAudio(key) {
         const deleteUrl = getR2DeleteUrl(key);
         console.log('📤 Eliminando de R2:', deleteUrl);
         
-        const response = await fetch(deleteUrl, { method: 'DELETE' });
+        const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
         if (!response.ok) {
             const errorText = await response.text();
             console.warn('⚠️ No se pudo eliminar de R2:', response.status, errorText);
@@ -1284,14 +1284,14 @@ async function handleAdminStorageReplace(e) {
         // ✅ 1. Eliminar el archivo viejo de R2
         const deleteUrl = getR2DeleteUrl(key);
         console.log('📤 Eliminando archivo viejo:', deleteUrl);
-        await fetch(deleteUrl, { method: 'DELETE' });
+        await r2Fetch(deleteUrl, { method: 'DELETE' });
 
         if (type === 'song') {
             const songId = (songData && songData.id) || parseSongIdFromKey(key);
             const formData = new FormData();
             formData.append('file', file, songId + '.' + getAudioExtension(file));
             formData.append('folder', 'songs');
-            const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+            const uploadRes = await r2Fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
             const uploadData = await uploadRes.json();
             if (uploadData.error) throw new Error(uploadData.error);
             const audioUrl = normalizeVocalAudioUrl(uploadData.url);
@@ -1320,7 +1320,7 @@ async function handleAdminStorageReplace(e) {
             formData.append('file', file, filename);
             formData.append('folder', 'vocal-audios');
             formData.append('filename', filename);
-            const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+            const uploadRes = await r2Fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
             const uploadData = await uploadRes.json();
             if (uploadData.error) throw new Error(uploadData.error);
             let audioUrl = uploadData.url ? normalizeVocalAudioUrl(uploadData.url) : null;

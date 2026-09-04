@@ -2,6 +2,19 @@ const SUPABASE_URL = 'https://vkafuvslrpwfevkfzxyg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrYWZ1dnNscnB3ZmV2a2Z6eHlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MzkzOTAsImV4cCI6MjEwMjQxNTM5MH0.jTKSLHb5RaYbXlBEQgWpEntfzzvIBI6esSdNzm58nek';
 const R2_WORKER_URL = 'https://repertorios-r2-api.kevinf652.workers.dev';
 
+// ⚠️ Debe ser IDÉNTICO al valor configurado en el Worker (variable APP_SECRET).
+// No es una protección absoluta (sigue siendo código de cliente), pero bloquea
+// el acceso directo de curiosos/bots que encuentren la URL del worker sin pasar por la app.
+const R2_APP_SECRET = 'P86)]]yX_15r}}m>9S~1F-@QBYZwx)TLe#bJc+I}';
+
+// Envoltorio de fetch: agrega el header secreto a toda llamada al Worker de R2.
+// Usar SIEMPRE r2Fetch() en vez de fetch() directo para hablar con R2_WORKER_URL.
+function r2Fetch(url, options) {
+    options = options || {};
+    options.headers = Object.assign({}, options.headers, { 'X-App-Secret': R2_APP_SECRET });
+    return fetch(url, options);
+}
+
 // Helper: Extract a clean R2 key from any URL or path string
 function extractR2Key(urlOrPath) {
     if (!urlOrPath) return '';
@@ -1845,7 +1858,7 @@ async function handleAudioUpload(e) {
             try { 
                 // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
                 const deleteUrl = getR2DeleteUrl(delPath);
-                await fetch(deleteUrl, { method: 'DELETE' });
+                await r2Fetch(deleteUrl, { method: 'DELETE' });
                 console.log('✅ Audio anterior eliminado:', delPath);
             } catch (e) {
                 console.warn('⚠️ No se pudo eliminar archivo anterior:', delPath, e.message);
@@ -1857,7 +1870,7 @@ async function handleAudioUpload(e) {
         const formData = new FormData();
         formData.append('file', file, sendFilename);
         formData.append('folder', 'songs');
-        const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+        const uploadRes = await r2Fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
 
         if (uploadData.error) {
@@ -1959,7 +1972,7 @@ async function removeSongAudio(songId) {
             const deleteUrl = getR2DeleteUrl(path);
             console.log('📤 Eliminando audio de canción:', deleteUrl);
             
-            const response = await fetch(deleteUrl, { method: 'DELETE' });
+            const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
             
             if (!response.ok) {
                 const errorText = await response.text();
@@ -2252,10 +2265,10 @@ async function confirmDeleteSong(id) {
     if (!s || !(await isSongAudioNeededElsewhere(uid))) {
         const extensions = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'webm'];
         for (const ext of extensions) {
-            try { await fetch(R2_WORKER_URL + '/file/songs/' + songId + '.' + ext, { method: 'DELETE' }) } catch (e) {}
+            try { await r2Fetch(R2_WORKER_URL + '/file/songs/' + songId + '.' + ext, { method: 'DELETE' }) } catch (e) {}
         }
         if (s && s.audio_url) {
-            try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(s.audio_url), { method: 'DELETE' }) } catch (e) {}
+            try { await r2Fetch(R2_WORKER_URL + '/file/' + extractR2Key(s.audio_url), { method: 'DELETE' }) } catch (e) {}
         }
     }
 
@@ -2280,10 +2293,10 @@ async function deleteCurrentSong() {
     if (!s || !(await isSongAudioNeededElsewhere(uid))) {
         const extensions = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'webm'];
         for (const ext of extensions) {
-            try { await fetch(R2_WORKER_URL + '/file/songs/' + songId + '.' + ext, { method: 'DELETE' }) } catch (e) {}
+            try { await r2Fetch(R2_WORKER_URL + '/file/songs/' + songId + '.' + ext, { method: 'DELETE' }) } catch (e) {}
         }
         if (s && s.audio_url) {
-            try { await fetch(R2_WORKER_URL + '/file/' + extractR2Key(s.audio_url), { method: 'DELETE' }) } catch (e) {}
+            try { await r2Fetch(R2_WORKER_URL + '/file/' + extractR2Key(s.audio_url), { method: 'DELETE' }) } catch (e) {}
         }
     }
 
@@ -4044,7 +4057,7 @@ async function handleVocalAudioUpload(e) {
                         path = extractR2Key(path);
                     }
                     const deleteUrl = getR2DeleteUrl(path);
-                    await fetch(deleteUrl, { method: 'DELETE' });
+                    await r2Fetch(deleteUrl, { method: 'DELETE' });
                     console.log('✅ Audio vocal anterior eliminado de R2:', path);
                 } catch (e) {
                     console.warn('⚠️ No se pudo eliminar audio_url anterior:', e.message);
@@ -4053,7 +4066,7 @@ async function handleVocalAudioUpload(e) {
             if (existingAudio.audio_path) {
                 try {
                     const deleteUrl = getR2DeleteUrl(existingAudio.audio_path);
-                    await fetch(deleteUrl, { method: 'DELETE' });
+                    await r2Fetch(deleteUrl, { method: 'DELETE' });
                     console.log('✅ Audio vocal anterior (path) eliminado de R2:', existingAudio.audio_path);
                 } catch (e) {
                     console.warn('⚠️ No se pudo eliminar audio_path anterior:', e.message);
@@ -4065,7 +4078,7 @@ async function handleVocalAudioUpload(e) {
         formData.append('file', file, filename);
         formData.append('folder', 'vocal-audios');
         formData.append('filename', filename);
-        const uploadRes = await fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
+        const uploadRes = await r2Fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
         const uploadData = await uploadRes.json();
         if (uploadData.error) throw new Error(uploadData.error);
         let audioUrl = uploadData.url;
@@ -4181,7 +4194,7 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia, part) {
                 const deleteUrl = getR2DeleteUrl(path);
                 console.log('📤 Eliminando audio vocal:', deleteUrl);
                 
-                const response = await fetch(deleteUrl, { method: 'DELETE' });
+                const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
                 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -4199,7 +4212,7 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia, part) {
                 const deleteUrl = getR2DeleteUrl(existing.audio_path);
                 console.log('📤 Eliminando audio vocal (path):', deleteUrl);
                 
-                const response = await fetch(deleteUrl, { method: 'DELETE' });
+                const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
                 
                 if (!response.ok) {
                     console.warn('⚠️ No se pudo eliminar audio_path de R2:', response.status);
