@@ -143,7 +143,7 @@ function parseCoros(c, day) {
 
 let songs = load('cb_songs', []);
 let lists = load('cb_lists', []);
-let repertorios = [];
+let repertorios = load('cb_repertorios', []);
 let repAdmin = false;
 let userRole = 'usuario';
 let viewingRepId = null;
@@ -164,6 +164,9 @@ let formKey = 'C';
 let listNavIndex = 0;
 let repSongNavIndex = 0;
 let supabaseReady = false;
+// Detección real de conexión (distinta de supabaseReady, que solo indica que el
+// cliente de Supabase se construyó bien, no que haya internet en este momento).
+let isOnline = navigator.onLine;
 let supabaseClient = null;
 let currentUser = null;
 let syncInProgress = false;
@@ -200,10 +203,10 @@ function isAdmin() { return userRole === 'admin' }
 function isDMusicos() { return userRole === 'D_Musicos' }
 function isDVoces() { return userRole === 'D_Voces' }
 function isSubAdmin() { return userRole === 'SubAdmin' }
-function canEditRepSongs() { return isAdmin() || isDMusicos() || isSubAdmin() }
-function canEditVocals() { return isAdmin() || isDVoces() || isSubAdmin() }
-function canUploadAudio() { return isAdmin() || isSubAdmin() }
-function canManageReps() { return isAdmin() || isSubAdmin() }
+function canEditRepSongs() { return isOnline && (isAdmin() || isDMusicos() || isSubAdmin()) }
+function canEditVocals() { return isOnline && (isAdmin() || isDVoces() || isSubAdmin()) }
+function canUploadAudio() { return isOnline && (isAdmin() || isSubAdmin()) }
+function canManageReps() { return isOnline && (isAdmin() || isSubAdmin()) }
 
 function isSongInAnyRepertorio(songId) {
     if (!songId || !Array.isArray(repertorios)) return false;
@@ -631,6 +634,45 @@ try {
     }
 } catch (e) { console.error('Supabase init error:', e) }
 
+// ============= CONEXIÓN REAL (online/offline) =============
+// Mensaje único reutilizado por todos los módulos (social.js, help.js, notifications.js)
+// antes de intentar guardar algo. Ver/escuchar sigue funcionando sin conexión; editar no.
+function blockIfOffline() {
+    if (isOnline) return false;
+    if (typeof showNotification === 'function') {
+        showNotification('No puedes guardar cambios sin conexión. Intenta de nuevo cuando vuelvas a estar en línea.', 'error');
+    } else {
+        alert('No puedes guardar cambios sin conexión. Intenta de nuevo cuando vuelvas a estar en línea.');
+    }
+    return true;
+}
+
+function updateOnlineStatus(online) {
+    const wasOffline = !isOnline;
+    isOnline = online;
+    showConnectionStatus();
+    if (typeof updateUserUI === 'function') updateUserUI(); // oculta/muestra botones de editar según corresponda
+    // Refresca lo que esté visible ahora mismo para que los botones aparezcan/desaparezcan en vivo
+    const activeId = (document.querySelector('.page.active') || {}).id;
+    if (activeId === 'page-repertorios') renderRepertorios();
+    else if (activeId === 'page-repertorio') renderRepertorioView();
+    else if (activeId === 'page-rep-song') renderRepSongView();
+    if (online && wasOffline) {
+        // Recuperamos conexión: traer todo a lo más reciente y pisar la copia guardada
+        loadSongsFromCloud().then(cloudSongs => {
+            if (cloudSongs && cloudSongs.length > 0) { songs = cloudSongs; save('cb_songs', songs); renderLibrary() }
+        }).catch(() => {});
+        loadRepertorios().then(() => {
+            if (activeId === 'page-repertorios') renderRepertorios();
+            else if (activeId === 'page-repertorio') renderRepertorioView();
+            else if (activeId === 'page-rep-song') renderRepSongLyrics();
+        }).catch(() => {});
+        if (typeof verifyCurrentUserRole === 'function') verifyCurrentUserRole();
+    }
+}
+window.addEventListener('online', () => updateOnlineStatus(true));
+window.addEventListener('offline', () => updateOnlineStatus(false));
+
 // ============= CLOUD SYNC FUNCTIONS =============
 function updateSyncStatus(status) {
     const indicator = document.getElementById('sync-indicator');
@@ -812,10 +854,10 @@ function isAdmin() { return userRole === 'admin' }
 function isDMusicos() { return userRole === 'D_Musicos' }
 function isDVoces() { return userRole === 'D_Voces' }
 function isSubAdmin() { return userRole === 'SubAdmin' }
-function canEditRepSongs() { return isAdmin() || isDMusicos() || isSubAdmin() }
-function canEditVocals() { return isAdmin() || isDVoces() || isSubAdmin() }
-function canUploadAudio() { return isAdmin() || isSubAdmin() }
-function canManageReps() { return isAdmin() || isSubAdmin() }
+function canEditRepSongs() { return isOnline && (isAdmin() || isDMusicos() || isSubAdmin()) }
+function canEditVocals() { return isOnline && (isAdmin() || isDVoces() || isSubAdmin()) }
+function canUploadAudio() { return isOnline && (isAdmin() || isSubAdmin()) }
+function canManageReps() { return isOnline && (isAdmin() || isSubAdmin()) }
 
 // Verificación puntual (una sola vez por carga) del rol real en la base de datos,
 // para que un cambio de rol se refleje al recargar la app sin tener que cerrar sesión.
@@ -1116,8 +1158,8 @@ async function handleChangePassword(e) {
         document.getElementById('cp-error').classList.add('show');
         return;
     }
-    if (!supabaseReady || !currentUser) {
-        document.getElementById('cp-error').textContent = 'Error de conexión';
+    if (!isOnline || !supabaseReady || !currentUser) {
+        document.getElementById('cp-error').textContent = 'No puedes cambiar la contraseña sin conexión';
         document.getElementById('cp-error').classList.add('show');
         return;
     }
@@ -1252,18 +1294,24 @@ async function loadRepertorios() {
             });
             return { ...r, canciones, vocalAudios: repVocalAudios };
         });
+        save('cb_repertorios', repertorios);
         console.log('Loaded', repertorios.length, 'repertorios');
     } catch (err) {
         console.error('Error loading repertorios:', err);
-        const c = document.getElementById('rep-list');
-        if (c) c.innerHTML = '<div class="empty"><h2 style="color:#f87171">Error de conexión</h2><p>' + err.message + '</p></div>';
+        // Si ya hay una copia guardada (de una carga anterior), la dejamos tal cual en
+        // pantalla en vez de taparla con un mensaje de error — el indicador de arriba
+        // ("Sin conexión") ya avisa que no es lo más reciente.
+        if (repertorios.length === 0) {
+            const c = document.getElementById('rep-list');
+            if (c) c.innerHTML = '<div class="empty"><h2 style="color:#f87171">Error de conexión</h2><p>' + err.message + '</p></div>';
+        }
     }
 }
 
 function showConnectionStatus() {
     const status = document.getElementById('rep-connection-status');
     if (!status) return;
-    if (supabaseReady) { status.innerHTML = '<span style="color:#4ade80;font-size:.65rem">● Conectado</span>' } else { status.innerHTML = '<span style="color:#f87171;font-size:.65rem">● Sin conexión - datos locales</span>' }
+    if (isOnline) { status.innerHTML = '<span style="color:#4ade80;font-size:.65rem">● Conectado</span>' } else { status.innerHTML = '<span style="color:#f87171;font-size:.65rem">● Sin conexión: viendo la última copia guardada, puede no ser lo más reciente. No podrás guardar cambios hasta reconectar.</span>' }
 }
 
 function getSongNoteHtml(s) {

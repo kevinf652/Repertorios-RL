@@ -7,6 +7,7 @@ let notifCanSendCache = false;
 
 // ---------- Permisos ----------
 function canSendNotifications() {
+    if (!isOnline) return false;
     if (typeof isAdmin === 'function' && isAdmin()) return true;
     if (typeof isSubAdmin === 'function' && isSubAdmin()) return true;
     return !!notifCanSendCache;
@@ -267,7 +268,7 @@ async function renderNotificationsPanel() {
     await refreshCanSendNotifications();
     if (sendBtnWrap) sendBtnWrap.style.display = canSendNotifications() ? '' : 'none';
     const proposeBtnWrap = document.getElementById('propose-activity-btn-wrap');
-    if (proposeBtnWrap) proposeBtnWrap.style.display = currentUser ? '' : 'none';
+    if (proposeBtnWrap) proposeBtnWrap.style.display = (currentUser && isOnline) ? '' : 'none';
 
     const birthdays = await getBirthdayVirtualNotifications();
     const welcome = getLocalWelcomeNotification();

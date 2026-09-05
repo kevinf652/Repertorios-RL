@@ -7,7 +7,7 @@ let helpVideosCache = null;
 let viewingHelpVideoId = null;
 
 function canManageHelpVideos() {
-    return (typeof isAdmin === 'function' && isAdmin());
+    return isOnline && (typeof isAdmin === 'function' && isAdmin());
 }
 
 // ---------- Cargar / listar videos ----------

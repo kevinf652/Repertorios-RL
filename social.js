@@ -207,6 +207,7 @@ async function markActivitiesAsSeen() {
 
 function showAddActivityModal() {
     if (!currentUser) return;
+    if (blockIfOffline()) return;
     document.getElementById('add-activity-title').value = '';
     document.getElementById('add-activity-fecha').value = '';
     document.getElementById('add-activity-desc').value = '';
@@ -219,6 +220,7 @@ function closeAddActivityModal() {
 async function saveActivity(e) {
     if (e) e.preventDefault();
     if (!currentUser || !supabaseReady) return;
+    if (blockIfOffline()) return;
     const titulo = document.getElementById('add-activity-title').value.trim();
     const fecha = document.getElementById('add-activity-fecha').value;
     const descripcion = document.getElementById('add-activity-desc').value.trim();
@@ -264,6 +266,7 @@ function closeViewActivityModal() {
 }
 async function deleteActivity() {
     if (!canAccessSocial() || !viewingActivityId || !supabaseReady) return;
+    if (blockIfOffline()) return;
     const activities = await loadSocialActivities(false);
     const a = activities.find(x => x.id === viewingActivityId);
     if (!confirm('¿Eliminar la actividad "' + (a ? a.titulo : '') + '"? Esta acción no se puede deshacer.')) return;
@@ -306,6 +309,7 @@ async function saveMisDatos(e) {
     if (e) e.preventDefault();
     if (!currentUser) { alert('Debes iniciar sesión para guardar tus datos.'); return }
     if (!supabaseReady) { alert('Sin conexión.'); return }
+    if (blockIfOffline()) return;
     const payload = {
         user_id: currentUser.id,
         fecha_cumpleanos: document.getElementById('md-cumpleanos').value || null,
