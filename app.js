@@ -923,23 +923,35 @@ function initAuth() {
             
             if (currentUser && supabaseReady) {
                 if (USE_SUPABASE_AUTH) {
-                    // Confirmar que la sesión real de Auth siga viva; si no, cerrar sesión local también.
-                    supabaseClient.auth.getSession().then(function(res) {
-                        if (!res || !res.data || !res.data.session) {
-                            console.log('Sesión de Auth expirada o inexistente, cerrando sesión local.');
-                            handleLogout();
-                            return;
-                        }
-                        console.log('User logged in (Auth), loading songs from cloud...');
-                        loadSongsFromCloud().then(function(cloudSongs) {
-                            if (cloudSongs && cloudSongs.length > 0) {
-                                songs = cloudSongs;
-                                renderLibrary();
+                    if (!navigator.onLine) {
+                        // Sin conexión: la app está pensada para funcionar offline, así que
+                        // NO se puede (ni se debe) verificar la sesión real contra el servidor.
+                        // Se confía en la sesión local guardada, igual que se hacía antes de Auth.
+                        console.log('Sin conexión: usando sesión local sin verificar contra el servidor.');
+                    } else {
+                        // Confirmar que la sesión real de Auth siga viva; si no, cerrar sesión local también.
+                        supabaseClient.auth.getSession().then(function(res) {
+                            if (!res || !res.data || !res.data.session) {
+                                console.log('Sesión de Auth expirada o inexistente, cerrando sesión local.');
+                                handleLogout();
+                                return;
                             }
-                            updateLastAccess();
-                        }).catch(function() { updateLastAccess(); });
-                        verifyCurrentUserRole();
-                    });
+                            console.log('User logged in (Auth), loading songs from cloud...');
+                            loadSongsFromCloud().then(function(cloudSongs) {
+                                if (cloudSongs && cloudSongs.length > 0) {
+                                    songs = cloudSongs;
+                                    renderLibrary();
+                                }
+                                updateLastAccess();
+                            }).catch(function() { updateLastAccess(); });
+                            verifyCurrentUserRole();
+                        }).catch(function(err) {
+                            // Fallo de red u otro error inesperado al verificar: NUNCA cerrar sesión
+                            // por esto solo — es preferible quedarse con la sesión local (offline-first)
+                            // a bloquear a alguien que sí tiene una sesión válida por un problema de red.
+                            console.warn('No se pudo verificar la sesión (se mantiene la sesión local):', err.message);
+                        });
+                    }
                 } else {
                     console.log('User logged in, loading songs from cloud...');
                     loadSongsFromCloud().then(cloudSongs => {
