@@ -233,13 +233,29 @@ async function deleteAdminUser(userId) {
     if (!userRef) return;
     if (userRef.role === 'admin') { alert('No se puede eliminar a otro Admin desde aquí.'); return }
     if (currentUser && currentUser.id === userId) { alert('No puedes eliminar tu propia cuenta.'); return }
-    if (!confirm('¿ELIMINAR PERMANENTEMENTE la cuenta de "' + userId + '"? Se borra su biblioteca y su perfil. Esta acción no se puede deshacer.')) return;
+    if (!confirm('¿ELIMINAR PERMANENTEMENTE la cuenta de "' + userId + '"? Se borra su biblioteca, perfil y acceso al sistema. Esta acción no se puede deshacer.')) return;
     if (!confirm('Confírmalo una vez más: no hay forma de recuperar esto después. ¿Continuar?')) return;
     try {
+        // Primero eliminar de Supabase Auth usando la Edge Function
+        if (USE_SUPABASE_AUTH) {
+            const { data: sessionData } = await supabaseClient.auth.getSession();
+            const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+            if (!token) throw new Error('No hay sesión activa');
+            const res = await fetch(SUPABASE_URL + '/functions/v1/delete-user-from-auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ targetUsername: userId })
+            });
+            const result = await res.json();
+            if (!res.ok || result.error) throw new Error(result.error || 'Error al eliminar de Auth');
+        }
+
+        // Luego eliminar de las tablas de la base de datos
         await supabaseClient.from('user_songs').delete().eq('user_id', userId);
         await supabaseClient.from('social_profiles').delete().eq('user_id', userId);
         await supabaseClient.from('admin_users').delete().eq('id', userId);
-        showNotification('Usuario eliminado', 'success');
+        
+        showNotification('Usuario eliminado completamente', 'success');
         logActivity('user_deleted', { targetUser: userId }, 'user', userId);
         adminUsersCache = null;
         renderAdminUsuarios(true);
@@ -261,6 +277,14 @@ async function updateUserRole(userId, newRole) {
     try {
         const { error } = await supabaseClient.from('admin_users').update({ role: newRole }).eq('id', userId);
         if (error) throw error;
+        // Mantener sincronizada la tabla profiles (de donde lee el rol el login
+        // nuevo de Supabase Auth). Se hace siempre, sin condicionar al interruptor:
+        // así, cuando se active para todos, los roles ya están al día.
+        try {
+            await supabaseClient.from('profiles').update({ role: newRole }).eq('username', userId);
+        } catch (syncErr) {
+            console.warn('No se pudo sincronizar el rol en profiles:', syncErr.message);
+        }
         if (userRef) userRef.role = newRole;
         showNotification('Rol actualizado a ' + newRole, 'success');
         renderAdminUsuarios(true);
@@ -281,11 +305,27 @@ async function resetUserPassword(userId) {
         const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
         if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede restablecer la contraseña de un Admin.'); return }
     }
-    if (!confirm('¿Restablecer la contraseña de "' + userId + '" a "1234"? La persona podrá entrar con esa clave y luego cambiarla.')) return;
+    if (!confirm('¿Restablecer la contraseña de "' + userId + '" a "123abc"? La persona podrá entrar con esa clave y luego cambiarla.')) return;
     try {
-        const { error } = await supabaseClient.from('admin_users').update({ password_hash: '1234' }).eq('id', userId);
-        if (error) throw error;
-        showNotification('Contraseña restablecida a 1234', 'success');
+        if (USE_SUPABASE_AUTH) {
+            // La contraseña real ahora vive en Supabase Auth, no se puede tocar
+            // desde el navegador — se delega a la Edge Function (usa la
+            // service_role key del lado del servidor, nunca aquí).
+            const { data: sessionData } = await supabaseClient.auth.getSession();
+            const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+            if (!token) throw new Error('No hay sesión activa');
+            const res = await fetch(SUPABASE_URL + '/functions/v1/reset-user-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ targetUsername: userId })
+            });
+            const result = await res.json();
+            if (!res.ok || result.error) throw new Error(result.error || 'Error al resetear la contraseña');
+        } else {
+            const { error } = await supabaseClient.from('admin_users').update({ password_hash: '123abc' }).eq('id', userId);
+            if (error) throw error;
+        }
+        showNotification('Contraseña restablecida a 123abc', 'success');
         logActivity('password_reset', {
             targetUser: userId
         }, 'user', userId);

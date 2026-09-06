@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v2.890';
+const CACHE_NAME = 'repertorios-rl-v2.891';
 // Caché aparte para los audios (canciones y voces) descargados de R2. Tiene su
 // propio nombre para que NUNCA se borre cuando se actualiza la app (ver "activate").
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';

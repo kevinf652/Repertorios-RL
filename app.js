@@ -15,6 +15,27 @@ function r2Fetch(url, options) {
     return fetch(url, options);
 }
 
+// ============= FASE 4 (EN PRUEBA) — interruptor de Supabase Auth =============
+// Mientras esto sea false, TODO funciona exactamente igual que hoy (login
+// contra admin_users, sin cambios). Ponlo en true SOLO en tu copia local para
+// probarlo primero con tus cuentas Admin y Pruebas, antes de subirlo así a
+// producción para los 26 usuarios.
+const USE_SUPABASE_AUTH = true;
+const AUTH_EMAIL_DOMAIN = 'repertoriosrl.invalid';
+
+// Convierte un username a la dirección interna que usa Supabase Auth por debajo.
+// El usuario nunca ve ni escribe este correo, sigue usando su username normal.
+function usernameToAuthEmail(username) {
+    return String(username).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '') + '@' + AUTH_EMAIL_DOMAIN;
+}
+
+// Trae rol/nombre/apellido/username desde la tabla profiles a partir del uid de Auth
+async function loadProfileByAuthUid(authUid) {
+    const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', authUid).single();
+    if (error || !data) return null;
+    return data;
+}
+
 // Helper: Extract a clean R2 key from any URL or path string
 function extractR2Key(urlOrPath) {
     if (!urlOrPath) return '';
@@ -864,9 +885,16 @@ function canManageReps() { return isOnline && (isAdmin() || isSubAdmin()) }
 async function verifyCurrentUserRole() {
     if (!currentUser || !currentUser.id || !supabaseReady) return;
     try {
-        const { data, error } = await supabaseClient.from('admin_users').select('role').eq('id', currentUser.id).single();
-        if (error || !data) return;
-        const freshRole = data.role || 'usuario';
+        let freshRole;
+        if (USE_SUPABASE_AUTH && currentUser._authUid) {
+            const { data, error } = await supabaseClient.from('profiles').select('role').eq('id', currentUser._authUid).single();
+            if (error || !data) return;
+            freshRole = data.role || 'usuario';
+        } else {
+            const { data, error } = await supabaseClient.from('admin_users').select('role').eq('id', currentUser.id).single();
+            if (error || !data) return;
+            freshRole = data.role || 'usuario';
+        }
         if (freshRole === userRole) return;
         console.log('Rol actualizado al cargar la app:', userRole, '->', freshRole);
         userRole = freshRole;
@@ -894,21 +922,41 @@ function initAuth() {
             updateUserUI();
             
             if (currentUser && supabaseReady) {
-                console.log('User logged in, loading songs from cloud...');
-                loadSongsFromCloud().then(cloudSongs => {
-                    if (cloudSongs && cloudSongs.length > 0) {
-                        songs = cloudSongs;
-                        renderLibrary();
-                        console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
-                    }
-                    // Actualizar último acceso DESPUÉS de cargar canciones
-                    updateLastAccess();
-                }).catch(() => {
-                    updateLastAccess();
-                });
-                // Una sola consulta puntual (no repetida) para saber si el rol cambió mientras
-                // no se tenía la app abierta — así no hace falta cerrar sesión para verlo.
-                verifyCurrentUserRole();
+                if (USE_SUPABASE_AUTH) {
+                    // Confirmar que la sesión real de Auth siga viva; si no, cerrar sesión local también.
+                    supabaseClient.auth.getSession().then(function(res) {
+                        if (!res || !res.data || !res.data.session) {
+                            console.log('Sesión de Auth expirada o inexistente, cerrando sesión local.');
+                            handleLogout();
+                            return;
+                        }
+                        console.log('User logged in (Auth), loading songs from cloud...');
+                        loadSongsFromCloud().then(function(cloudSongs) {
+                            if (cloudSongs && cloudSongs.length > 0) {
+                                songs = cloudSongs;
+                                renderLibrary();
+                            }
+                            updateLastAccess();
+                        }).catch(function() { updateLastAccess(); });
+                        verifyCurrentUserRole();
+                    });
+                } else {
+                    console.log('User logged in, loading songs from cloud...');
+                    loadSongsFromCloud().then(cloudSongs => {
+                        if (cloudSongs && cloudSongs.length > 0) {
+                            songs = cloudSongs;
+                            renderLibrary();
+                            console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
+                        }
+                        // Actualizar último acceso DESPUÉS de cargar canciones
+                        updateLastAccess();
+                    }).catch(() => {
+                        updateLastAccess();
+                    });
+                    // Una sola consulta puntual (no repetida) para saber si el rol cambió mientras
+                    // no se tenía la app abierta — así no hace falta cerrar sesión para verlo.
+                    verifyCurrentUserRole();
+                }
             }
         } catch (e) { 
             console.error('Error en initAuth:', e);
@@ -1030,9 +1078,23 @@ async function handleLogin(e) {
     if (!username || !password) { showAuthError('Por favor completa todos los campos'); return }
     if (!supabaseReady) { showAuthError('Sin conexión a internet. No se puede iniciar sesión.'); return }
     try {
-        const { data, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
-        if (error || !data) { showAuthError('Usuario o contraseña incorrectos'); return }
-        
+        let data;
+        let authUid = null;
+
+        if (USE_SUPABASE_AUTH) {
+            const email = usernameToAuthEmail(username);
+            const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({ email: email, password: password });
+            if (authError || !authData || !authData.user) { showAuthError('Usuario o contraseña incorrectos'); return }
+            const profile = await loadProfileByAuthUid(authData.user.id);
+            if (!profile) { showAuthError('No se encontró tu perfil. Contacta al administrador.'); return }
+            authUid = authData.user.id;
+            data = { id: profile.username, nombre: profile.nombre, apellido: profile.apellido, role: profile.role };
+        } else {
+            const { data: rowData, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
+            if (error || !rowData) { showAuthError('Usuario o contraseña incorrectos'); return }
+            data = rowData;
+        }
+
         // ✅ Establecer currentUser
         currentUser = { 
             id: data.id, 
@@ -1040,6 +1102,7 @@ async function handleLogin(e) {
             apellido: data.apellido || '', 
             role: data.role || 'usuario' 
         };
+        if (authUid) currentUser._authUid = authUid;
         localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
         userRole = currentUser.role;
         repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
@@ -1083,29 +1146,88 @@ async function handleRegister(e) {
     e.preventDefault();
     const nombre = document.getElementById('reg-nombre').value.trim();
     const apellido = document.getElementById('reg-apellido').value.trim();
-    const username = document.getElementById('reg-username').value.trim();
+    const usernameRaw = document.getElementById('reg-username').value.trim();
     const password = document.getElementById('reg-password').value;
     const passwordConfirm = document.getElementById('reg-password-confirm').value;
-    if (!nombre || !apellido || !username || !password) { showAuthError('Por favor completa todos los campos'); return }
-    if (username.toLowerCase() === 'admin') { showAuthError('Este usuario está reservado'); return }
+    if (!nombre || !apellido || !usernameRaw || !password) { showAuthError('Por favor completa todos los campos'); return }
+    const username = usernameRaw.toLowerCase();
+    const usernameSafe = username.replace(/[^a-z0-9._-]/g, '');
+    if (username === 'admin') { showAuthError('Este usuario está reservado'); return }
+    if (!usernameSafe || usernameSafe !== username) { showAuthError('El usuario solo puede tener letras, números, punto, guion y _'); return }
     if (password !== passwordConfirm) { showAuthError('Las contraseñas no coinciden'); return }
-    if (password.length < 4) { showAuthError('La contraseña debe tener al menos 4 caracteres'); return }
+    const minLen = USE_SUPABASE_AUTH ? 6 : 4;
+    if (password.length < minLen) { showAuthError('La contraseña debe tener al menos ' + minLen + ' caracteres'); return }
     if (!supabaseReady) { showAuthError('Sin conexión a internet. No se puede registrar.'); return }
     try {
-        const { data: existing } = await supabaseClient.from('admin_users').select('id').eq('id', username.toLowerCase()).single();
-        if (existing) { showAuthError('Este usuario ya está registrado'); return }
-        const { error } = await supabaseClient.from('admin_users').insert({ 
-            id: username.toLowerCase(), 
-            nombre: nombre, 
-            apellido: apellido, 
-            password_hash: password, 
-            role: 'usuario',
-            created_at: Date.now() 
-        });
-        if (error) throw error;
+        const { data: existingAdmin } = await supabaseClient.from('admin_users').select('id').eq('id', username).maybeSingle();
+        if (existingAdmin) { showAuthError('Este usuario ya está registrado'); return }
+
+        if (USE_SUPABASE_AUTH) {
+            const email = usernameToAuthEmail(username);
+            const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+                email: email,
+                password: password,
+                options: {
+                    data: { username: username, nombre: nombre, apellido: apellido }
+                }
+            });
+            if (authError) {
+                const msg = (authError.message || '').toLowerCase();
+                if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+                    showAuthError('Este usuario ya está registrado');
+                    return;
+                }
+                throw authError;
+            }
+            const authUser = authData && authData.user;
+            if (!authUser) { showAuthError('No se pudo crear la cuenta. Intenta de nuevo.'); return }
+
+            // El trigger handle_new_user suele crear el perfil. Esto completa o
+            // cubre el caso si el SQL aún no se corrió (hace falta la política de INSERT).
+            const { error: profileError } = await supabaseClient.from('profiles').upsert({
+                id: authUser.id,
+                username: username,
+                role: 'usuario',
+                nombre: nombre,
+                apellido: apellido,
+                admin_users_id: username
+            }, { onConflict: 'id' });
+            if (profileError) {
+                console.warn('Perfil no se pudo guardar desde la app:', profileError.message);
+            }
+
+            // Tabla vieja: el panel admin / social / last_login todavía la usan.
+            // La contraseña ya no se guarda aquí; Auth es la fuente de verdad.
+            const { error: adminError } = await supabaseClient.from('admin_users').insert({
+                id: username,
+                nombre: nombre,
+                apellido: apellido,
+                password_hash: '',
+                role: 'usuario',
+                created_at: Date.now()
+            });
+            if (adminError && adminError.code !== '23505') {
+                console.warn('admin_users no se pudo crear:', adminError.message);
+            }
+
+            if (authData.session) {
+                await supabaseClient.auth.signOut().catch(function() {});
+            }
+        } else {
+            const { error } = await supabaseClient.from('admin_users').insert({
+                id: username,
+                nombre: nombre,
+                apellido: apellido,
+                password_hash: password,
+                role: 'usuario',
+                created_at: Date.now()
+            });
+            if (error) throw error;
+        }
+
         showAuthSuccess('¡Cuenta creada! Ahora puedes iniciar sesión.');
         switchAuthTab('login');
-        document.getElementById('login-username').value = username.toLowerCase();
+        document.getElementById('login-username').value = username;
         document.getElementById('login-password').value = password;
     } catch (e) {
         showAuthError('Error al registrar: ' + e.message);
@@ -1113,6 +1235,9 @@ async function handleRegister(e) {
 }
 
 function handleLogout() {
+    if (USE_SUPABASE_AUTH && supabaseClient) {
+        supabaseClient.auth.signOut().catch(function(e) { console.warn('Error cerrando sesión de Auth:', e.message) });
+    }
     currentUser = null;
     localStorage.removeItem('rl_current_user');
     repAdmin = false;
@@ -1153,8 +1278,9 @@ async function handleChangePassword(e) {
         document.getElementById('cp-error').classList.add('show');
         return;
     }
-    if (newPass.length < 4) {
-        document.getElementById('cp-error').textContent = 'La contraseña debe tener al menos 4 caracteres';
+    const minLen = USE_SUPABASE_AUTH ? 6 : 4;
+    if (newPass.length < minLen) {
+        document.getElementById('cp-error').textContent = 'La contraseña debe tener al menos ' + minLen + ' caracteres';
         document.getElementById('cp-error').classList.add('show');
         return;
     }
@@ -1164,14 +1290,26 @@ async function handleChangePassword(e) {
         return;
     }
     try {
-        const { data, error } = await supabaseClient.from('admin_users').select('id').eq('id', currentUser.id).eq('password_hash', oldPass).single();
-        if (error || !data) {
-            document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
-            document.getElementById('cp-error').classList.add('show');
-            return;
+        if (USE_SUPABASE_AUTH) {
+            const email = usernameToAuthEmail(currentUser.id);
+            const { error: verifyError } = await supabaseClient.auth.signInWithPassword({ email: email, password: oldPass });
+            if (verifyError) {
+                document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
+                document.getElementById('cp-error').classList.add('show');
+                return;
+            }
+            const { error: updateError } = await supabaseClient.auth.updateUser({ password: newPass });
+            if (updateError) throw updateError;
+        } else {
+            const { data, error } = await supabaseClient.from('admin_users').select('id').eq('id', currentUser.id).eq('password_hash', oldPass).single();
+            if (error || !data) {
+                document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
+                document.getElementById('cp-error').classList.add('show');
+                return;
+            }
+            const { error: updateError } = await supabaseClient.from('admin_users').update({ password_hash: newPass }).eq('id', currentUser.id);
+            if (updateError) throw updateError;
         }
-        const { error: updateError } = await supabaseClient.from('admin_users').update({ password_hash: newPass }).eq('id', currentUser.id);
-        if (updateError) throw updateError;
         document.getElementById('cp-success').textContent = '¡Contraseña actualizada!';
         document.getElementById('cp-success').classList.add('show');
         document.getElementById('cp-error').classList.remove('show');
