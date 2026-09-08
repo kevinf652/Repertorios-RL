@@ -1373,6 +1373,19 @@ async function updateLastAccess() {
         console.warn('⚠️ No se pudo actualizar last_access:', e.message);
     }
 }
+
+// Cuando la PWA vuelve a primer plano después de estar en segundo plano (muy
+// común en celular: la app casi nunca se "cierra" de verdad, solo se minimiza),
+// no pasa de nuevo por initAuth() porque no hay recarga real de la página — así
+// que "última conexión" se quedaba congelada aunque la persona siguiera usando
+// la app con su sesión ya viva. Esto lo corrige: cada vez que la pestaña/app
+// vuelve a estar visible, se intenta actualizar (el throttle de 5 min de
+// updateLastAccess() evita que esto genere escrituras de más).
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && currentUser && supabaseReady) {
+        updateLastAccess();
+    }
+});
 // ============= REPERTORIOS FUNCTIONS =============
 async function loadRepertorios() {
     if (!supabaseReady) return;
