@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v2.892';
+const CACHE_NAME = 'repertorios-rl-v2.893';
 // Caché aparte para los audios (canciones y voces) descargados de R2. Tiene su
 // propio nombre para que NUNCA se borre cuando se actualiza la app (ver "activate").
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
@@ -36,19 +36,34 @@ self.addEventListener('install', function(event) {
   self.skipWaiting();
 });
 
-// ACTIVATE - Clean old caches (nunca la de audio)
+// ACTIVATE - Clean old caches (nunca la de audio) + limpiar entradas indebidas
+// que hayan quedado en la caché de audio por el bug donde también se guardaba
+// la respuesta de /list como si fuera un archivo de audio.
 self.addEventListener('activate', function(event) {    
   event.waitUntil(        
-    caches.keys().then(function(cacheNames) {            
-      return Promise.all(                
-        cacheNames.map(function(cacheName) {                    
-          if (cacheName !== CACHE_NAME && cacheName !== AUDIO_CACHE_NAME) {                        
-            console.log('[SW] Deleting old cache:', cacheName);                        
-            return caches.delete(cacheName);                    
-          }                
-        })      
-      );        
-    }).then(function() {
+    Promise.all([
+      caches.keys().then(function(cacheNames) {            
+        return Promise.all(                
+          cacheNames.map(function(cacheName) {                    
+            if (cacheName !== CACHE_NAME && cacheName !== AUDIO_CACHE_NAME) {                        
+              console.log('[SW] Deleting old cache:', cacheName);                        
+              return caches.delete(cacheName);                    
+            }                
+          })      
+        );        
+      }),
+      caches.open(AUDIO_CACHE_NAME).then(function(cache) {
+        return cache.keys().then(function(requests) {
+          return Promise.all(requests.map(function(req) {
+            const reqUrl = new URL(req.url);
+            if (!reqUrl.pathname.startsWith('/file/')) {
+              console.log('[SW] Limpiando entrada indebida de la caché de audio:', req.url);
+              return cache.delete(req);
+            }
+          }));
+        });
+      })
+    ]).then(function() {
       return self.clients.claim(); // Toma el control de las pestañas abiertas inmediatamente
     })
   );
@@ -61,7 +76,7 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
   const url = new URL(event.request.url);
 
-  if (url.hostname === AUDIO_HOST && event.request.method === 'GET') {
+  if (url.hostname === AUDIO_HOST && url.pathname.startsWith('/file/') && event.request.method === 'GET') {
     event.respondWith(
       caches.open(AUDIO_CACHE_NAME).then(function(cache) {
         return cache.match(event.request).then(function(cached) {
