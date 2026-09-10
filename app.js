@@ -787,39 +787,51 @@ async function loadSongsFromCloud() {
 // ============= REALTIME SUBSCRIPTIONS =============
 let _userSongsChannelActive = false;
 let _userRoleChannelActive = false;
+let _vocalNotesChannelActive = false;
+let _repertoriosChannelActive = false;
+let _cancionesRepChannelActive = false;
 function setupRealtimeSubscriptions() {
     if (!supabaseReady || !supabaseClient) return;
     console.log('Setting up Supabase Realtime subscriptions...');
 
-    supabaseClient.channel('vocal-notes-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'vocal_notes' }, function(payload) {
-            console.log('Realtime vocal_notes change:', payload.eventType);
-            vocalNotesCache = {};
-            if (viewingSongId) renderView();
-            if (viewingRepSongId) renderRepSongLyrics();
-        })
-        .subscribe();
+    if (!_vocalNotesChannelActive) {
+        _vocalNotesChannelActive = true;
+        supabaseClient.channel('vocal-notes-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'vocal_notes' }, function(payload) {
+                console.log('Realtime vocal_notes change:', payload.eventType);
+                vocalNotesCache = {};
+                if (viewingSongId) renderView();
+                if (viewingRepSongId) renderRepSongLyrics();
+            })
+            .subscribe();
+    }
 
-    supabaseClient.channel('repertorios-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'repertorios' }, function(payload) {
-            console.log('Realtime repertorios change:', payload.eventType);
-            loadRepertorios().then(function() {
-                if (document.getElementById('page-repertorios')?.classList.contains('active')) renderRepertorios();
-                if (document.getElementById('page-repertorio')?.classList.contains('active')) renderRepertorioView();
-                if (document.getElementById('page-rep-song')?.classList.contains('active')) renderRepSongLyrics();
-            });
-        })
-        .subscribe();
+    if (!_repertoriosChannelActive) {
+        _repertoriosChannelActive = true;
+        supabaseClient.channel('repertorios-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'repertorios' }, function(payload) {
+                console.log('Realtime repertorios change:', payload.eventType);
+                loadRepertorios().then(function() {
+                    if (document.getElementById('page-repertorios')?.classList.contains('active')) renderRepertorios();
+                    if (document.getElementById('page-repertorio')?.classList.contains('active')) renderRepertorioView();
+                    if (document.getElementById('page-rep-song')?.classList.contains('active')) renderRepSongLyrics();
+                });
+            })
+            .subscribe();
+    }
 
-    supabaseClient.channel('canciones-rep-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'canciones_repertorio' }, function(payload) {
-            console.log('Realtime canciones_repertorio change:', payload.eventType);
-            loadRepertorios().then(function() {
-                if (document.getElementById('page-repertorios')?.classList.contains('active')) renderRepertorios();
-                if (document.getElementById('page-repertorio')?.classList.contains('active')) renderRepertorioView();
-            });
-        })
-        .subscribe();
+    if (!_cancionesRepChannelActive) {
+        _cancionesRepChannelActive = true;
+        supabaseClient.channel('canciones-rep-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'canciones_repertorio' }, function(payload) {
+                console.log('Realtime canciones_repertorio change:', payload.eventType);
+                loadRepertorios().then(function() {
+                    if (document.getElementById('page-repertorios')?.classList.contains('active')) renderRepertorios();
+                    if (document.getElementById('page-repertorio')?.classList.contains('active')) renderRepertorioView();
+                });
+            })
+            .subscribe();
+    }
 
     // Refresca la biblioteca personal cuando otra persona (o el propio usuario
     // desde otro dispositivo) edita una canción que también tienes guardada —
