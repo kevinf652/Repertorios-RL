@@ -5,6 +5,7 @@
 
 let adminUsersCache = null;
 let adminSongCountsCache = null;
+let adminSongsCache = null;
 
 // ---------- Menú principal (cards) ----------
 function renderAdminPanel() {
@@ -17,7 +18,7 @@ function renderAdminPanel() {
     c.innerHTML = '<div class="admin-cards-grid">'
         + '<div class="admin-summary-panel" id="admin-summary-panel"><div class="admin-summary-title">Vistazo rápido</div><div class="admin-empty" style="padding:10px 0">Cargando...</div></div>'
         + adminCardHtml('admin-usuarios', 'Usuarios', 'Ver registrados y su biblioteca', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>')
-        + (isAdmin() ? adminCardHtml('admin-duplicados', 'Duplicados', 'Detectar canciones repetidas', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>') : '')
+        + (isAdmin() ? adminCardHtml('admin-canciones', 'Canciones', 'Catálogo registrado y duplicados', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>') : '')
         + adminCardHtml('admin-repertorios', 'Repertorios', 'Ver todos, activos y archivados', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>')
         + adminCardHtml('admin-mantenimiento', 'Mantenimiento', 'Datos y limpieza pendiente', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.77z"/></svg>')
         + (isAdmin() ? adminCardHtml('admin-storage', 'Almacenamiento R2', 'Ver archivos y espacio usado', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>') : '')
@@ -38,7 +39,9 @@ async function renderAdminSummary() {
     try {
         const users = await loadAdminUsersData(false);
         const totalUsers = users.length;
-        const totalSongs = Object.values(adminSongCountsCache || {}).reduce((a, b) => a + b, 0);
+        const { data: uniqueSongs, error: uniqueSongsError } = await supabaseClient.from('songs').select('id').limit(10000);
+        if (uniqueSongsError) throw uniqueSongsError;
+        const totalSongs = (uniqueSongs || []).length;
         const totalReps = Array.isArray(repertorios) ? repertorios.length : 0;
         const activeReps = Array.isArray(repertorios) ? repertorios.filter(r => r.estado === 'activo').length : 0;
 
@@ -102,7 +105,7 @@ async function loadAdminUsersData(force) {
             .select('id,nombre,apellido,role,created_at,last_login,puede_notificar')
             .order('created_at', { ascending: false });
         if (error || !users) return [];
-        const { data: allSongs } = await supabaseClient.from('user_songs').select('user_id');
+        const { data: allSongs } = await supabaseClient.from('Biblioteca_general').select('user_id');
         const counts = {};
         (allSongs || []).forEach(r => { counts[r.user_id] = (counts[r.user_id] || 0) + 1 });
         adminSongCountsCache = counts;
@@ -229,6 +232,7 @@ async function renderAdminInactiveUsersSection() {
 
 async function deleteAdminUser(userId) {
     if (!isAdmin() || !supabaseReady) return;
+    if (blockIfOffline()) return;
     const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
     if (!userRef) return;
     if (userRef.role === 'admin') { alert('No se puede eliminar a otro Admin desde aquí.'); return }
@@ -251,7 +255,7 @@ async function deleteAdminUser(userId) {
         }
 
         // Luego eliminar de las tablas de la base de datos
-        await supabaseClient.from('user_songs').delete().eq('user_id', userId);
+        await supabaseClient.from('Biblioteca_general').delete().eq('user_id', userId);
         await supabaseClient.from('social_profiles').delete().eq('user_id', userId);
         await supabaseClient.from('admin_users').delete().eq('id', userId);
         
@@ -267,6 +271,7 @@ async function deleteAdminUser(userId) {
 // ---------- Editar rol de usuario ----------
 async function updateUserRole(userId, newRole) {
     if ((!isAdmin() && !isSubAdmin()) || !supabaseReady) return;
+    if (blockIfOffline()) return;
     const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
     if (!isAdmin() && isSubAdmin()) {
         if (newRole === 'admin') { alert('Un Subadmin no puede asignar el rol Admin.'); return }
@@ -301,6 +306,7 @@ async function updateUserRole(userId, newRole) {
 // ---------- Restablecer contraseña de usuario ----------
 async function resetUserPassword(userId) {
     if ((!isAdmin() && !isSubAdmin()) || !supabaseReady) return;
+    if (blockIfOffline()) return;
     if (!isAdmin() && isSubAdmin()) {
         const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
         if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede restablecer la contraseña de un Admin.'); return }
@@ -336,6 +342,7 @@ async function resetUserPassword(userId) {
 
 async function toggleUserCanNotify(userId, checked) {
     if ((!isAdmin() && !isSubAdmin()) || !supabaseReady) return;
+    if (blockIfOffline()) return;
     if (!isAdmin() && isSubAdmin()) {
         const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
         if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede cambiar esto para un Admin.'); renderAdminUsuarios(true); return }
@@ -368,17 +375,120 @@ async function viewAdminUserSongs(userId) {
     c.innerHTML = '<div class="admin-empty">Cargando...</div>';
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
     try {
-        const { data: rows, error } = await supabaseClient.from('user_songs').select('song_data').eq('user_id', userId);
-        if (error || !rows) { c.innerHTML = '<div class="admin-empty">No se pudo cargar.</div>'; return }
-        const list = rows.map(r => { try { return typeof r.song_data === 'string' ? JSON.parse(r.song_data) : r.song_data } catch (e) { return null } }).filter(Boolean);
-        if (list.length === 0) { c.innerHTML = '<div class="admin-empty">Este usuario no tiene canciones guardadas.</div>'; return }
+        const { data: links, error } = await supabaseClient.from('Biblioteca_general').select('song_id').eq('user_id', userId);
+        if (error || !links) { c.innerHTML = '<div class="admin-empty">No se pudo cargar.</div>'; return }
+        if (links.length === 0) { c.innerHTML = '<div class="admin-empty">Este usuario no tiene canciones guardadas.</div>'; return }
+        const { data: list, error: e2 } = await supabaseClient.from('songs').select('title,artist,original_key,created_by').in('id', links.map(l => l.song_id));
+        if (e2 || !list) { c.innerHTML = '<div class="admin-empty">No se pudo cargar.</div>'; return }
         c.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Título</th><th>Artista</th><th>Tono</th><th>Creado por</th></tr></thead><tbody>'
-            + list.map(s => '<tr><td>' + esc(s.title || 'Sin título') + '</td><td>' + esc(s.artist || '') + '</td><td>' + esc(s.originalKey || '') + '</td><td>' + esc(s.createdBy || '-') + '</td></tr>').join('')
+            + list.map(s => '<tr><td>' + esc(s.title || 'Sin título') + '</td><td>' + esc(s.artist || '') + '</td><td>' + esc(s.original_key || '') + '</td><td>' + esc(s.created_by || '-') + '</td></tr>').join('')
             + '</tbody></table></div>';
     } catch (e) { console.error(e); c.innerHTML = '<div class="admin-empty">Error al cargar.</div>' }
 }
 
+// ---------- Canciones: catálogo único ----------
+async function loadAdminSongsData(force) {
+    if (adminSongsCache && !force) return adminSongsCache;
+    if (!supabaseReady) return [];
+    const [{ data: rows, error: songsError }, { data: links, error: linksError }, { data: repRows, error: repsError }] = await Promise.all([
+        supabaseClient.from('songs').select('id,title,artist,original_key,created_by,updated_at').limit(10000),
+        supabaseClient.from('Biblioteca_general').select('song_id,user_id').limit(10000),
+        supabaseClient.from('canciones_repertorio').select('source_song_id').limit(10000)
+    ]);
+    if (songsError || linksError || repsError) throw (songsError || linksError || repsError);
+
+    const userCounts = {};
+    (links || []).forEach(link => { userCounts[link.song_id] = (userCounts[link.song_id] || 0) + 1; });
+    const inRepertorio = new Set((repRows || []).map(row => row.source_song_id).filter(Boolean));
+    adminSongsCache = (rows || []).map(row => ({
+        ...row,
+        userCount: userCounts[row.id] || 0,
+        inRepertorio: inRepertorio.has(row.id)
+    }));
+    return adminSongsCache;
+}
+
+// Carga el contenido completo de una canción del catálogo para reutilizar la
+// vista previa de solo lectura. Añadirla desde esa vista crea únicamente el
+// enlace personal del administrador en Biblioteca_general.
+async function previewAdminSong(songId) {
+    if (!isAdmin()) { alert('No tienes permisos para ver esta canción.'); return; }
+    if (cloudSongPreviewCache[songId]) {
+        showCloudSongPreviewModal(songId);
+        return;
+    }
+    if (!supabaseReady || !isOnline) {
+        alert('La vista previa del catálogo requiere conexión.');
+        return;
+    }
+    try {
+        const { data, error } = await supabaseClient.from('songs').select('*').eq('id', songId).maybeSingle();
+        if (error) throw error;
+        if (!data) { alert('No se encontró la canción.'); return; }
+        cloudSongPreviewCache[songId] = {
+            id: data.id,
+            sourceId: data.id,
+            title: data.title || 'Sin título',
+            artist: data.artist || 'Desconocido',
+            lyrics: data.lyrics || '',
+            originalKey: data.original_key || 'C',
+            tags: [],
+            tempo: data.tempo || 0,
+            compas: data.compas || '',
+            audio_url: data.audio_url || null,
+            createdAt: data.created_at,
+            createdBy: data.created_by || '',
+            createdById: data.created_by_id || ''
+        };
+        showCloudSongPreviewModal(songId);
+    } catch (e) {
+        console.error('previewAdminSong error:', e);
+        alert('No se pudo cargar la vista previa: ' + (e.message || 'error desconocido'));
+    }
+}
+
+async function renderAdminCanciones(force) {
+    const c = document.getElementById('admin-canciones-content');
+    if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return; }
+    c.innerHTML = '<div class="admin-empty">Cargando catálogo...</div>';
+    try {
+        const rows = await loadAdminSongsData(force);
+        const q = (document.getElementById('admin-canciones-search')?.value || '').trim().toLowerCase();
+        const filtered = rows.filter(row => !q
+            || (row.title || '').toLowerCase().includes(q)
+            || (row.artist || '').toLowerCase().includes(q)
+            || (row.id || '').toLowerCase().includes(q)
+        ).sort((a, b) => (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' }));
+        if (filtered.length === 0) {
+            c.innerHTML = '<div class="admin-empty">' + (rows.length ? 'No se encontraron canciones.' : 'No hay canciones registradas en songs.') + '</div>';
+            return;
+        }
+        c.innerHTML = '<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-zinc" onclick="adminSongsCache=null;renderAdminCanciones(true)">🔄 Refrescar</button></div>'
+            + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Título</th><th>Artista</th><th>Tono</th><th>Creado por</th><th>Bibliotecas</th><th>Repertorio</th><th>Acciones</th></tr></thead><tbody>'
+            + filtered.map(row => '<tr>'
+                + '<td><div>' + esc(row.title || 'Sin título') + '</div><div style="font-size:.58rem;color:#71717a;margin-top:4px;word-break:break-all">ID: ' + esc(row.id || '-') + '</div></td>'
+                + '<td>' + esc(row.artist || 'Desconocido') + '</td>'
+                + '<td>' + esc(row.original_key || '-') + '</td>'
+                + '<td>' + esc(row.created_by || '-') + '</td>'
+                + '<td style="text-align:center">' + row.userCount + '</td>'
+                + '<td>' + (row.inRepertorio ? '<span class="admin-badge-role admin">Bloqueada</span>' : '<span class="admin-badge-role usuario">Libre</span>') + '</td>'
+                + '<td><button class="btn btn-amber" style="padding:5px 10px;font-size:.72rem" onclick="previewAdminSong(\'' + row.id + '\')">Ver</button></td>'
+                + '</tr>').join('')
+            + '</tbody></table></div>';
+    } catch (e) {
+        console.error('renderAdminCanciones error:', e);
+        c.innerHTML = '<div class="admin-empty">No se pudo cargar el catálogo.</div>';
+    }
+}
+
 // ---------- Duplicados ----------
+// Con songs/Biblioteca_general, ya no puede haber "copias" duplicadas de una
+// misma canción (cada canción vive en songs una sola vez). Lo que sí puede
+// pasar es que dos canciones DISTINTAS (dos IDs distintos) tengan el mismo
+// título/artista porque se crearon por separado sin darse cuenta. Este panel
+// ahora detecta eso, y borrar una fila borra la canción entera de songs (se
+// bloqueará solo si sigue enlazada a un repertorio, por seguridad de la FK).
 async function renderAdminDuplicados() {
     const c = document.getElementById('admin-duplicados-content');
     if (!c) return;
@@ -386,43 +496,48 @@ async function renderAdminDuplicados() {
     c.innerHTML = '<div class="admin-empty">Buscando duplicados...</div>';
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
     try {
-        const { data: rows, error } = await supabaseClient.from('user_songs').select('id,user_id,song_data');
+        const { data: rows, error } = await supabaseClient.from('songs').select('id,title,artist,created_by');
         if (error || !rows) { c.innerHTML = '<div class="admin-empty">No se pudo cargar.</div>'; return }
         const groups = {};
-        rows.forEach(r => {
-            try {
-                const sd = typeof r.song_data === 'string' ? JSON.parse(r.song_data) : r.song_data;
-                if (!sd || !sd.title) return;
-                const key = (sd.title || '').trim().toLowerCase() + '|' + (sd.artist || '').trim().toLowerCase();
-                if (!groups[key]) groups[key] = [];
-                groups[key].push({ rowId: r.id, userId: r.user_id, id: sd.id, createdBy: sd.createdBy, title: sd.title, artist: sd.artist });
-            } catch (e) {}
+        rows.forEach(sd => {
+            if (!sd.title) return;
+            const key = (sd.title || '').trim().toLowerCase() + '|' + (sd.artist || '').trim().toLowerCase();
+            if (!groups[key]) groups[key] = [];
+            groups[key].push({ id: sd.id, createdBy: sd.created_by, title: sd.title, artist: sd.artist });
         });
-        const dupGroups = Object.entries(groups).filter(([k, arr]) => new Set(arr.map(x => x.id)).size > 1);
+        const dupGroups = Object.entries(groups).filter(([k, arr]) => arr.length > 1);
         if (dupGroups.length === 0) { c.innerHTML = '<div class="admin-empty">No se encontraron canciones duplicadas (mismo título/artista con IDs distintos).</div>'; return }
         c.innerHTML = dupGroups.map(([k, arr]) => {
             const title = k.split('|')[0], artist = k.split('|')[1];
             return '<div style="margin-bottom:14px">'
-                + '<div style="font-size:.82rem;font-weight:600;color:#e4e4e7;margin-bottom:6px">' + esc(title) + ' — ' + esc(artist) + ' <span style="color:#71717a;font-weight:400;font-size:.7rem">(' + arr.length + ' copias)</span></div>'
-                + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Usuario</th><th>Creado por</th><th>ID canción</th><th></th></tr></thead><tbody>'
-                + arr.map(x => '<tr><td style="font-size:.75rem">@' + esc(x.userId) + '</td><td style="font-size:.72rem;color:#a1a1aa">' + esc(x.createdBy || '-') + '</td><td style="font-size:.65rem;color:#52525b">' + esc(x.id || '-') + '</td><td><button class="btn-danger-sm" onclick="adminDeleteDuplicateCopy(\'' + x.rowId + '\',\'' + esc(x.userId) + '\',\'' + esc(title).replace(/'/g, "\\'") + '\')">🗑️ Borrar</button></td></tr>').join('')
+                + '<div style="font-size:.82rem;font-weight:600;color:#e4e4e7;margin-bottom:6px">' + esc(title) + ' — ' + esc(artist) + ' <span style="color:#71717a;font-weight:400;font-size:.7rem">(' + arr.length + ' canciones distintas)</span></div>'
+                + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Creado por</th><th>ID canción</th><th></th></tr></thead><tbody>'
+                + arr.map(x => '<tr><td style="font-size:.72rem;color:#a1a1aa">' + esc(x.createdBy || '-') + '</td><td style="font-size:.65rem;color:#52525b">' + esc(x.id || '-') + '</td><td><button class="btn-danger-sm" onclick="adminDeleteDuplicateCopy(\'' + x.id + '\',\'' + esc(title).replace(/'/g, "\\'") + '\')">🗑️ Borrar</button></td></tr>').join('')
                 + '</tbody></table></div>'
                 + '</div>';
         }).join('');
     } catch (e) { console.error(e); c.innerHTML = '<div class="admin-empty">Error al buscar duplicados.</div>' }
 }
 
-async function adminDeleteDuplicateCopy(rowId, userId, title) {
+async function adminDeleteDuplicateCopy(songId, title) {
     if (!isAdmin() || !supabaseReady) return;
-    if (!confirm('¿Eliminar esta copia de "' + title + '" de la biblioteca de @' + userId + '? Esta acción no se puede deshacer.')) return;
+    if (blockIfOffline()) return;
+    if (!confirm('¿Eliminar por completo la canción "' + title + '" (ID ' + songId + ')? Se quitará de la biblioteca de todos los que la tengan guardada. Esta acción no se puede deshacer.')) return;
     try {
-        const { error } = await supabaseClient.from('user_songs').delete().eq('id', rowId);
-        if (error) throw error;
-        showNotification('Copia eliminada', 'success');
+        const { error } = await supabaseClient.from('songs').delete().eq('id', songId);
+        if (error) {
+            if (error.message && /foreign key|violat/i.test(error.message)) {
+                alert('No se puede borrar: esta canción sigue enlazada a un repertorio. Quítala del repertorio primero.');
+                return;
+            }
+            throw error;
+        }
+        showNotification('Canción eliminada', 'success');
         logActivity('song_deleted', {
-            title: title,
-            targetUser: userId
-        }, 'song', null);
+            title: title
+        }, 'song', songId);
+        adminSongsCache = null;
+        renderAdminCanciones(true);
         renderAdminDuplicados();
     } catch (e) {
         alert('Error al eliminar: ' + e.message);
@@ -546,6 +661,7 @@ async function renderAdminR2Duplicates(force) {
 
 async function adminDeleteR2OnlyFile(key) {
     if (!isAdmin()) return;
+    if (blockIfOffline()) return;
     if (!confirm('¿Eliminar este archivo SOLO de Almacenamiento (R2)?\n\nNo se tocará ninguna canción, repertorio ni tabla de la base de datos — es solo limpieza del archivo sobrante. Esta acción no se puede deshacer.')) return;
     try {
         const deleteUrl = getR2DeleteUrl(key);
@@ -632,20 +748,16 @@ function renderAdminMantenimiento() {
 
 async function runAdminBackfillCreatedBy() {
     const resultEl = document.getElementById('admin-backfill-result');
+    if (blockIfOffline()) return;
     if (!supabaseReady) { resultEl.textContent = 'Sin conexión.'; return }
     resultEl.textContent = 'Procesando...';
     try {
         const { data: repRows, error: e1 } = await supabaseClient.from('canciones_repertorio').select('id,source_song_id,created_by').is('created_by', null);
         if (e1 || !repRows || repRows.length === 0) { resultEl.textContent = 'No hay filas pendientes de rellenar.'; return }
-        const { data: allSongs, error: e2 } = await supabaseClient.from('user_songs').select('song_data');
-        if (e2 || !allSongs) { resultEl.textContent = 'No se pudo consultar user_songs.'; return }
+        const { data: allSongs, error: e2 } = await supabaseClient.from('songs').select('id,created_by');
+        if (e2 || !allSongs) { resultEl.textContent = 'No se pudo consultar songs.'; return }
         const byId = {};
-        allSongs.forEach(r => {
-            try {
-                const sd = typeof r.song_data === 'string' ? JSON.parse(r.song_data) : r.song_data;
-                if (sd && sd.id && sd.createdBy && !byId[sd.id]) byId[sd.id] = sd.createdBy;
-            } catch (e) {}
-        });
+        allSongs.forEach(r => { if (r.id && r.created_by && !byId[r.id]) byId[r.id] = r.created_by });
         let updated = 0;
         for (const row of repRows) {
             const cb = row.source_song_id ? byId[row.source_song_id] : null;
@@ -751,18 +863,10 @@ async function renderAdminOrphanedAudios(force) {
             const { data: repRows } = await supabaseClient.from('canciones_repertorio').select('source_song_id');
             (repRows || []).forEach(r => { if (r.source_song_id) referencedSongIds.add(r.source_song_id) });
         } catch (e) {}
-        // 3. Tabla user_songs (song_data JSON)
+        // 3. Tabla songs (fuente canónica actual)
         try {
-            const { data: userSongsRows } = await supabaseClient.from('user_songs').select('song_data');
-            (userSongsRows || []).forEach(r => {
-                try {
-                    const sd = typeof r.song_data === 'string' ? JSON.parse(r.song_data) : r.song_data;
-                    if (sd) {
-                        if (sd.id) referencedSongIds.add(sd.id);
-                        if (sd.sourceId) referencedSongIds.add(sd.sourceId);
-                    }
-                } catch (e) {}
-            });
+            const { data: songRows } = await supabaseClient.from('songs').select('id');
+            (songRows || []).forEach(r => { if (r.id) referencedSongIds.add(r.id) });
         } catch (e) {}
 
         console.log('[OrphanDetector] referencedSongIds:', Array.from(referencedSongIds));
@@ -825,6 +929,7 @@ async function renderAdminOrphanedAudios(force) {
 
 async function adminDeleteOrphanedAudio(key) {
     if (!isAdmin()) return;
+    if (blockIfOffline()) return;
     if (!confirm('¿Eliminar este archivo huérfano de Storage? Ya se confirmó que ninguna canción, coro o repertorio lo usa.')) return;
     try {
         const deleteUrl = getR2DeleteUrl(key);
@@ -896,18 +1001,13 @@ async function getAllSongsMap() {
     if (allSongsCache) return allSongsCache;
     if (!supabaseReady) return {};
     try {
-        const { data: rows, error } = await supabaseClient.from('user_songs').select('song_data').limit(10000);
+        const { data: rows, error } = await supabaseClient.from('songs').select('*').limit(10000);
         if (error || !rows) return {};
         const map = {};
-        rows.forEach(row => {
-            try {
-                const sd = typeof row.song_data === 'string' ? JSON.parse(row.song_data) : row.song_data;
-                if (sd && sd.id) {
-                    map[sd.id] = sd;
-                    if (sd.sourceId) map[sd.sourceId] = sd;
-                    if (sd.source_song_id) map[sd.source_song_id] = sd;
-                }
-            } catch (e) {}
+        rows.forEach(r => {
+            // Se conserva la forma (originalKey, sourceId=id) que ya esperaba
+            // el resto del panel de Almacenamiento, para no tocar más código.
+            map[r.id] = { id: r.id, sourceId: r.id, title: r.title, artist: r.artist, originalKey: r.original_key, createdBy: r.created_by, audio_url: r.audio_url };
         });
         allSongsCache = map;
         return map;
@@ -1202,6 +1302,7 @@ function parseSongIdFromKey(key) {
 
 async function adminDeleteStorageAudio(key) {
     if (!isAdmin() || !supabaseReady) return;
+    if (blockIfOffline()) return;
     const isVocal = key.includes('vocal-audios');
     const isSong = key.includes('songs/');
     if (!isVocal && !isSong) return;
@@ -1233,27 +1334,12 @@ async function adminDeleteStorageAudio(key) {
                 console.log('✅ Referencia eliminada de canciones_repertorio');
             } catch (e) { console.warn('⚠️ Error actualizando canciones_repertorio:', e.message); }
             
-            // Eliminar de user_songs
+            // Eliminar de songs (fuente única y compartida del audio)
             try {
-                const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
-                if (userSongs) {
-                    let updated = 0;
-                    for (const us of userSongs) {
-                        try {
-                            const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
-                            if (sd && (sd.id === songId || sd.sourceId === songId)) {
-                                sd.audio_url = null;
-                                await supabaseClient.from('user_songs').update({ 
-                                    song_data: JSON.stringify(sd), 
-                                    updated_at: Date.now() 
-                                }).eq('id', us.id);
-                                updated++;
-                            }
-                        } catch (e) {}
-                    }
-                    console.log('✅ Referencias eliminadas de user_songs:', updated);
-                }
-            } catch (e) { console.warn('⚠️ Error actualizando user_songs:', e.message); }
+                await supabaseClient.from('songs').update({ audio_url: null, updated_at: Date.now() }).eq('id', songId);
+                console.log('✅ Referencia eliminada de songs');
+                allSongsCache = null;
+            } catch (e) { console.warn('⚠️ Error actualizando songs:', e.message); }
             
             logActivity('audio_deleted', { 
                 type: 'song', 
@@ -1305,6 +1391,7 @@ let pendingReplaceSongData = null;
 
 async function triggerAdminStorageReplace(key) {
     if (!isAdmin()) return;
+    if (blockIfOffline()) return;
     pendingReplaceKey = key;
     pendingReplaceType = key.includes('vocal-audios') ? 'vocal' : 'song';
     pendingReplaceSongData = await resolveSongDataForKey(key);
@@ -1314,6 +1401,7 @@ async function triggerAdminStorageReplace(key) {
 async function handleAdminStorageReplace(e) {
     const file = e.target.files[0];
     if (!file || !pendingReplaceKey) return;
+    if (blockIfOffline()) { e.target.value = ''; return }
     if (!supabaseReady) { alert('Sin conexión a Supabase'); e.target.value = ''; return }
 
     const key = pendingReplaceKey;
@@ -1338,18 +1426,10 @@ async function handleAdminStorageReplace(e) {
             if (!audioUrl) throw new Error('El worker no devolvió URL');
 
             await supabaseClient.from('canciones_repertorio').update({ audio_url: audioUrl }).eq('source_song_id', songId);
-            const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
-            if (userSongs) {
-                for (const us of userSongs) {
-                    try {
-                        const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
-                        if (sd && (sd.id === songId || sd.sourceId === songId)) {
-                            sd.audio_url = audioUrl;
-                            await supabaseClient.from('user_songs').update({ song_data: JSON.stringify(sd), updated_at: Date.now() }).eq('id', us.id);
-                        }
-                    } catch (e) {}
-                }
-            }
+            // songs es ahora la fuente única y compartida del audio: un solo
+            // update basta, ya no hace falta recorrer copias en user_songs.
+            await supabaseClient.from('songs').update({ audio_url: audioUrl, updated_at: Date.now() }).eq('id', songId);
+            allSongsCache = null;
             logActivity('audio_uploaded', { type: 'song', songTitle: (songData && songData.title) || songId, fileSize: file.size }, 'song', songId);
         } else {
             const parts = parseVocalKeyParts(key);
@@ -1396,9 +1476,9 @@ if (typeof showPage === 'function') {
         _adminOriginalShowPage(name);
         if (name === 'admin') renderAdminPanel();
         if (name === 'admin-usuarios') initAdminUsuariosPage();
-        if (name === 'admin-duplicados') { renderAdminDuplicados(); renderAdminR2Duplicates(); }
+        if (name === 'admin-canciones') { renderAdminCanciones(true); renderAdminDuplicados(); }
         if (name === 'admin-repertorios') renderAdminRepertorios();
-        if (name === 'admin-mantenimiento') renderAdminMantenimiento();
+        if (name === 'admin-mantenimiento') { renderAdminMantenimiento(); renderAdminR2Duplicates(); }
         if (name === 'admin-delete-users') { loadAdminUsersData(true).then(() => renderAdminInactiveUsersSection()); }
         if (name === 'admin-storage') renderAdminStorage();
 	if (name === 'admin-logs') { logsPage = 0; renderAdminLogs(); }

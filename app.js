@@ -121,7 +121,7 @@ function dn(note) { if (!note) return ''; const idx = NOTE_MAP[note]; if (idx ==
 function nn(n) { return NOTE_MAP[n] !== undefined ? dn(n) : n }
 function displayNote(n) { return dn(n) }
 function displayChord(c) { return c.replace(/([A-G][#b]?)/g, (match) => { const idx = NOTE_MAP[match]; if (idx === undefined) return match; return useFlats ? FLATS[idx] : SHARPS[idx] }) }
-function toggleNotation() { useFlats = !useFlats; save('cb_use_flats', useFlats); const btns = document.querySelectorAll('#notation-toggle,#lib-notation-toggle'); btns.forEach(b => b.innerHTML = useFlats ? '♭' : '#'); if (viewingRepId) { const r = repertorios.find(x => x.id === viewingRepId); const s = r?.canciones.find(x => x.id === viewingRepSongId); if (s) { repCurrentKey = dn(s.tono_original) } } if (viewingSongId) { const s = songs.find(x => x.id === viewingSongId); if (s && NOTE_MAP[s.currentKey] !== undefined) { s.currentKey = dn(s.currentKey); save('cb_songs', songs) } } if (viewingRepId) renderRepSongLyrics(); if (viewingSongId) renderView(); renderLibrary() }
+function toggleNotation() { useFlats = !useFlats; if (isOnline) save('cb_use_flats', useFlats); const btns = document.querySelectorAll('#notation-toggle,#lib-notation-toggle'); btns.forEach(b => b.innerHTML = useFlats ? '♭' : '#'); if (viewingRepId) { const r = repertorios.find(x => x.id === viewingRepId); const s = r?.canciones.find(x => x.id === viewingRepSongId); if (s) { repCurrentKey = dn(s.tono_original) } } if (viewingSongId) { const s = songs.find(x => x.id === viewingSongId); if (s && NOTE_MAP[s.currentKey] !== undefined) { s.currentKey = dn(s.currentKey); if (isOnline) save('cb_songs', songs) } } if (viewingRepId) renderRepSongLyrics(); if (viewingSongId) renderView(); renderLibrary() }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
 
 // Parse filename: "Nombre - Artista - Tono - BPM" or simpler formats
@@ -192,6 +192,10 @@ let supabaseClient = null;
 let currentUser = null;
 let syncInProgress = false;
 let pendingSync = false;
+let pendingSyncDeleteIds = [];
+// Identifica para qué usuario se cargó la caché local. Evita que al cambiar
+// de sesión una biblioteca anterior se interprete como la del nuevo usuario.
+let songsCloudLoadedForUserId = null;
 let addSongDefaultDia = 'ambos';
 let addSongDirectMode = false;
 let vocalEditorRepId = null;
@@ -234,21 +238,28 @@ function isSongInAnyRepertorio(songId) {
     return repertorios.some(r => r.canciones && r.canciones.some(c => c.source_song_id === songId));
 }
 
+// La caché offline es exclusivamente de lectura. Para una canción normal,
+// además de estar online, el usuario debe ser su creador estable (username).
+// Las canciones antiguas sin createdById quedan reservadas a los roles globales.
+function canEditSong(song) {
+    if (!song || !isOnline) return false;
+    const songId = song.sourceId || song.id;
+    if (isAdmin() || isDMusicos() || isSubAdmin()) return true;
+    if (!currentUser) return !song.createdById && !isSongInAnyRepertorio(songId);
+    return !!song.createdById && song.createdById === currentUser.id && !isSongInAnyRepertorio(songId);
+}
+
 async function isSongAudioNeededElsewhere(songId) {
     if (!songId) return true;
     if (isSongInAnyRepertorio(songId)) return true;
     if (!supabaseReady) return true;
     try {
         const myId = currentUser ? currentUser.id : null;
-        const { data: matches, error } = await supabaseClient.from('user_songs').select('user_id,song_data').limit(10000);
+        // Con songs/Biblioteca_general, "necesaria en otro lado" significa que
+        // algún OTRO usuario todavía tiene esta canción enlazada en su biblioteca.
+        const { data: matches, error } = await supabaseClient.from('Biblioteca_general').select('user_id').eq('song_id', songId).limit(1000);
         if (error || !matches) return true;
-        return matches.some(m => {
-            if (myId && m.user_id === myId) return false;
-            try {
-                const sd = typeof m.song_data === 'string' ? JSON.parse(m.song_data) : m.song_data;
-                return sd && sd.id === songId;
-            } catch (e) { return false }
-        });
+        return matches.some(m => !myId || m.user_id !== myId);
     } catch (e) { console.error('isSongAudioNeededElsewhere error:', e); return true }
 }
 
@@ -448,51 +459,38 @@ function closeImportConfirmModal() {
     window._importPendingList = null;
 }
 
-function confirmImportAll(listId) {
+async function confirmImportAll(listId) {
+    if (blockIfOffline()) return;
     const pending = window._importPendingList;
     if (!pending) return;
 
-    // Add ALL new songs to library
-    pending.newSongs.forEach(s => {
-        const songId = s.id || genId();
-        const existing = songs.find(x => x.id === songId);
-        if (!existing) {
-            const dk = s.originalKey || (s.lyrics ? detectKey(s.lyrics) : 'C');
-            songs.push({
-                id: songId,
-                sourceId: s.id || null,
-                sourceType: s.id ? 'imported' : undefined,
-                title: s.title || 'Sin título',
-                artist: s.artist || 'Desconocido',
-                lyrics: s.lyrics || '',
-                originalKey: dk,
-                currentKey: dk,
-                tempo: s.tempo || 0,
-                compas: s.compas || '',
-                tags: s.tags || [],
-                audio_url: s.audio_url || null,
-                createdAt: s.createdAt || Date.now(),
-                updatedAt: Date.now(),
-                createdBy: s.createdBy || ''
-            });
-        }
+    // Aunque quedara un modal antiguo abierto, solo se aceptan IDs y el
+    // contenido se vuelve a leer desde songs. Nunca se usa la información que
+    // pudiera venir embebida en el archivo.
+    const ids = [...new Set(pending.newSongs.map(s => s && s.id).filter(Boolean))];
+    let rows = [];
+    try {
+        rows = await fetchCanonicalSongsByIds(ids);
+    } catch (e) {
+        showNotification('No se pudo consultar songs: ' + e.message, 'error');
+        return;
+    }
+    rows.forEach(row => {
+        if (!songs.find(x => x.id === row.id)) songs.push(canonicalSongToLocal(row));
     });
 
     save('cb_songs', songs);
+    createOrMergeList(pending.listData, ids.map(id => ({ id })));
 
-    // Create or merge list
-    createOrMergeList(pending.listData, pending.fileSongs);
-
-    if (currentUser && supabaseReady) {
-        syncSongsToCloud();
-    }
+    if (currentUser && supabaseReady) syncSongsToCloud();
 
     closeImportConfirmModal();
     renderLists();
-    showNotification(`✅ ${pending.newSongs.length} canciones añadidas a tu biblioteca`, 'success');
+    showNotification('✅ ' + rows.length + ' canciones añadidas a tu biblioteca', 'success');
 }
 
 function confirmImportLater() {
+    if (blockIfOffline()) return;
     const pending = window._importPendingList;
     if (!pending) return;
 
@@ -509,6 +507,10 @@ function confirmImportLater() {
 function showCloudSongPreviewModal(songId) {
     const preview = cloudSongPreviewCache[songId];
     if (!preview) { alert('Aún no se pudo obtener el contenido de esta canción.'); return }
+    const alreadyInLibrary = songs.some(song => (song.sourceId || song.id) === songId);
+    const libraryAction = alreadyInLibrary
+        ? '<button class="btn btn-zinc" style="width:100%;opacity:.75" disabled>Ya está en mi biblioteca</button>'
+        : '<button class="btn btn-amber" style="width:100%" onclick="addCloudSongToLibraryFromList(\'\',\'' + songId + '\');document.getElementById(\'cloud-preview-modal\').remove()">Añadir a mi biblioteca</button>';
     const old = document.getElementById('cloud-preview-modal');
     if (old) old.remove();
     const modal = document.createElement('div');
@@ -536,28 +538,20 @@ function showCloudSongPreviewModal(songId) {
         + '<div style="font-size:.8rem;color:#a1a1aa">' + esc(preview.artist || 'Desconocido') + (preview.createdBy ? ' · Creado por ' + esc(preview.createdBy) : '') + '</div></div>'
         + '<button onclick="document.getElementById(\'cloud-preview-modal\').remove()" style="background:none;border:none;color:#a1a1aa;font-size:1.4rem;line-height:1;padding:4px;flex-shrink:0">×</button></div>'
         + '<div style="display:flex;gap:8px;margin:6px 0 12px;flex-wrap:wrap">' + (preview.originalKey ? '<span class="tag tag-key">' + dn(preview.originalKey) + '</span>' : '') + (preview.tempo ? '<span class="tag tag-zinc">' + preview.tempo + ' BPM</span>' : '') + (preview.compas ? '<span class="tag tag-zinc">' + esc(preview.compas) + '</span>' : '') + '</div>'
-        + '<div style="font-size:.65rem;color:#71717a;margin-bottom:10px">👁 Vista previa — esta canción aún no está en tu biblioteca</div>'
+        + '<div style="font-size:.65rem;color:#71717a;margin-bottom:10px">👁 Vista previa — ' + (alreadyInLibrary ? 'esta canción ya está en tu biblioteca' : 'esta canción aún no está en tu biblioteca') + '</div>'
         + '<div class="lyrics-container" style="margin-bottom:18px">' + (lyricsHtml || '<div class="lyrics-line">(Sin letra)</div>') + '</div>'
-        + '<button class="btn btn-amber" style="width:100%" onclick="addCloudSongToLibraryFromList(\'\',\'' + songId + '\');document.getElementById(\'cloud-preview-modal\').remove()">Añadir a mi biblioteca</button>'
+        + libraryAction
         + '</div>';
     document.body.appendChild(modal);
 }
 
 function createOrMergeList(listData, fileSongs, pendingOnly = false) {
+    if (blockIfOffline()) return false;
     const allSongIds = fileSongs.map(s => s.id || genId());
     const existingList = lists.find(l => l.name === listData.name);
 
-    // Aunque se elija "guardar después", ya tenemos los datos reales de cada
-    // canción en el JSON importado (título, letra, tono, createdBy...). No hace
-    // falta descartarlos y esperar a una búsqueda en la nube que podría no
-    // encontrar nada (por ejemplo si el creador original nunca sincronizó esa
-    // canción). Se precarga la vista previa directamente con esos datos.
-    if (pendingOnly) {
-        fileSongs.forEach((s, i) => {
-            const sid = allSongIds[i];
-            if (cloudSongPreviewCache[sid] === undefined) cloudSongPreviewCache[sid] = s;
-        });
-    }
+    // El JSON solo contiene IDs. Las vistas previas de canciones que aún no
+    // estén en la biblioteca se consultan después directamente desde songs.
 
     if (existingList) {
         const newIds = allSongIds.filter(id => !existingList.songIds.includes(id));
@@ -679,9 +673,10 @@ function updateOnlineStatus(online) {
     else if (activeId === 'page-repertorio') renderRepertorioView();
     else if (activeId === 'page-rep-song') renderRepSongView();
     if (online && wasOffline) {
-        // Recuperamos conexión: traer todo a lo más reciente y pisar la copia guardada
+        // Como offline no acepta cambios, al volver la conexión se puede
+        // reemplazar la caché por el estado actual de la nube, incluso si es [].
         loadSongsFromCloud().then(cloudSongs => {
-            if (cloudSongs && cloudSongs.length > 0) { songs = cloudSongs; save('cb_songs', songs); renderLibrary() }
+            if (cloudSongs !== null) { songs = cloudSongs; save('cb_songs', songs); renderLibrary() }
         }).catch(() => {});
         loadRepertorios().then(() => {
             if (activeId === 'page-repertorios') renderRepertorios();
@@ -717,66 +712,209 @@ function updateSyncStatus(status) {
     }
 }
 
-async function syncSongsToCloud() {
+// syncSongsToCloud() se sigue llamando desde todos los mismos sitios que antes
+// (después de tocar el array local `songs`), pero por dentro ahora escribe en
+// dos tablas separadas en vez de duplicar el JSON completo por usuario:
+//   1) songs: primero se publica el CONTENIDO real de la canción (letra,
+//      audio, tono original...) solo para las canciones que este usuario puede
+//      editar (propias y no enlazadas a un repertorio, o cualquiera si es
+//      admin/SubAdmin/D_Musicos).
+//   2) Biblioteca_general: después se sincronizan los enlaces (user_id +
+//      song_id + tono personal) del usuario actual. La sincronización normal
+//      nunca elimina enlaces remotos aunque falten en la caché local; solo las
+//      acciones explícitas de "Eliminar de mi biblioteca" pasan
+//      allowLinkDeletes:true después de la confirmación del usuario. Así se
+//      respeta la FK hacia songs y nunca se pierde una biblioteca por una
+//      carga local incompleta.
+async function syncSongsToCloud(options) {
+    options = options || {};
+    if (!isOnline) return;
+    const allowLinkDeletes = options.allowLinkDeletes === true;
+    const requestedDeleteIds = new Set((options.deleteSongIds || []).filter(Boolean));
     if (!currentUser || !supabaseReady) return;
-    if (syncInProgress) { pendingSync = true; return }
+    if (syncInProgress) {
+        pendingSync = true;
+        if (allowLinkDeletes) {
+            pendingSyncDeleteIds = [...new Set([...pendingSyncDeleteIds, ...requestedDeleteIds])];
+        }
+        return;
+    }
     syncInProgress = true;
     updateSyncStatus('syncing');
     try {
         const localSongs = load('cb_songs', []);
-        try {
-            await supabaseClient.from('user_songs').delete().eq('user_id', currentUser.id);
-        } catch (delErr) {
-            if (delErr.message && delErr.message.includes('row-level security')) {
-                console.error('⚠️ RLS bloquea DELETE. Ejecuta: ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;');
-            }
+
+        // Primero se publica el contenido en songs. Biblioteca_general tiene
+        // una FK hacia songs, por lo que hacerlo al revés provocaba un 409 al
+        // crear una canción nueva: el enlace intentaba llegar antes que su
+        // fila padre.
+        // No se vuelve a publicar contenido ajeno solo por tenerlo en la
+        // biblioteca. La RLS aplica la misma regla en el servidor.
+        const editable = localSongs.filter(song => canEditSong(song) && song.needsCloudSync === true);
+        const publishedSongIds = new Set();
+        for (const song of editable) {
+            const sid = song.sourceId || song.id;
+            const audioUrl = song.audio_url ? normalizeVocalAudioUrl(song.audio_url) : null;
+            const { error } = await supabaseClient.from('songs').upsert({
+                id: sid,
+                title: song.title,
+                artist: song.artist,
+                lyrics: song.lyrics || '',
+                original_key: song.originalKey,
+                tempo: song.tempo || 0,
+                compas: song.compas || '',
+                audio_url: audioUrl,
+                created_by: song.createdBy || '',
+                created_by_id: song.createdById || null,
+                modified_by: song.modifiedBy || '',
+                created_at: song.createdAt || Date.now(),
+                updated_at: song.updatedAt || Date.now()
+            }, { onConflict: 'id' });
+            if (error) throw error;
+            publishedSongIds.add(sid);
         }
-        if (localSongs.length > 0) {
-            const songsToInsert = localSongs.map(song => {
-                const songCopy = { ...song };
-                if (songCopy.audio_url) songCopy.audio_url = normalizeVocalAudioUrl(songCopy.audio_url);
-                return { user_id: currentUser.id, song_data: songCopy, created_at: song.createdAt || Date.now(), updated_at: song.updatedAt || Date.now() };
+
+        if (publishedSongIds.size > 0) {
+            songs.forEach(song => {
+                const sid = song.sourceId || song.id;
+                if (publishedSongIds.has(sid)) delete song.needsCloudSync;
             });
-            for (let i = 0; i < songsToInsert.length; i += 50) {
-                const batch = songsToInsert.slice(i, i + 50);
-                const { error } = await supabaseClient.from('user_songs').insert(batch);
-                if (error) throw error;
+            save('cb_songs', songs);
+        }
+
+        // Enlaces de biblioteca (Biblioteca_general): se comparan contra lo
+        // que ya hay en la nube y solo se insertan/actualizan/borran las
+        // diferencias. Los nuevos enlaces usan upsert para que una carrera
+        // entre pestañas no vuelva a producir un 409 por la PK compuesta.
+        const { data: cloudLinks, error: readErr } = await supabaseClient.from('Biblioteca_general').select('song_id,current_key').eq('user_id', currentUser.id);
+        if (readErr) throw readErr;
+        const cloudMap = new Map((cloudLinks || []).map(l => [l.song_id, l.current_key]));
+
+        // Map por song_id: si el array local tuviera un id repetido, aquí se
+        // deduplica y se conserva el último tono personal.
+        const localMap = new Map();
+        localSongs.forEach(song => {
+            const sid = song.sourceId || song.id;
+            if (!sid) return;
+            const ck = (song.currentKey && song.currentKey !== song.originalKey) ? song.currentKey : null;
+            localMap.set(sid, ck);
+        });
+
+        const existingSongIds = new Set();
+        if (localMap.size > 0) {
+            const { data: parentRows, error: parentErr } = await supabaseClient.from('songs').select('id').in('id', [...localMap.keys()]);
+            if (parentErr) throw parentErr;
+            (parentRows || []).forEach(row => existingSongIds.add(row.id));
+        }
+        const missingParentIds = [...localMap.keys()].filter(sid => !existingSongIds.has(sid));
+        if (missingParentIds.length > 0) {
+            throw new Error('No se pudo confirmar en songs: ' + missingParentIds.join(', ') + '. No se modificó Biblioteca_general.');
+        }
+
+        const desiredLinks = [], toUpdate = [], toDeleteIds = [];
+        for (const [sid, ck] of localMap) {
+            if (!cloudMap.has(sid)) desiredLinks.push({ user_id: currentUser.id, song_id: sid, current_key: ck });
+            else if (cloudMap.get(sid) !== ck) toUpdate.push({ song_id: sid, current_key: ck });
+        }
+        if (allowLinkDeletes) {
+            for (const sid of requestedDeleteIds) {
+                if (cloudMap.has(sid) && !localMap.has(sid)) toDeleteIds.push(sid);
             }
         }
+
+        for (let i = 0; i < desiredLinks.length; i += 50) {
+            const batch = desiredLinks.slice(i, i + 50);
+            const { error } = await supabaseClient.from('Biblioteca_general').upsert(batch, { onConflict: 'user_id,song_id' });
+            if (error) throw error;
+        }
+        for (const u of toUpdate) {
+            const { error } = await supabaseClient.from('Biblioteca_general').update({ current_key: u.current_key }).eq('user_id', currentUser.id).eq('song_id', u.song_id);
+            if (error) throw error;
+        }
+        if (allowLinkDeletes && toDeleteIds.length > 0) {
+            const { error } = await supabaseClient.from('Biblioteca_general').delete().eq('user_id', currentUser.id).in('song_id', toDeleteIds);
+            if (error) throw error;
+        }
+
+        songsCloudLoadedForUserId = currentUser.id;
+        localStorage.setItem('cb_songs_owner', currentUser.id);
+        const rerunDeleteIds = pendingSyncDeleteIds;
         syncInProgress = false;
         pendingSync = false;
+        pendingSyncDeleteIds = [];
         updateSyncStatus('synced');
+        if (rerunDeleteIds.length > 0) syncSongsToCloud({ allowLinkDeletes: true, deleteSongIds: rerunDeleteIds });
     } catch (e) {
         console.error('Error syncing to cloud:', e);
         syncInProgress = false;
         pendingSync = true;
+        pendingSyncDeleteIds = [];
         updateSyncStatus('error');
+        if (e.code === '23503' || (e.message && e.message.includes('No se pudo confirmar en songs'))) {
+            showNotification('No se pudo sincronizar: la canción no está confirmada en songs.', 'error');
+        }
         if (e.code === '42501' || (e.message && e.message.includes('row-level security'))) {
-            console.error('⚠️ Error de RLS en user_songs. Ejecuta: ALTER TABLE user_songs DISABLE ROW LEVEL SECURITY;');
+            console.error('⚠️ Error de RLS al sincronizar songs/Biblioteca_general.');
         }
     }
 }
 
+// loadSongsFromCloud() conserva el mismo contrato de siempre (devuelve el array
+// de canciones o null, y guarda en 'cb_songs'), pero ahora arma cada canción
+// juntando songs (contenido compartido) + Biblioteca_general (tono personal).
 async function loadSongsFromCloud() {
-    if (!currentUser || !supabaseReady) return null;
+    if (!currentUser || !supabaseReady || !isOnline) return null;
     updateSyncStatus('loading');
     try {
-        const { data, error } = await supabaseClient.from('user_songs').select('song_data').eq('user_id', currentUser.id).limit(10000);
-        if (error) throw error;
-        if (data && data.length > 0) {
-            const cloudSongs = data.map(d => {
-                try {
-                    const parsed = typeof d.song_data === 'string' ? JSON.parse(d.song_data) : d.song_data;
-                    if (parsed && parsed.audio_url) parsed.audio_url = normalizeVocalAudioUrl(parsed.audio_url);
-                    return parsed;
-                } catch (e) { return null }
-            }).filter(s => s !== null);
-            save('cb_songs', cloudSongs);
+        const { data: links, error: linkErr } = await supabaseClient.from('Biblioteca_general').select('song_id,current_key').eq('user_id', currentUser.id).limit(10000);
+        if (linkErr) throw linkErr;
+        if (!links || links.length === 0) {
+            // Cero enlaces es un estado válido y distinto de un error de red.
+            // Se devuelve [] para esta sesión, pero nunca se sobrescribe la
+            // copia local: una respuesta vacía no debe destruir el respaldo
+            // guardado en el navegador.
+            songsCloudLoadedForUserId = currentUser.id;
+            localStorage.setItem('cb_songs_owner', currentUser.id);
             updateSyncStatus('synced');
-            return cloudSongs;
+            return [];
         }
+
+        const songIds = links.map(l => l.song_id);
+        const { data: songRows, error: songErr } = await supabaseClient.from('songs').select('*').in('id', songIds);
+        if (songErr) throw songErr;
+        if (!songRows || songRows.length !== songIds.length) {
+            throw new Error('La biblioteca contiene enlaces sin canción correspondiente; no se reemplazó la caché local.');
+        }
+
+        const ckMap = {};
+        links.forEach(l => { ckMap[l.song_id] = l.current_key });
+
+        const cloudSongs = (songRows || []).map(r => {
+            const ck = ckMap[r.id];
+            return {
+                id: r.id,
+                sourceId: r.id,
+                title: r.title,
+                artist: r.artist,
+                lyrics: r.lyrics || '',
+                originalKey: r.original_key,
+                currentKey: ck || r.original_key,
+                tempo: r.tempo || 0,
+                compas: r.compas || '',
+                audio_url: r.audio_url ? normalizeVocalAudioUrl(r.audio_url) : null,
+                tags: [],
+                createdAt: r.created_at,
+                updatedAt: r.updated_at,
+                createdBy: r.created_by || '',
+                createdById: r.created_by_id || '',
+                modifiedBy: r.modified_by || ''
+            };
+        });
+        save('cb_songs', cloudSongs);
+        songsCloudLoadedForUserId = currentUser.id;
+        localStorage.setItem('cb_songs_owner', currentUser.id);
         updateSyncStatus('synced');
-        return null;
+        return cloudSongs;
     } catch (e) {
         console.error('Error loading from cloud:', e);
         updateSyncStatus('error');
@@ -786,6 +924,7 @@ async function loadSongsFromCloud() {
 
 // ============= REALTIME SUBSCRIPTIONS =============
 let _userSongsChannelActive = false;
+let _songsContentChannelActive = false;
 let _userRoleChannelActive = false;
 let _vocalNotesChannelActive = false;
 let _repertoriosChannelActive = false;
@@ -839,8 +978,30 @@ function setupRealtimeSubscriptions() {
     if (currentUser && currentUser.id && !_userSongsChannelActive) {
         _userSongsChannelActive = true;
         supabaseClient.channel('user-songs-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'user_songs', filter: 'user_id=eq.' + currentUser.id }, function(payload) {
-                console.log('Realtime user_songs change:', payload.eventType);
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'Biblioteca_general', filter: 'user_id=eq.' + currentUser.id }, function(payload) {
+                console.log('Realtime Biblioteca_general change:', payload.eventType);
+                loadSongsFromCloud().then(function(cloudSongs) {
+                    if (cloudSongs) {
+                        songs = cloudSongs;
+                        if (document.getElementById('page-library')?.classList.contains('active')) renderLibrary();
+                        if (viewingSongId) renderView();
+                    }
+                });
+            })
+            .subscribe();
+    }
+
+    // Con songs compartida, un cambio de contenido (letra, audio, tono) hecho
+    // por admin/SubAdmin/D_Musicos ya no llega por 'user-songs-changes' (esa
+    // solo avisa cuando cambian TUS enlaces). Se escucha 'songs' completa y se
+    // filtra en el cliente si la canción tocada está en tu biblioteca actual.
+    if (!_songsContentChannelActive) {
+        _songsContentChannelActive = true;
+        supabaseClient.channel('songs-content-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'songs' }, function(payload) {
+                const changedId = (payload.new && payload.new.id) || (payload.old && payload.old.id);
+                if (!changedId || !Array.isArray(songs) || !songs.some(s => s.id === changedId)) return;
+                console.log('Realtime songs change (canción en tu biblioteca):', changedId);
                 loadSongsFromCloud().then(function(cloudSongs) {
                     if (cloudSongs) {
                         songs = cloudSongs;
@@ -950,7 +1111,7 @@ function initAuth() {
                             }
                             console.log('User logged in (Auth), loading songs from cloud...');
                             loadSongsFromCloud().then(function(cloudSongs) {
-                                if (cloudSongs && cloudSongs.length > 0) {
+                                if (cloudSongs !== null) {
                                     songs = cloudSongs;
                                     renderLibrary();
                                 }
@@ -967,7 +1128,7 @@ function initAuth() {
                 } else {
                     console.log('User logged in, loading songs from cloud...');
                     loadSongsFromCloud().then(cloudSongs => {
-                        if (cloudSongs && cloudSongs.length > 0) {
+                        if (cloudSongs !== null) {
                             songs = cloudSongs;
                             renderLibrary();
                             console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
@@ -1100,7 +1261,7 @@ async function handleLogin(e) {
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
     if (!username || !password) { showAuthError('Por favor completa todos los campos'); return }
-    if (!supabaseReady) { showAuthError('Sin conexión a internet. No se puede iniciar sesión.'); return }
+    if (!isOnline || !supabaseReady) { showAuthError('Sin conexión a internet. No se puede iniciar sesión.'); return }
     try {
         let data;
         let authUid = null;
@@ -1118,6 +1279,14 @@ async function handleLogin(e) {
             if (error || !rowData) { showAuthError('Usuario o contraseña incorrectos'); return }
             data = rowData;
         }
+
+        // Guardar el estado anterior solo para permitir la migración inicial de
+        // una biblioteca local antigua. Si ya conocemos su propietario, nunca
+        // se reutiliza al entrar con otra cuenta.
+        const previousLocalSongs = Array.isArray(songs) ? songs.slice() : [];
+        const previousSongsOwner = localStorage.getItem('cb_songs_owner');
+        const canMigrateLegacyLocal = !previousSongsOwner && previousLocalSongs.length > 0;
+        if (previousSongsOwner && previousSongsOwner !== data.id) songs = [];
 
         // ✅ Establecer currentUser
         currentUser = { 
@@ -1145,20 +1314,38 @@ async function handleLogin(e) {
             console.warn('⚠️ No se pudo actualizar last_login:', updateErr.message);
         }
 
-        // ✅ Cargar canciones
+        // ✅ Cargar canciones. [] significa "biblioteca remota vacía"; null
+        // significa que no se pudo leer. Solo la migración local sin dueño
+        // conocido se sube automáticamente en el primer inicio de sesión.
         const cloudSongs = await loadSongsFromCloud();
-        if (cloudSongs && cloudSongs.length > 0) {
+        if (cloudSongs !== null && cloudSongs.length > 0) {
             songs = cloudSongs;
             renderLibrary();
             showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + cloudSongs.length + ' canciones sincronizadas.', 'success');
-        } else {
-            if (songs.length > 0) {
-                await syncSongsToCloud();
-                showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + songs.length + ' canciones subidas al servidor.', 'success');
-            } else {
-                showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Tu biblioteca está vacía.', 'success');
-            }
+        } else if (cloudSongs !== null && canMigrateLegacyLocal) {
+            // La primera migración de la caché local antigua no tenía un
+            // creador estable. Al vincularla explícitamente a esta cuenta,
+            // queda protegida por la nueva RLS desde el primer sync.
+            const migrationCreatorName = data.nombre ? data.nombre + ' ' + (data.apellido || '') : data.id;
+            songs = previousLocalSongs.map(song => ({
+                ...song,
+                createdBy: song.createdBy || migrationCreatorName,
+                createdById: song.createdById || data.id,
+                needsCloudSync: true
+            }));
+            save('cb_songs', songs);
+            await syncSongsToCloud();
+            showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! ' + songs.length + ' canciones subidas al servidor.', 'success');
             renderLibrary();
+        } else if (cloudSongs !== null) {
+            songs = [];
+            renderLibrary();
+            showNotification('¡Bienvenido ' + esc(data.nombre || data.id) + '! Tu biblioteca está vacía.', 'success');
+        } else {
+            // Error de lectura: conservar lo que corresponda a esta sesión,
+            // pero no sincronizarlo ni borrar enlaces remotos.
+            renderLibrary();
+            showNotification('No se pudo cargar tu biblioteca. No se modificó la nube.', 'error');
         }
     } catch (e) {
         console.error('Error en handleLogin:', e);
@@ -1181,7 +1368,7 @@ async function handleRegister(e) {
     if (password !== passwordConfirm) { showAuthError('Las contraseñas no coinciden'); return }
     const minLen = USE_SUPABASE_AUTH ? 6 : 4;
     if (password.length < minLen) { showAuthError('La contraseña debe tener al menos ' + minLen + ' caracteres'); return }
-    if (!supabaseReady) { showAuthError('Sin conexión a internet. No se puede registrar.'); return }
+    if (!isOnline || !supabaseReady) { showAuthError('Sin conexión a internet. No se puede registrar.'); return }
     try {
         const { data: existingAdmin } = await supabaseClient.from('admin_users').select('id').eq('id', username).maybeSingle();
         if (existingAdmin) { showAuthError('Este usuario ya está registrado'); return }
@@ -1400,7 +1587,9 @@ document.addEventListener('visibilitychange', function() {
 });
 // ============= REPERTORIOS FUNCTIONS =============
 async function loadRepertorios() {
-    if (!supabaseReady) return;
+    // En offline se conserva la copia local y no se intenta ni siquiera la
+    // limpieza automática de duplicados, que sería una escritura remota.
+    if (!supabaseReady || !isOnline) return;
     try {
         const { data: reps, error: e1 } = await supabaseClient.from('repertorios').select('*').order('fecha_domingo', { ascending: false });
         if (e1) throw e1;
@@ -1520,6 +1709,10 @@ async function loadSectionNotes(sourceSongId, dia) {
 }
 
 async function saveSectionNote(sourceSongId, dia, sectionName, noteText) {
+    if (!canEditVocals() || !sourceSongId) {
+        if (!isOnline) blockIfOffline();
+        return;
+    }
     var cacheKey = sourceSongId + '_' + dia;
     var notes = await loadSectionNotes(sourceSongId, dia);
     if (noteText) { notes[sectionName] = noteText } else { delete notes[sectionName] }
@@ -1538,6 +1731,10 @@ async function saveSectionNote(sourceSongId, dia, sectionName, noteText) {
 }
 
 function onSectionNoteInput(sourceSongId, dia, sectionName, input) {
+    if (!canEditVocals()) {
+        if (!isOnline) blockIfOffline();
+        return;
+    }
     var cacheKey = sourceSongId + '_' + dia + '_' + sectionName;
     var notes = vocalNotesCache[sourceSongId + '_' + dia] || {};
     if (input.value) { notes[sectionName] = input.value } else { delete notes[sectionName] }
@@ -2019,6 +2216,7 @@ function playVocalAudio(key, url) {
 async function handleAudioUpload(e) {
     const file = e.target.files[0];
     if (!file || !audioUploadSongId) return;
+    if (blockIfOffline() || !canUploadAudio()) { e.target.value = ''; audioUploadSongId = null; return }
     if (!supabaseReady) { alert('Sin conexión a Supabase'); return }
 
     const si = songs.findIndex(s => s.id === audioUploadSongId);
@@ -2060,22 +2258,8 @@ async function handleAudioUpload(e) {
                 });
             }
         } catch (e) {}
-        try {
-            const { data: userSongs } = await supabaseClient.from('user_songs').select('song_data');
-            if (userSongs) {
-                for (const us of userSongs) {
-                    try {
-                        const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
-                        if (sd && (sd.id === songId || (sd.sourceId && sd.sourceId === songId))) {
-                            if (sd.audio_url) { 
-                                const p = extractR2Key(sd.audio_url);
-                                pathsToDelete.add(p);
-                            }
-                        }
-                    } catch (parseErr) {}
-                }
-            }
-        } catch (e) {}
+        // (Ya no hace falta escanear user_songs: audio_url ahora vive una sola
+        // vez en songs, ya capturado arriba desde songs[si].audio_url)
 
         for (const delPath of pathsToDelete) {
             try { 
@@ -2116,6 +2300,7 @@ async function handleAudioUpload(e) {
         }
 
         songs[si].audio_url = audioUrl;
+        songs[si].needsCloudSync = true;
         save('cb_songs', songs);
 
         if (currentUser && supabaseReady) {
@@ -2125,18 +2310,11 @@ async function handleAudioUpload(e) {
         if (fill) fill.style.width = '80%';
 
         try {
+            // Mientras canciones_repertorio conserve su columna audio_url (fase
+            // de transición), se actualiza también aquí; el resto de usuarios
+            // ya recibe el cambio gratis vía songs (tabla compartida), sin
+            // necesidad de recorrer copias individuales.
             await supabaseClient.from('canciones_repertorio').update({ audio_url: audioUrl }).eq('source_song_id', songId);
-            try {
-                await syncRepertorioToAllUsers({
-                    titulo: songTitle,
-                    artista: songs[si].artist,
-                    letra_acordes: songs[si].lyrics,
-                    tono_original: songs[si].originalKey,
-                    tempo: songs[si].tempo,
-                    compas: songs[si].compas,
-                    audio_url: audioUrl
-                }, songId);
-            } catch (syncErr) { console.error('syncRepertorioToAllUsers failed:', syncErr) }
         } catch (dbErr) { console.log('DB update error:', dbErr.message) }
 
         try { await loadRepertorios() } catch (e) { console.log('Reload repertorios error:', e.message) }
@@ -2163,6 +2341,7 @@ logActivity('audio_uploaded', {
 }
 
 function triggerAudioUpload(songId) {
+    if (!canUploadAudio()) { if (!isOnline) blockIfOffline(); return }
     // Si es iOS, mostrar menú con opción de grabar
     if (isIOS()) {
         triggerAudioUploadWithRecording(songId);
@@ -2174,6 +2353,7 @@ function triggerAudioUpload(songId) {
 }
 
 async function removeSongAudio(songId) {
+    if (!canUploadAudio()) { if (!isOnline) blockIfOffline(); return }
     if (!confirm('¿Eliminar el audio vinculado a esta canción?')) return;
     const si = songs.findIndex(s => s.id === songId);
     if (si === -1) return;
@@ -2210,27 +2390,16 @@ async function removeSongAudio(songId) {
 
     // Limpiar en la base de datos local
     songs[si].audio_url = null;
+    songs[si].needsCloudSync = true;
     save('cb_songs', songs);
 
-    // Limpiar en Supabase
+    // Limpiar en Supabase: songs.audio_url es la única fuente compartida ahora,
+    // así que un solo upsert basta para que todos dejen de verlo.
+    if (currentUser && supabaseReady) {
+        try { await syncSongsToCloud() } catch (e) { console.log('syncSongsToCloud tras borrar audio falló:', e.message) }
+    }
     try {
         await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId);
-        
-        const { data: userSongs } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
-        if (userSongs) {
-            for (const us of userSongs) {
-                try {
-                    const sd = typeof us.song_data === 'string' ? JSON.parse(us.song_data) : us.song_data;
-                    if (sd && (sd.id === songId || (sd.sourceId && sd.sourceId === songId))) {
-                        sd.audio_url = null;
-                        await supabaseClient.from('user_songs').update({ 
-                            song_data: JSON.stringify(sd), 
-                            updated_at: Date.now() 
-                        }).eq('id', us.id);
-                    }
-                } catch (parseErr) {}
-            }
-        }
     } catch (e) {
         console.log('Supabase update skipped:', e.message);
     }
@@ -2248,58 +2417,21 @@ async function removeSongAudio(songId) {
 }
 
 // ============= SYNC REPERTORIO FUNCTIONS =============
-async function syncRepertorioToAllUsers(cancion, songId) {
-    if (!supabaseReady) return;
-    try {
-        const { data: matches, error: selErr } = await supabaseClient.from('user_songs').select('id,song_data').limit(10000);
-        if (selErr) { console.error('syncRepertorioToAllUsers select error:', selErr); return }
-        if (!matches || matches.length === 0) { console.log('syncRepertorioToAllUsers: no user_songs found'); return }
-
-        let updatedCount = 0;
-        for (const m of matches) {
-            try {
-                const sd = typeof m.song_data === 'string' ? JSON.parse(m.song_data) : m.song_data;
-                const matchesId = (sd.id === songId) || (sd.sourceId && sd.sourceId === songId) || (sd.repSongId && sd.repSongId === songId);
-                if (matchesId) {
-                    const updated = {
-                        ...sd,
-                        title: cancion.titulo || sd.title,
-                        artist: cancion.artista || sd.artist,
-                        lyrics: cancion.letra_acordes || sd.lyrics,
-                        originalKey: cancion.tono_original || sd.originalKey,
-                        tempo: cancion.tempo || sd.tempo,
-                        compas: cancion.compas || sd.compas,
-                        audio_url: ('audio_url' in cancion) ? cancion.audio_url : sd.audio_url,
-                        createdBy: cancion.created_by || sd.createdBy || '',
-                        modifiedBy: cancion.modified_by || cancion.modificado_por || sd.modifiedBy || '',
-                        updatedAt: Date.now()
-                    };
-                    const { error: updErr } = await supabaseClient.from('user_songs').update({
-                        song_data: JSON.stringify(updated),
-                        updated_at: Date.now()
-                    }).eq('id', m.id);
-                    if (updErr) { console.error('syncRepertorioToAllUsers update error for', m.id, ':', updErr) } else { updatedCount++; }
-                }
-            } catch (parseErr) { console.error('syncRepertorioToAllUsers parse error:', parseErr) }
-        }
-        console.log('syncRepertorioToAllUsers: checked', matches.length, 'rows, updated', updatedCount, 'for song:', songId);
-    } catch (e) { console.error('Sync to all users error:', e) }
-}
-
+// syncRepertorioToAllUsers() ya no existe: con songs compartida, actualizar
+// UNA fila en songs (lo hace syncSongsToCloud, llamado justo después de esta
+// función en saveSong()) ya refleja el cambio para todos los que la tengan en
+// su biblioteca. No hay copias individuales que recorrer.
 async function syncRepertorioFromLibrary(libSong) {
-    if (!supabaseReady) return;
+    if (!supabaseReady || !isOnline) return;
     try {
+        // Mientras canciones_repertorio conserve sus columnas de datos de
+        // canción (fase de transición, antes de dropearlas), se les refleja
+        // el cambio aquí también.
         let repSongs = [];
         try {
-            const { data: byId, error: e1 } = await supabaseClient.from('canciones_repertorio').select('*').eq('source_song_id', libSong.id);
+            const { data: byId, error: e1 } = await supabaseClient.from('canciones_repertorio').select('id').eq('source_song_id', libSong.id);
             if (!e1 && byId && byId.length > 0) repSongs = byId;
         } catch (e) {}
-        if (repSongs.length === 0) {
-            try {
-                const { data: byTitle, error: e2 } = await supabaseClient.from('canciones_repertorio').select('*').eq('titulo', libSong.title).eq('artista', libSong.artist);
-                if (!e2 && byTitle) repSongs = byTitle;
-            } catch (e) {}
-        }
         if (repSongs.length === 0) return;
         const updates = {
             titulo: libSong.title,
@@ -2317,17 +2449,6 @@ async function syncRepertorioFromLibrary(libSong) {
             await supabaseClient.from('canciones_repertorio').update(updates).eq('id', rs.id);
         }
         console.log('Synced', repSongs.length, 'repertorio copies for:', libSong.title);
-        await syncRepertorioToAllUsers({
-            titulo: libSong.title,
-            artista: libSong.artist,
-            letra_acordes: libSong.lyrics,
-            tono_original: libSong.originalKey,
-            tempo: libSong.tempo,
-            compas: libSong.compas,
-            audio_url: libSong.audio_url,
-            created_by: libSong.createdBy || '',
-            modified_by: libSong.modifiedBy || ''
-        }, libSong.id);
     } catch (e) { console.error('Sync repertorio error:', e) }
 }
 
@@ -2418,6 +2539,7 @@ function removeFormTag(t) { formTags = formTags.filter(x => x !== t);
 function toggleHelp() { document.getElementById('help-box').classList.toggle('hidden') }
 
 function saveSong() {
+    if (blockIfOffline()) return;
     const t = document.getElementById('input-title').value.trim(),
         a = document.getElementById('input-artist').value.trim() || 'Desconocido',
         l = document.getElementById('input-lyrics').value.trim();
@@ -2427,8 +2549,9 @@ function saveSong() {
     if (editingSongId) {
         const i = songs.findIndex(s => s.id === editingSongId);
         if (i !== -1) {
+            if (!canEditSong(songs[i])) { alert('Solo el creador de la canción o Admin, SubAdmin y D. Músicos pueden editarla.'); return }
             var userName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
-            songs[i] = { ...songs[i], title: t, artist: a, lyrics: l, originalKey: formKey, tags: [...formTags], tempo: bpm || songs[i].tempo || 0, compas: cmp || songs[i].compas || '', audio_url: songs[i].audio_url || null, updatedAt: Date.now(), modifiedBy: userName || songs[i].modifiedBy || '' };
+            songs[i] = { ...songs[i], title: t, artist: a, lyrics: l, originalKey: formKey, tags: [...formTags], tempo: bpm || songs[i].tempo || 0, compas: cmp || songs[i].compas || '', audio_url: songs[i].audio_url || null, updatedAt: Date.now(), modifiedBy: userName || songs[i].modifiedBy || '', createdById: songs[i].createdById || (currentUser ? currentUser.id : ''), needsCloudSync: true };
             syncRepertorioFromLibrary(songs[i]);
     logActivity('song_updated', { 
         title: t, 
@@ -2441,7 +2564,7 @@ function saveSong() {
     } else {
         var dk = detectKey(l);
         var creatorName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
-        songs.unshift({ id: genId(), title: t, artist: a, lyrics: l, originalKey: formKey || dk, currentKey: formKey || dk, tags: [...formTags], tempo: bpm, compas: cmp, audio_url: null, createdAt: Date.now(), updatedAt: Date.now(), createdBy: creatorName || '' })
+        songs.unshift({ id: genId(), title: t, artist: a, lyrics: l, originalKey: formKey || dk, currentKey: formKey || dk, tags: [...formTags], tempo: bpm, compas: cmp, audio_url: null, createdAt: Date.now(), updatedAt: Date.now(), createdBy: creatorName || '', createdById: currentUser ? currentUser.id : '', needsCloudSync: true })
 
 logActivity('song_created', { 
     title: t, 
@@ -2462,9 +2585,10 @@ function viewSong(id) { viewingSongId = id;
     showPage('view') }
 
 function editSong() {
+    if (blockIfOffline()) return;
     const s = songs.find(x => x.id === viewingSongId);
     if (!s) return;
-    if (!canEditRepSongs() && isSongInAnyRepertorio(s.sourceId || s.id)) { alert('Solo admin o directores musicales pueden editar canciones de repertorio'); return }
+    if (!canEditSong(s)) { alert('Solo el creador de la canción o Admin, SubAdmin y D. Músicos pueden editarla.'); return }
     editingSongId = s.id;
     document.getElementById('form-title').textContent = 'Editar canción';
     document.getElementById('input-title').value = s.title;
@@ -2480,6 +2604,7 @@ function editSong() {
 }
 
 async function confirmDeleteSong(id) {
+    if (blockIfOffline()) return;
     const s = songs.find(x => x.id === id);
     if (!confirm('¿Eliminar esta canción de tu biblioteca?')) { return }
     const songId = s ? s.id : id;
@@ -2500,7 +2625,7 @@ async function confirmDeleteSong(id) {
     save('cb_songs', songs);
     save('cb_lists', lists);
     renderLibrary();
-    if (currentUser && supabaseReady) { syncSongsToCloud() }
+    if (currentUser && supabaseReady) { syncSongsToCloud({ allowLinkDeletes: true, deleteSongIds: [uid] }) }
     logActivity('song_deleted', {
         title: s ? s.title : '',
         artist: s ? s.artist : ''
@@ -2508,6 +2633,7 @@ async function confirmDeleteSong(id) {
 }
 
 async function deleteCurrentSong() {
+    if (blockIfOffline()) return;
     const s = songs.find(x => x.id === viewingSongId);
     if (!confirm('¿Eliminar esta canción de tu biblioteca?')) { return }
     const songId = s ? s.id : viewingSongId;
@@ -2528,7 +2654,7 @@ async function deleteCurrentSong() {
     save('cb_songs', songs);
     save('cb_lists', lists);
     showPage('library');
-    if (currentUser && supabaseReady) { syncSongsToCloud() }
+    if (currentUser && supabaseReady) { syncSongsToCloud({ allowLinkDeletes: true, deleteSongIds: [uid] }) }
     logActivity('song_deleted', {
         title: s ? s.title : '',
         artist: s ? s.artist : ''
@@ -2536,6 +2662,7 @@ async function deleteCurrentSong() {
 }
 
 function saveRepSongToLibrary() {
+    if (blockIfOffline()) return;
     const r = repertorios.find(x => x.id === viewingRepId);
     if (!r) return;
     const s = r.canciones.find(x => x.id === viewingRepSongId);
@@ -2543,7 +2670,7 @@ function saveRepSongToLibrary() {
     const existing = songs.find(x => x.title === s.titulo && x.artist === s.artista);
     if (existing) { alert('Esta canción ya está en tu biblioteca'); return }
     const dk = s.tono_original || 'C';
-    songs.unshift({ id: s.source_song_id || genId(), sourceId: s.source_song_id || s.id, repSongId: s.id, sourceType: 'repertorio', title: s.titulo || 'Sin título', artist: s.artista || 'Desconocido', lyrics: s.letra_acordes || '', originalKey: dk, currentKey: dk, tags: s.tags || ['Repertorio'], tempo: s.tempo || 0, compas: s.compas || '', audio_url: s.audio_url || null, repSongId: s.id, repId: r.id, createdAt: s.created_at || Date.now(), updatedAt: Date.now(), createdBy: s.created_by || '', modifiedBy: s.modified_by || s.modificado_por || '' });
+    songs.unshift({ id: s.source_song_id || genId(), sourceId: s.source_song_id || s.id, repSongId: s.id, sourceType: 'repertorio', title: s.titulo || 'Sin título', artist: s.artista || 'Desconocido', lyrics: s.letra_acordes || '', originalKey: dk, currentKey: dk, tags: s.tags || ['Repertorio'], tempo: s.tempo || 0, compas: s.compas || '', audio_url: s.audio_url || null, repSongId: s.id, repId: r.id, createdAt: s.created_at || Date.now(), updatedAt: Date.now(), createdBy: s.created_by || '', createdById: s.created_by_id || '', modifiedBy: s.modified_by || s.modificado_por || '' });
     save('cb_songs', songs);
     const btn = document.getElementById('save-rep-btn');
     if (btn) { btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';
@@ -2671,9 +2798,8 @@ if (s.audio_url) {
 
     document.getElementById('view-tags').innerHTML = s.tags.map(t => '<span class="tag tag-zinc">' + esc(t) + '</span>').join('') + getSongNoteHtml(s);
 
-    const isRepSong = isSongInAnyRepertorio(s.sourceId || s.id);
     const editBtn = document.querySelector('#page-view .btn-icon[title="Editar"]');
-    if (editBtn) editBtn.style.display = (!canEditRepSongs() && isRepSong) ? 'none' : '';
+    if (editBtn) editBtn.style.display = canEditSong(s) ? '' : 'none';
 }
 
 function changeKey(delta) {
@@ -2682,7 +2808,7 @@ function changeKey(delta) {
     const currentIdx = NOTE_MAP[s.currentKey] ?? 0;
     const newIdx = (currentIdx + delta + 12) % 12;
     s.currentKey = useFlats ? FLATS[newIdx] : SHARPS[newIdx];
-    save('cb_songs', songs);
+    if (isOnline) save('cb_songs', songs);
     renderView()
 }
 
@@ -2690,20 +2816,24 @@ function resetKey() {
     const s = songs.find(x => x.id === viewingSongId);
     if (!s) return;
     s.currentKey = s.originalKey;
-    save('cb_songs', songs);
+    if (isOnline) save('cb_songs', songs);
     renderView()
+}
+
+function songShareData(songId) {
+    return { type: 'chordbook-song', version: 3, id: songId };
 }
 
 function exportSong() {
     const s = songs.find(x => x.id === viewingSongId);
     if (!s) return;
-    dlJson({ type: 'chordbook-song', version: 2, id: s.id, audio_url: s.audio_url || null, songs: [{ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null }] }, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
+    dlJson(songShareData(s.id), s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
 }
 
 function shareSong() {
     const s = songs.find(x => x.id === viewingSongId);
     if (!s) return;
-    const data = { type: 'chordbook-song', version: 2, id: s.id, audio_url: s.audio_url || null, songs: [{ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null, createdBy: s.createdBy || '', createdAt: s.createdAt || Date.now() }] };
+    const data = songShareData(s.id);
     const text = JSON.stringify(data);
     if (navigator.share) {
         navigator.share({ title: s.title + ' - ChordBook', text: '🎵 ' + s.title + ' - ' + s.artist }).then(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') }).catch(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') })
@@ -2737,6 +2867,7 @@ function renderLists() {
 }
 
 function showNewListForm() {
+    if (blockIfOffline()) return;
     document.getElementById('new-list-form').classList.remove('hidden');
     document.getElementById('input-list-name').focus()
 }
@@ -2748,6 +2879,7 @@ function hideNewListForm() {
 }
 
 function createList() {
+    if (blockIfOffline()) return;
     const n = document.getElementById('input-list-name').value.trim();
     if (!n) return;
     lists.unshift({ id: genId(), name: n, description: document.getElementById('input-list-desc').value.trim(), songIds: [], createdAt: Date.now(), updatedAt: Date.now() });
@@ -2757,6 +2889,7 @@ function createList() {
 }
 
 function confirmDeleteList(id) {
+    if (blockIfOffline()) return;
     if (confirm('¿Eliminar esta lista?')) { lists = lists.filter(l => l.id !== id);
         save('cb_lists', lists);
         renderLists() }
@@ -2765,8 +2898,7 @@ function confirmDeleteList(id) {
 function exportList(id) {
     const l = lists.find(x => x.id === id);
     if (!l) return;
-    const ls = songs.filter(s => l.songIds.includes(s.id));
-    dlJson({ type: 'chordbook-list', version: 2, list: { name: l.name, description: l.description, songIds: l.songIds }, songs: ls.map(s => ({ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null, createdBy: s.createdBy || '', createdAt: s.createdAt || Date.now() })) }, 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
+    dlJson({ type: 'chordbook-list', version: 3, list: { name: l.name, description: l.description, songIds: [...new Set(l.songIds)] } }, 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
 }
 
 function exportCurrentList() { exportList(viewingListId) }
@@ -2774,12 +2906,11 @@ function exportCurrentList() { exportList(viewingListId) }
 function shareList(id) {
     const l = lists.find(x => x.id === id);
     if (!l) return;
-    const ls = songs.filter(s => l.songIds.includes(s.id));
-    const data = { type: 'chordbook-list', version: 2, list: { name: l.name, description: l.description, songIds: l.songIds }, songs: ls.map(s => ({ id: s.id, title: s.title, artist: s.artist, lyrics: s.lyrics, originalKey: s.originalKey, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags, audio_url: s.audio_url || null, createdBy: s.createdBy || '', createdAt: s.createdAt || Date.now() })) };
+    const data = { type: 'chordbook-list', version: 3, list: { name: l.name, description: l.description, songIds: [...new Set(l.songIds)] } };
     const text = JSON.stringify(data);
     const fname = 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json';
     if (navigator.share) {
-        navigator.share({ title: l.name + ' - ChordBook', text: '📋 Lista: ' + l.name + ' (' + ls.length + ' canciones)' }).then(() => { dlJson(data, fname) }).catch(() => { dlJson(data, fname) })
+        navigator.share({ title: l.name + ' - ChordBook', text: '📋 Lista: ' + l.name + ' (' + l.songIds.length + ' canciones)' }).then(() => { dlJson(data, fname) }).catch(() => { dlJson(data, fname) })
     } else {
         navigator.clipboard.writeText(text).then(() => { showNotif('import-list-notification', 'JSON de lista copiado. Pégalo donde quieras.', 'success') }).catch(() => { dlJson(data, fname) })
     }
@@ -2795,8 +2926,20 @@ function renderListView() {
     const l = lists.find(x => x.id === viewingListId);
     if (!l) return;
 
-    // Show pending import banner if the list has pending songs
-    if (l.pendingImport) {
+    const listSongs = l.songIds.map(sid => songs.find(s => s.id === sid)).filter(Boolean);
+    const missingSongs = l.songIds.filter(sid => !songs.find(s => s.id === sid));
+
+    // El indicador de importación pendiente debe desaparecer cuando todas las
+    // canciones ya están en la biblioteca. Esto también corrige listas que
+    // conservaron pendingImport=true después de una sincronización exitosa.
+    if (l.pendingImport && missingSongs.length === 0) {
+        if (isOnline) {
+            l.pendingImport = false;
+            save('cb_lists', lists);
+        }
+    }
+    const showPendingBanner = !!l.pendingImport && missingSongs.length > 0;
+    if (showPendingBanner) {
         const banner = document.getElementById('pending-import-banner');
         if (!banner) {
             const container = document.getElementById('listview-songs');
@@ -2812,9 +2955,6 @@ function renderListView() {
         const banner = document.getElementById('pending-import-banner');
         if (banner) banner.remove();
     }
-
-    const listSongs = l.songIds.map(sid => songs.find(s => s.id === sid)).filter(Boolean);
-    const missingSongs = l.songIds.filter(sid => !songs.find(s => s.id === sid));
 
     document.getElementById('listview-header').innerHTML = '<div style="display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;background:rgba(245,158,11,.2);border-radius:10px;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><div><h1 style="font-size:1.1rem;font-weight:700;color:#fff">' + esc(l.name) + '</h1>' + (l.description ? '<p style="font-size:.7rem;color:#71717a">' + esc(l.description) + '</p>' : '') + '<p style="font-size:.7rem;color:#71717a">' + listSongs.length + ' canciones</p></div></div>';
 
@@ -2866,6 +3006,7 @@ function viewSongFromList(id) {
 }
 
 function removeFromList(sid) {
+    if (blockIfOffline()) return;
     const l = lists.find(x => x.id === viewingListId);
     if (!l) return;
     l.songIds = l.songIds.filter(id => id !== sid);
@@ -2890,6 +3031,7 @@ function renderListPicker() {
 }
 
 function toggleSongInList(lid) {
+    if (blockIfOffline()) return;
     const l = lists.find(x => x.id === lid),
         s = songs.find(x => x.id === viewingSongId);
     if (!l || !s) return;
@@ -2906,14 +3048,18 @@ async function resolveMissingListSongs(ids) {
     if (!supabaseReady) { toFetch.forEach(id => cloudSongPreviewCache[id] = null);
         renderListView(); return }
     try {
-        const { data: matches, error } = await supabaseClient.from('user_songs').select('song_data').limit(10000);
+        // Con songs, se pide directo por los IDs que faltan (antes había que
+        // bajar hasta 10.000 filas de user_songs para encontrar una canción).
+        const { data: matches, error } = await supabaseClient.from('songs').select('*').in('id', toFetch);
         const byId = {};
         if (!error && matches) {
-            matches.forEach(m => {
-                try {
-                    const sd = typeof m.song_data === 'string' ? JSON.parse(m.song_data) : m.song_data;
-                    if (sd && sd.id && !byId[sd.id]) byId[sd.id] = sd;
-                } catch (e) {}
+            matches.forEach(r => {
+                byId[r.id] = {
+                    id: r.id, sourceId: r.id, title: r.title, artist: r.artist,
+                    lyrics: r.lyrics || '', originalKey: r.original_key, tags: [],
+                    tempo: r.tempo || 0, compas: r.compas || '',
+                    audio_url: r.audio_url || null, createdAt: r.created_at, createdBy: r.created_by || '', createdById: r.created_by_id || ''
+                };
             });
         }
         toFetch.forEach(id => { cloudSongPreviewCache[id] = byId[id] || null });
@@ -2923,6 +3069,7 @@ async function resolveMissingListSongs(ids) {
 }
 
 function addCloudSongToLibraryFromList(listId, songId) {
+    if (blockIfOffline()) return;
     const preview = cloudSongPreviewCache[songId];
     if (!preview) { alert('No se pudo obtener esta canción.'); return }
     const existing = songs.find(x => x.id === songId);
@@ -2942,16 +3089,75 @@ function addCloudSongToLibraryFromList(listId, songId) {
             audio_url: preview.audio_url || null,
             createdAt: preview.createdAt || Date.now(),
             updatedAt: Date.now(),
-            createdBy: preview.createdBy || ''
+            createdBy: preview.createdBy || '',
+            createdById: preview.createdById || ''
         });
         save('cb_songs', songs);
-        if (currentUser && supabaseReady) { syncSongsToCloud() }
     }
+
+    const targetList = listId ? lists.find(list => list.id === listId) : null;
+    if (targetList && targetList.pendingImport && targetList.songIds.every(id => songs.some(song => song.id === id))) {
+        targetList.pendingImport = false;
+        save('cb_lists', lists);
+    }
+    // También se usa desde el catálogo de Admin (listId vacío): en ese caso
+    // solo se crea el enlace personal, nunca se comparte la canción.
+    if (currentUser && supabaseReady) syncSongsToCloud();
     renderListView();
 }
 
 // ============= IMPORT FUNCTIONS =============
+function sharedSongIds(data) {
+    if (!data) return [];
+    const ids = [];
+    if (data.id || data.songId) ids.push(data.id || data.songId);
+    if (Array.isArray(data.songs)) {
+        data.songs.forEach(s => { if (s && s.id) ids.push(s.id) });
+    }
+    return [...new Set(ids.filter(Boolean))];
+}
+
+function sharedListSongIds(data) {
+    if (!data) return [];
+    const ids = data.list && Array.isArray(data.list.songIds) ? data.list.songIds : (Array.isArray(data.songIds) ? data.songIds : []);
+    const fallback = ids.length === 0 && Array.isArray(data.songs) ? data.songs.map(s => s && s.id).filter(Boolean) : ids;
+    return [...new Set(fallback.filter(Boolean))];
+}
+
+async function fetchCanonicalSongsByIds(ids) {
+    const uniqueIds = [...new Set((ids || []).filter(Boolean))];
+    if (!supabaseReady || !supabaseClient || !currentUser) throw new Error('Debes iniciar sesión y tener conexión para consultar songs.');
+    if (uniqueIds.length === 0) return [];
+    const { data, error } = await supabaseClient.from('songs').select('*').in('id', uniqueIds);
+    if (error) throw error;
+    return data || [];
+}
+
+function canonicalSongToLocal(row, sourceType) {
+    const key = row.original_key || 'C';
+    return {
+        id: row.id,
+        sourceId: row.id,
+        sourceType: sourceType || 'imported',
+        title: row.title || 'Sin título',
+        artist: row.artist || 'Desconocido',
+        lyrics: row.lyrics || '',
+        originalKey: key,
+        currentKey: key,
+        tags: [],
+        tempo: row.tempo || 0,
+        compas: row.compas || '',
+        audio_url: row.audio_url || null,
+        createdAt: row.created_at || Date.now(),
+        updatedAt: row.updated_at || Date.now(),
+        createdBy: row.created_by || '',
+        createdById: row.created_by_id || '',
+        modifiedBy: row.modified_by || ''
+    };
+}
+
 document.getElementById('import-input').addEventListener('change', async function(e) {
+    if (blockIfOffline()) { e.target.value = ''; return; }
     const files = e.target.files;
     if (!files || !files.length) return;
     let total = 0;
@@ -2961,23 +3167,29 @@ document.getElementById('import-input').addEventListener('change', async functio
         if (ext === 'json') {
             try {
                 const d = JSON.parse(content);
-                if (d.type === 'chordbook-song' && Array.isArray(d.songs)) {
-                    d.songs.forEach(s => {
-                        const songId = s.id || d.id || genId();
-                        const existing = songs.find(x => x.id === songId);
-                        if (!existing) {
-                            const dk = s.originalKey || (s.lyrics ? detectKey(s.lyrics) : 'C');
-                            songs.unshift({ id: songId, sourceId: s.id || d.id || null, sourceType: s.id ? 'imported' : undefined, title: s.title || 'Sin título', artist: s.artist || 'Desconocido', lyrics: s.lyrics || '', originalKey: dk, currentKey: dk, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags || [], audio_url: s.audio_url || d.audio_url || null, createdAt: s.createdAt || Date.now(), updatedAt: Date.now(), createdBy: s.createdBy || '' });
+                if (d.type === 'chordbook-song') {
+                    const ids = sharedSongIds(d);
+                    if (ids.length === 0) { showNotification('El JSON no contiene un ID de canción.', 'error'); continue; }
+                    const rows = await fetchCanonicalSongsByIds(ids);
+                    rows.forEach(row => {
+                        if (!songs.find(x => x.id === row.id)) {
+                            songs.unshift(canonicalSongToLocal(row));
                             total++;
                         }
-                    })
+                    });
+                    if (rows.length < ids.length) showNotification('Una o más canciones ya no existen en songs.', 'error');
+                } else if (d.type === 'chordbook-list') {
+                    importListData(d);
+                } else {
+                    showNotification('JSON no reconocido.', 'error');
                 }
-                if (d.type === 'chordbook-list') { importListData(d) }
-            } catch (e) {}
+            } catch (err) {
+                showNotification('No se pudo consultar la canción compartida: ' + err.message, 'error');
+            }
         } else if (ext === 'txt') {
             const parsed = parseSongFilename(file.name);
             const dk = parsed.key ? (NOTE_MAP[parsed.key] !== undefined ? dn(parsed.key) : parsed.key) : (detectKey(content));
-            songs.unshift({ id: genId(), title: parsed.title, artist: parsed.artist, lyrics: content.trim(), originalKey: dk, currentKey: dk, tempo: parsed.bpm || 0, compas: '', tags: [], createdAt: Date.now(), updatedAt: Date.now() });
+            songs.unshift({ id: genId(), title: parsed.title, artist: parsed.artist, lyrics: content.trim(), originalKey: dk, currentKey: dk, tempo: parsed.bpm || 0, compas: '', tags: [], createdAt: Date.now(), updatedAt: Date.now(), createdBy: currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '', createdById: currentUser ? currentUser.id : '', needsCloudSync: true });
             total++;
         }
     }
@@ -2985,148 +3197,68 @@ document.getElementById('import-input').addEventListener('change', async functio
     e.target.value = '';
     showNotif('import-notification', total + ' canciones importadas', 'success');
     renderLibrary();
-    if (currentUser && supabaseReady) { syncSongsToCloud() }
+    if (currentUser && supabaseReady && total > 0) { syncSongsToCloud() }
 });
 
 // ============= IMPORT LIST (MEJORADO) =============
 document.getElementById('import-list-input').addEventListener('change', async function(e) {
+    if (blockIfOffline()) { e.target.value = ''; return; }
     const files = e.target.files;
     if (!files || !files.length) return;
 
     let imported = 0;
-    let hasPending = false;
-
     for (const file of Array.from(files)) {
         const ext = file.name.split('.').pop().toLowerCase();
-        if (ext === 'json') {
-            try {
-                const content = await file.text();
-                const d = JSON.parse(content);
+        if (ext !== 'json') continue;
+        try {
+            const content = await file.text();
+            const d = JSON.parse(content);
+            let ids = [];
+            let listName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ').trim() || 'Lista importada';
+            let listDescription = '';
 
-                if (d.type === 'chordbook-list') {
-                    const listName = d.list?.name || file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ').trim() || 'Lista importada';
-                    const listDescription = d.list?.description || '';
-                    const fileSongs = d.songs || [];
-
-                    // 1️⃣ Detectar canciones nuevas
-                    const newSongs = fileSongs.filter(s => {
-                        const songId = s.id || genId();
-                        return !songs.find(x => x.id === songId);
-                    });
-
-                    // 2️⃣ Si hay canciones nuevas, mostrar modal
-                    if (newSongs.length > 0) {
-                        showImportConfirmModal(
-                            newSongs,
-                            { name: listName, description: listDescription, id: d.list?.id },
-                            fileSongs
-                        );
-                        imported++;
-                        hasPending = true;
-                    } else {
-                        // 3️⃣ Si no hay canciones nuevas, crear lista directamente
-                        const allSongIds = fileSongs.map(s => s.id || genId());
-                        const existingList = lists.find(l => l.name === listName);
-
-                        if (existingList) {
-                            const newIds = allSongIds.filter(id => !existingList.songIds.includes(id));
-                            existingList.songIds = [...existingList.songIds, ...newIds];
-                            existingList.updatedAt = Date.now();
-                            if (newIds.length > 0) {
-                                showNotification(`📋 Lista "${listName}" actualizada (+${newIds.length} canciones)`, 'success');
-                            } else {
-                                showNotification(`📋 Lista "${listName}" ya estaba actualizada`, 'success');
-                            }
-                        } else {
-                            lists.unshift({
-                                id: genId(),
-                                name: listName,
-                                description: listDescription,
-                                songIds: allSongIds,
-                                createdAt: Date.now(),
-                                updatedAt: Date.now()
-                            });
-                            showNotification(`📋 Lista "${listName}" creada (${allSongIds.length} canciones)`, 'success');
-                        }
-                        save('cb_lists', lists);
-                        imported++;
-                    }
-
-                } else if (d.type === 'chordbook-song' && Array.isArray(d.songs)) {
-                    const listName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ').trim() || 'Lista importada';
-                    const fileSongs = d.songs || [];
-                    const newSongs = fileSongs.filter(s => {
-                        const songId = s.id || genId();
-                        return !songs.find(x => x.id === songId);
-                    });
-
-                    if (newSongs.length > 0) {
-                        showImportConfirmModal(
-                            newSongs,
-                            { name: listName, description: 'Importada desde canción' },
-                            fileSongs
-                        );
-                        imported++;
-                        hasPending = true;
-                    } else {
-                        const allSongIds = fileSongs.map(s => s.id || genId());
-                        const existingList = lists.find(l => l.name === listName);
-
-                        if (existingList) {
-                            const newIds = allSongIds.filter(id => !existingList.songIds.includes(id));
-                            existingList.songIds = [...existingList.songIds, ...newIds];
-                            existingList.updatedAt = Date.now();
-                        } else {
-                            lists.unshift({
-                                id: genId(),
-                                name: listName,
-                                description: 'Importada desde canción',
-                                songIds: allSongIds,
-                                createdAt: Date.now(),
-                                updatedAt: Date.now()
-                            });
-                        }
-                        save('cb_lists', lists);
-                        imported++;
-                    }
-                }
-            } catch (err) {
-                console.error('Error importando archivo:', err);
-                showNotification(`❌ Error al importar ${file.name}: ${err.message}`, 'error');
+            if (d.type === 'chordbook-list') {
+                ids = sharedListSongIds(d);
+                listName = d.list?.name || listName;
+                listDescription = d.list?.description || '';
+            } else if (d.type === 'chordbook-song') {
+                ids = sharedSongIds(d);
+                listDescription = 'Importada desde canción';
             }
+
+            if (ids.length === 0) {
+                showNotification('El JSON no contiene IDs de canciones registrados.', 'error');
+                continue;
+            }
+
+            const fileSongs = ids.map(id => ({ id }));
+            const pendingOnly = ids.some(id => !songs.find(s => s.id === id));
+            createOrMergeList({ name: listName, description: listDescription }, fileSongs, pendingOnly);
+            imported++;
+        } catch (err) {
+            console.error('Error importando archivo:', err);
+            showNotification('❌ Error al importar ' + file.name + ': ' + err.message, 'error');
         }
     }
 
     e.target.value = '';
-
-    if (imported === 0 && !document.getElementById('import-confirm-modal')) {
-        showNotification('No se encontraron archivos válidos para importar', 'error');
-    }
-
-    if (currentUser && supabaseReady && imported > 0 && !hasPending) {
-        syncSongsToCloud();
-    }
+    if (imported === 0) showNotification('No se encontraron archivos válidos para importar', 'error');
+    else renderLists();
 });
 
 function importListData(d) {
-    if (Array.isArray(d.songs)) {
-        d.songs.forEach(s => {
-            const songId = s.id || genId();
-            const existing = songs.find(x => x.id === songId);
-            if (!existing) {
-                const dk = s.originalKey || (s.lyrics ? detectKey(s.lyrics) : 'C');
-                songs.push({ id: songId, sourceId: s.id || null, sourceType: s.id ? 'imported' : undefined, title: s.title || 'Sin título', artist: s.artist || 'Desconocido', lyrics: s.lyrics || '', originalKey: dk, currentKey: dk, tempo: s.tempo || 0, compas: s.compas || '', tags: s.tags || [], audio_url: s.audio_url || null, createdAt: s.createdAt || Date.now(), updatedAt: Date.now(), createdBy: s.createdBy || '' });
-            }
-        });
+    if (blockIfOffline()) return;
+    const ids = sharedListSongIds(d);
+    if (ids.length === 0) {
+        showNotification('La lista no contiene IDs de canciones registrados.', 'error');
+        return;
     }
-    const existing = lists.find(l => l.name === d.list?.name);
-    if (existing) {
-        const newIds = [...new Set([...existing.songIds, ...(d.list?.songIds || [])])];
-        existing.songIds = newIds;
-        existing.updatedAt = Date.now();
-    } else {
-        lists.unshift({ id: genId(), name: d.list?.name || 'Lista importada', description: d.list?.description || '', songIds: d.list?.songIds || [], createdAt: Date.now(), updatedAt: Date.now() });
-    }
+    const fileSongs = ids.map(id => ({ id }));
+    const pendingOnly = ids.some(id => !songs.find(s => s.id === id));
+    createOrMergeList({
+        name: d.list?.name || 'Lista importada',
+        description: d.list?.description || ''
+    }, fileSongs, pendingOnly);
 }
 
 // ============= REPERTORIO FUNCTIONS =============
@@ -3149,7 +3281,7 @@ function cleanSingerName(name) {
 }
 
 async function createRepertorio() {
-    if (!repAdmin || !supabaseReady) return;
+    if (!canManageReps() || !supabaseReady) return;
     const titulo = prompt('Nombre del repertorio (ej: 24/25 Agosto):');
     if (!titulo) return;
     const fecha = prompt('Fecha del domingo (YYYY-MM-DD):', '2026-08-24');
@@ -3257,6 +3389,7 @@ function filterRepPicker() {
 }
 
 async function confirmAddSongToRep(repId, songId) {
+    if (!canManageReps() || !supabaseReady) return;
     const s = songs.find(x => x.id === songId);
     const r = repertorios.find(x => x.id === repId);
     if (!s || !r) return;
@@ -3420,7 +3553,7 @@ function switchRepDay(day) {
 }
 
 function saveDirige(repId, day, name) {
-    if (!supabaseReady) return;
+    if (!canEditVocals() || !supabaseReady) return;
     var field = day === 'domingo' ? 'dirige_domingo' : 'dirige_lunes';
     var updateObj = {};
     updateObj[field] = name;
@@ -3642,11 +3775,11 @@ function renderRepSongView() {
             saveBtn.style.borderColor = 'rgba(34,197,94,.3)';
             saveBtn.disabled = true;
         } else {
-            saveBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg> Guardar';
+            saveBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg> ' + (isOnline ? 'Guardar' : 'Requiere conexión');
             saveBtn.style.background = 'rgba(39,39,46,.8)';
             saveBtn.style.color = '#a1a1aa';
             saveBtn.style.borderColor = 'rgba(63,63,70,.5)';
-            saveBtn.disabled = false;
+            saveBtn.disabled = !isOnline;
         }
     }
 
@@ -3912,6 +4045,7 @@ function goBackFromView() {
 
 // ============= VOCAL EDITOR =============
 function editRepVocals(repId, songId) {
+    if (!canEditVocals()) { if (!isOnline) blockIfOffline(); return; }
     const r = repertorios.find(x => x.id === repId);
     if (!r) return;
     const s = r.canciones.find(x => x.id === songId);
@@ -4107,6 +4241,7 @@ function hideVocalEditor() {
 }
 
 async function saveVocalEditor() {
+    if (!canEditVocals()) { if (!isOnline) blockIfOffline(); return; }
     const mainName = document.getElementById('vocal-input-main').value.trim() || 'Por asignar';
     const isDom = vocalEditorContextDay === 'domingo';
 
@@ -4229,6 +4364,7 @@ function triggerVocalAudioUpload(repId, songId, coro, sourceSongId, dia, part) {
 async function handleVocalAudioUpload(e) {
     const file = e.target.files[0];
     if (!file || !vocalAudioUploadRepId || !vocalAudioUploadSongId || !vocalAudioUploadCoro) return;
+    if (!canEditVocals()) { if (!isOnline) blockIfOffline(); e.target.value = ''; return }
     if (!supabaseReady) { alert('Sin conexión a Supabase'); return }
 
     let sourceSongId = vocalAudioUploadSourceSongId;
@@ -4478,6 +4614,7 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia, part) {
 
 // ============= PAGE NAVIGATION =============
 function showPage(name) {
+    if (name === 'add' && blockIfOffline()) return;
     stopAllAudio();
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));

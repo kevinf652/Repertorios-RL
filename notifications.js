@@ -29,9 +29,11 @@ async function loadNotifications(force) {
     if (!supabaseReady) return [];
     try {
         const now = Date.now();
-        // Limpieza de paso: borra las que ya vencieron antes de traer la lista
+        // La limpieza también es una escritura: nunca se intenta en modo offline.
         // (gracias a ON DELETE CASCADE en notification_reactions, sus reacciones se borran solas)
-        try { await supabaseClient.from('app_notifications').delete().lt('expires_at', now) } catch (e) {}
+        if (isOnline) {
+            try { await supabaseClient.from('app_notifications').delete().lt('expires_at', now) } catch (e) {}
+        }
         const { data, error } = await supabaseClient.from('app_notifications').select('*').order('created_at', { ascending: false });
         if (error || !data) return [];
         notifCache = data;
@@ -58,6 +60,7 @@ async function loadReactionsForNotifs(notifIds) {
 
 async function toggleNotificationReaction(notifId, reactionType) {
     if (!currentUser || !supabaseReady) return;
+    if (blockIfOffline()) return;
     try {
         const { data: existing } = await supabaseClient.from('notification_reactions').select('id').eq('notification_id', notifId).eq('user_id', currentUser.id).eq('reaction', reactionType).maybeSingle();
         if (existing && existing.id) {
@@ -324,6 +327,7 @@ function closeSendNotificationModal() {
 async function submitSendNotification(e) {
     if (e) e.preventDefault();
     if (!canSendNotifications() || !supabaseReady) return;
+    if (blockIfOffline()) return;
     const titulo = document.getElementById('send-notif-title').value.trim();
     const cuerpo = document.getElementById('send-notif-body').value.trim();
     if (!titulo) { alert('El título es obligatorio'); return }
@@ -352,7 +356,7 @@ async function submitSendNotification(e) {
 }
 
 // Notificación automática: repertorio nuevo (se engancha a createRepertorio sin tocar app.js)
-async function notifyNewRepertorio(titulo) {    if (!supabaseReady) return;
+async function notifyNewRepertorio(titulo) {    if (!supabaseReady || !isOnline) return;
     const now = Date.now();
     try {
         await supabaseClient.from('app_notifications').insert({
@@ -404,6 +408,7 @@ async function renderAdminNotificaciones() {
 
 async function deleteAdminNotification(id) {
     if (typeof isAdmin !== 'function' || !isAdmin() || !supabaseReady) return;
+    if (blockIfOffline()) return;
     if (!confirm('¿Eliminar esta notificación antes de tiempo? Ya no se mostrará a nadie.')) return;
     try {
         const { error } = await supabaseClient.from('app_notifications').delete().eq('id', id);
@@ -420,6 +425,7 @@ async function deleteAdminNotification(id) {
 
 async function updateNotificationExpiry(id, dateValue) {
     if (typeof isAdmin !== 'function' || !isAdmin() || !supabaseReady || !dateValue) return;
+    if (blockIfOffline()) return;
     const newExpiry = new Date(dateValue + 'T23:59:59').getTime();
     try {
         const { error } = await supabaseClient.from('app_notifications').update({ expires_at: newExpiry }).eq('id', id);

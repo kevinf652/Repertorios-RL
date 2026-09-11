@@ -138,11 +138,11 @@
       </div>
       <div style="display:flex;gap:6px;align-items:center">
         <input type="file" id="import-input" accept=".txt,.json" multiple style="display:none">
-        <button class="btn btn-zinc" onclick="document.getElementById('import-input').click()">
+        <button class="btn btn-zinc" onclick="if (!blockIfOffline()) document.getElementById('import-input').click()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span class="hide-mobile">Importar</span>
         </button>
-        <button class="btn btn-amber" onclick="showPage('add')">
+        <button class="btn btn-amber" onclick="if (!blockIfOffline()) showPage('add')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           <span class="hide-mobile">Nueva</span>
         </button>
@@ -269,11 +269,11 @@
       <div><div class="header-title">Listas</div><div class="header-sub" id="list-count">0 listas</div></div>
       <div style="display:flex;gap:6px">
         <input type="file" id="import-list-input" accept=".json" style="display:none">
-        <button class="btn btn-zinc" onclick="document.getElementById('import-list-input').click()">
+        <button class="btn btn-zinc" onclick="if (!blockIfOffline()) document.getElementById('import-list-input').click()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span class="hide-mobile">Importar</span>
         </button>
-        <button class="btn btn-amber" onclick="showNewListForm()">
+        <button class="btn btn-amber" onclick="if (!blockIfOffline()) showNewListForm()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           <span class="hide-mobile">Nueva</span>
         </button>
@@ -431,8 +431,8 @@
   </div>
 </div>
 
-<!-- PAGE: Admin Duplicados -->
-<div id="page-admin-duplicados" class="page">
+<!-- PAGE: Admin Canciones -->
+<div id="page-admin-canciones" class="page">
   <div class="header">
     <div class="header-inner">
       <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
@@ -442,19 +442,15 @@
     </div>
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
-    <div class="admin-section-title">Canciones duplicadas</div>
-    <div class="admin-section-subtitle">Mismo título/artista guardado con distinto ID entre usuarios</div>
-    <div id="admin-duplicados-content"></div>
+    <div class="admin-section-title">Canciones</div>
+    <div class="admin-section-subtitle">Catálogo único registrado en songs</div>
+    <input type="text" id="admin-canciones-search" class="admin-search-input" placeholder="Buscar por título, artista o ID..." oninput="renderAdminCanciones()">
+    <div id="admin-canciones-content"></div>
 
     <div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div>
-          <div class="admin-section-title" style="margin-bottom:2px">Duplicados en Almacenamiento (R2)</div>
-          <div class="admin-section-subtitle">Mismo audio guardado 2 veces en Storage — no afecta a la base de datos</div>
-        </div>
-        <button class="btn btn-zinc" onclick="renderAdminR2Duplicates(true)">🔄 Refrescar</button>
-      </div>
-      <div id="admin-r2-duplicates-content"></div>
+      <div class="admin-section-title" style="margin-bottom:2px">Detector de duplicados</div>
+      <div class="admin-section-subtitle">Mismo título/artista guardado con distinto ID</div>
+      <div id="admin-duplicados-content"></div>
     </div>
   </div>
 </div>
@@ -488,6 +484,17 @@
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div class="admin-section-title">Mantenimiento</div>
     <div id="admin-mantenimiento-content"></div>
+
+    <div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div>
+          <div class="admin-section-title" style="margin-bottom:2px">Duplicados en Almacenamiento (R2)</div>
+          <div class="admin-section-subtitle">Mismo audio guardado 2 veces en Storage — no afecta a la base de datos</div>
+        </div>
+        <button class="btn btn-zinc" onclick="renderAdminR2Duplicates(true)">🔄 Refrescar</button>
+      </div>
+      <div id="admin-r2-duplicates-content"></div>
+    </div>
   </div>
 </div>
 
