@@ -922,6 +922,28 @@ async function loadSongsFromCloud() {
     }
 }
 
+// ============= PRESENCIA ("en línea") =============
+// Se apoya en Realtime Presence (no hace NINGUNA escritura a la base de
+// datos, viaja sobre la misma conexión websocket que ya usan los demás
+// canales). Con ~30 usuarios esto no se acerca ni de cerca a los límites
+// del plan gratis (200 conexiones concurrentes / 2M mensajes al mes).
+let onlineUserIds = new Set();
+let _presenceChannelActive = false;
+function setupPresenceChannel() {
+    if (_presenceChannelActive || !currentUser || !currentUser.id || !supabaseReady) return;
+    _presenceChannelActive = true;
+    const channel = supabaseClient.channel('presencia-usuarios', { config: { presence: { key: currentUser.id } } });
+    channel
+        .on('presence', { event: 'sync' }, function() {
+            onlineUserIds = new Set(Object.keys(channel.presenceState()));
+            showConnectionStatus();
+            if (typeof refreshAdminOnlineIndicators === 'function') refreshAdminOnlineIndicators();
+        })
+        .subscribe(function(status) {
+            if (status === 'SUBSCRIBED') channel.track({ at: Date.now() });
+        });
+}
+
 // ============= REALTIME SUBSCRIPTIONS =============
 let _userSongsChannelActive = false;
 let _songsContentChannelActive = false;
@@ -1014,11 +1036,19 @@ function setupRealtimeSubscriptions() {
     }
 
     // Para que un cambio de rol hecho por Admin se aplique sin que el usuario
-    // tenga que cerrar sesión: se escucha en vivo su propia fila en admin_users.
+    // tenga que cerrar sesión: se escucha en vivo su propia fila.
+    // OJO: antes esto escuchaba 'admin_users', pero esa tabla tiene RLS activo
+    // desde antes de la migración a Auth (con políticas viejas que no conocen
+    // auth.uid()) — Postgres Realtime respeta RLS, así que el evento nunca
+    // llegaba aunque el UPDATE sí se guardara. 'profiles' ya funciona bien con
+    // el modelo de Auth (se usa para login y para verifyCurrentUserRole), así
+    // que escuchamos ahí en su lugar quedando filtrado por el UUID de Auth.
     if (currentUser && currentUser.id && !_userRoleChannelActive) {
         _userRoleChannelActive = true;
+        const roleTable = (USE_SUPABASE_AUTH && currentUser._authUid) ? 'profiles' : 'admin_users';
+        const roleFilterId = (USE_SUPABASE_AUTH && currentUser._authUid) ? currentUser._authUid : currentUser.id;
         supabaseClient.channel('user-role-changes')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'admin_users', filter: 'id=eq.' + currentUser.id }, function(payload) {
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: roleTable, filter: 'id=eq.' + roleFilterId }, function(payload) {
                 const newRole = payload.new && payload.new.role;
                 if (!newRole || newRole === userRole) return;
                 console.log('Realtime role change:', userRole, '->', newRole);
@@ -1041,7 +1071,7 @@ function setupRealtimeSubscriptions() {
     console.log('Realtime subscriptions active');
 }
 
-setTimeout(setupRealtimeSubscriptions, 2000);
+setTimeout(function() { setupRealtimeSubscriptions(); setupPresenceChannel(); }, 2000);
 
 // ============= AUTH SYSTEM =============
 function isAdmin() { return userRole === 'admin' }
@@ -1305,6 +1335,7 @@ async function handleLogin(e) {
         updateUserUI();
         closeAuthModal();
         setupRealtimeSubscriptions();
+        setupPresenceChannel();
 
         // ✅ Actualizar last_login (sin await para no bloquear)
         try {
@@ -1675,7 +1706,12 @@ async function loadRepertorios() {
 function showConnectionStatus() {
     const status = document.getElementById('rep-connection-status');
     if (!status) return;
-    if (isOnline) { status.innerHTML = '<span style="color:#4ade80;font-size:.65rem">● Conectado</span>' } else { status.innerHTML = '<span style="color:#f87171;font-size:.65rem">● Sin conexión: viendo la última copia guardada, puede no ser lo más reciente. No podrás guardar cambios hasta reconectar.</span>' }
+    const onlineBadge = '<span style="color:#a1a1aa;font-size:.65rem">🟢 ' + onlineUserIds.size + ' en línea</span>';
+    if (isOnline) {
+        status.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><span style="color:#4ade80;font-size:.65rem">● Conectado</span>' + onlineBadge + '</div>';
+    } else {
+        status.innerHTML = '<span style="color:#f87171;font-size:.65rem">● Sin conexión: viendo la última copia guardada, puede no ser lo más reciente. No podrás guardar cambios hasta reconectar.</span>';
+    }
 }
 
 function getSongNoteHtml(s) {

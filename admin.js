@@ -114,6 +114,12 @@ async function loadAdminUsersData(force) {
     } catch (e) { console.error('loadAdminUsersData error:', e); return [] }
 }
 
+// Se llama desde app.js cada vez que cambia quién está en línea (Realtime
+// Presence). Solo refresca si la pestaña de Usuarios está visible ahora mismo.
+function refreshAdminOnlineIndicators() {
+    if (document.getElementById('admin-usuarios-content')) renderAdminUsuarios(false);
+}
+
 async function renderAdminUsuarios(force) {
     const c = document.getElementById('admin-usuarios-content');
     if (!c) return;
