@@ -156,12 +156,14 @@ async function renderAdminUsuarios(force) {
             hour: '2-digit', minute: '2-digit'
           })
         : 'Nunca';
+    const isOnlineNow = typeof onlineUserIds !== 'undefined' && onlineUserIds.has(u.id);
+    const lastLoginCell = isOnlineNow ? '<span style="color:#4ade80;font-weight:600">🟢 En línea</span>' : lastLogin;
     return `<tr class="admin-row-clickable" onclick="viewAdminUserSongs('${u.id}')">
         <td>${esc((u.nombre || '') + ' ' + (u.apellido || '')).trim()}<br><span style="color:#71717a;font-size:.68rem">@${esc(u.id)}</span></td>
         <td>${(isSelf || (viewerIsSubAdmin && u.role === 'admin')) ? roleBadgeHtml(u.role) : `<select class="admin-role-select" onclick="event.stopPropagation()" onchange="updateUserRole('${u.id}',this.value)">${assignableOptions.map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${roleLabels[r]}</option>`).join('')}</select>`}</td>
         <td>${adminSongCountsCache[u.id] || 0}</td>
         <td style="font-size:.7rem;color:#71717a">${u.created_at ? new Date(u.created_at).toLocaleDateString('es-ES') : '-'}</td>
-        <td style="font-size:.7rem;color:#a1a1aa">${lastLogin}</td>
+        <td style="font-size:.7rem;color:#a1a1aa">${lastLoginCell}</td>
         <td onclick="event.stopPropagation()">${(u.role === 'admin' || u.role === 'SubAdmin') ? '<span style="font-size:.65rem;color:#71717a">Siempre</span>' : `<input type="checkbox" ${u.puede_notificar ? 'checked' : ''} onchange="toggleUserCanNotify('${u.id}', this.checked)" style="width:16px;height:16px;accent-color:#f59e0b;cursor:pointer">`}</td>
         <td>${(isSelf || (viewerIsSubAdmin && u.role === 'admin')) ? '' : `<button class="btn-outline-sm" onclick="event.stopPropagation(); resetUserPassword('${u.id}')">🔑 Restablecer</button>`}</td>
     </tr>`;
