@@ -4649,6 +4649,23 @@ async function deleteVocalAudio(repId, songId, coro, sourceSongId, dia, part) {
 }
 
 // ============= PAGE NAVIGATION =============
+// Mueve la campanita (un solo elemento, nunca se clona) al encabezado de la
+// página que esté activa en ese momento, dentro del grupo de botones de la
+// derecha si existe. En "page-add" (formulario a pantalla completa) se deja
+// fuera a propósito, para no forzar ese encabezado especial de 3 columnas.
+function attachNotifBellToActiveHeader() {
+    const bell = document.getElementById('notif-bell-btn');
+    if (!bell) return;
+    const activePage = document.querySelector('.page.active');
+    if (!activePage || activePage.id === 'page-add') return;
+    const headerInner = activePage.querySelector('.header-inner');
+    if (!headerInner) return;
+    let target = headerInner;
+    const last = headerInner.lastElementChild;
+    if (last && last.tagName === 'DIV' && last !== bell) target = last;
+    if (bell.parentElement !== target) target.appendChild(bell);
+}
+
 function showPage(name) {
     if (name === 'add' && blockIfOffline()) return;
     stopAllAudio();
@@ -4668,6 +4685,7 @@ function showPage(name) {
         renderKeyGrid() }
     if (name === 'view') renderView();
     if (name === 'listview') renderListView();
+    attachNotifBellToActiveHeader();
 }
 
 // ============= SEARCH =============
@@ -4692,6 +4710,7 @@ document.getElementById('vocal-audio-upload-input').addEventListener('change', h
 
 // ============= INIT =============
 showConnectionStatus();
+attachNotifBellToActiveHeader();
 
 // ✅ Inicializar auth después de que Supabase esté listo
 if (supabaseReady) {
