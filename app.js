@@ -4662,7 +4662,7 @@ function attachNotifBellToActiveHeader() {
     if (!headerInner) return;
     let target = headerInner;
     const last = headerInner.lastElementChild;
-    if (last && last.tagName === 'DIV' && last !== bell) target = last;
+    if (last && last !== bell && last.querySelector('button')) target = last;
     if (bell.parentElement !== target) target.appendChild(bell);
 }
 
