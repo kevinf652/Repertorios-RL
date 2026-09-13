@@ -1132,11 +1132,15 @@ function initAuth() {
                         // Se confía en la sesión local guardada, igual que se hacía antes de Auth.
                         console.log('Sin conexión: usando sesión local sin verificar contra el servidor.');
                     } else {
-                        // Confirmar que la sesión real de Auth siga viva; si no, cerrar sesión local también.
+                        // Confirmar que la sesión real de Auth siga viva, solo para decidir si se
+                        // sincroniza con la nube. NUNCA se cierra la sesión local automáticamente
+                        // desde aquí: cerrar sesión es una acción exclusiva del usuario (botón
+                        // "Cerrar sesión"). Si no se puede confirmar la sesión (señal débil, timeout
+                        // al refrescar el token, error del servidor, etc.), se sigue usando la app
+                        // con los datos locales tal cual, sin pedir login de nuevo.
                         supabaseClient.auth.getSession().then(function(res) {
                             if (!res || !res.data || !res.data.session) {
-                                console.log('Sesión de Auth expirada o inexistente, cerrando sesión local.');
-                                handleLogout();
+                                console.warn('No se pudo confirmar la sesión con el servidor (posible señal débil); se mantiene la sesión local sin sincronizar por ahora.');
                                 return;
                             }
                             console.log('User logged in (Auth), loading songs from cloud...');
@@ -3316,27 +3320,78 @@ function cleanSingerName(name) {
     return n.trim();
 }
 
-async function createRepertorio() {
+// ============= MODAL: Crear repertorio (Normal o Especial) =============
+function openCreateRepertorioModal() {
     if (!canManageReps() || !supabaseReady) return;
-    const titulo = prompt('Nombre del repertorio (ej: 24/25 Agosto):');
-    if (!titulo) return;
-    const fecha = prompt('Fecha del domingo (YYYY-MM-DD):', '2026-08-24');
-    if (!fecha) return;
+    document.getElementById('crep-tipo').value = 'normal';
+    document.getElementById('crep-fecha').value = '';
+    document.getElementById('crep-grupo').value = 'domingo';
+    document.getElementById('crep-nombre').value = '';
+    document.getElementById('crep-error').classList.remove('show');
+    onCrepTipoChange();
+    document.getElementById('create-rep-modal').classList.add('active');
+}
+
+function closeCreateRepertorioModal() {
+    document.getElementById('create-rep-modal').classList.remove('active');
+}
+
+function onCrepTipoChange() {
+    const tipo = document.getElementById('crep-tipo').value;
+    const esEspecial = tipo === 'especial';
+    document.getElementById('crep-grupo-group').classList.toggle('hidden', !esEspecial);
+    document.getElementById('crep-fecha-label').textContent = esEspecial ? 'Fecha del evento' : 'Fecha del domingo';
+}
+
+function showCrepError(msg) {
+    const el = document.getElementById('crep-error');
+    el.textContent = msg;
+    el.classList.add('show');
+}
+
+async function submitCreateRepertorio() {
+    if (!canManageReps() || !supabaseReady) return;
+    const tipo = document.getElementById('crep-tipo').value;
+    const fecha = document.getElementById('crep-fecha').value;
+    const titulo = document.getElementById('crep-nombre').value.trim();
+    const grupo = document.getElementById('crep-grupo').value;
+
+    if (!fecha) { showCrepError('Falta la fecha'); return }
+    if (!titulo) { showCrepError('Falta el nombre del repertorio'); return }
+
     const d = new Date(fecha + 'T12:00:00');
-    const dom = d.toISOString().split('T')[0];
-    const lun = new Date(d.getTime() + 86400000).toISOString().split('T')[0];
+    let dom, lun, grupoUsado;
+    if (tipo === 'especial') {
+        // Un solo día real: se guarda la misma fecha en ambas columnas (fecha_lunes
+        // no se usa ni se muestra para un repertorio Especial), y se recuerda qué
+        // grupo de voces (Domingo o Lunes) es el que está a cargo.
+        dom = d.toISOString().split('T')[0];
+        lun = dom;
+        grupoUsado = grupo;
+    } else {
+        dom = d.toISOString().split('T')[0];
+        lun = new Date(d.getTime() + 86400000).toISOString().split('T')[0];
+        grupoUsado = null;
+    }
+
     const id = 'r' + Date.now().toString(36);
     try {
-        const { error } = await supabaseClient.from('repertorios').insert({ id, titulo, fecha_domingo: dom, fecha_lunes: lun, mes: d.getMonth() + 1, año: d.getFullYear(), estado: 'activo', created_at: Date.now() });
+        const { error } = await supabaseClient.from('repertorios').insert({
+            id, titulo, fecha_domingo: dom, fecha_lunes: lun,
+            mes: d.getMonth() + 1, año: d.getFullYear(), estado: 'activo', created_at: Date.now(),
+            tipo, grupo_usado: grupoUsado
+        });
         if (error) throw error;
+        closeCreateRepertorioModal();
         await loadRepertorios();
         renderRepertorios();
-        alert('Repertorio creado');
+        showNotification('Repertorio creado', 'success');
         logActivity('rep_created', {
             repertorio: titulo,
-            day: dom
+            day: dom,
+            tipo
         }, 'repertorio', id);
-    } catch (e) { alert('Error: ' + e.message) }
+    } catch (e) { showCrepError('Error: ' + e.message) }
 }
 
 // Duplica un repertorio existente: mismo listado de canciones (con audio), sin vocalistas ni coros
@@ -3509,19 +3564,25 @@ function renderRepertorios() {
     if (repTab === 'active') {
         const fc = document.getElementById('rep-filters');
         if (repAdmin) { fc.style.display = 'block';
-            fc.innerHTML = '<button class="btn btn-amber" style="width:100%;margin-bottom:8px" onclick="createRepertorio()">+ Crear repertorio</button>' } else { fc.style.display = 'none' }
+            fc.innerHTML = '<button class="btn btn-amber" style="width:100%;margin-bottom:8px" onclick="openCreateRepertorioModal()">+ Crear repertorio</button>' } else { fc.style.display = 'none' }
         if (active.length === 0) {
             c.innerHTML = '<div class="empty"><div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div><h2>No hay repertorios activos</h2><p>' + (repAdmin ? 'Crea uno desde el botón de gestionar' : 'Espera a que el admin cree uno') + '</p></div>';
             return
         }
         c.innerHTML = active.map((r, idx) => {
+            const esEspecial = r.tipo === 'especial';
             const sc = r.canciones.length;
             const songsDom = r.canciones.filter(sng => sng.dia !== 'lunes');
             const songsLun = r.canciones.filter(sng => sng.dia !== 'domingo');
             const domVoices = songsDom.filter(sng => sng.vocalista_domingo).length;
             const lunVoices = songsLun.filter(sng => (sng.vocalista_lunes || sng.vocalista_domingo)).length;
             const isNext = idx === 0;
-            const vocesMeta = sc > 0 ? '<span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Domingo: ' + domVoices + ' · Lunes: ' + lunVoices + '</span>' : '';
+            const vocesMeta = sc === 0 ? '' : (esEspecial
+                ? '<span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Voces: ' + (r.grupo_usado === 'lunes' ? lunVoices : domVoices) + '</span>'
+                : '<span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Domingo: ' + domVoices + ' · Lunes: ' + lunVoices + '</span>');
+            const tituloHtml = esEspecial
+                ? ('🎉 ' + esc(r.titulo) + ' — ' + fmtDate(r.fecha_domingo))
+                : (fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes));
 
             // Resumen rápido, SOLO en la tarjeta "Actual": quién dirige, cuántas canciones y
             // quiénes cantan cada día (nombres sin repetir, sin lo que esté entre paréntesis
@@ -3544,12 +3605,21 @@ function renderRepertorios() {
                     return '<div style="color:' + color + ';font-weight:600;margin-bottom:1px">' + emoji + ' ' + label + '</div>'
                         + '<div style="color:#d4d4d8;margin-bottom:' + (isLast ? '0' : '8px') + '">Dirige: ' + dirigeTxt + ' • ' + daySongs.length + ' canciones • ' + vocesTxt + '</div>';
                 };
-                summaryHtml = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(63,63,70,.4);font-size:.75rem;line-height:1.5">'
-                    + dayBlock('Domingo', '🌞', '#60a5fa', 'domingo', songsDom, r.dirige_domingo, false)
-                    + dayBlock('Lunes', '🌙', '#c084fc', 'lunes', songsLun, r.dirige_lunes, true)
-                    + '</div>';
+                if (esEspecial) {
+                    const grupo = r.grupo_usado || 'domingo';
+                    const daySongs = grupo === 'lunes' ? songsLun : songsDom;
+                    const dirige = grupo === 'lunes' ? r.dirige_lunes : r.dirige_domingo;
+                    summaryHtml = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(63,63,70,.4);font-size:.75rem;line-height:1.5">'
+                        + dayBlock(r.titulo, '🎉', '#fbbf24', grupo, daySongs, dirige, true)
+                        + '</div>';
+                } else {
+                    summaryHtml = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(63,63,70,.4);font-size:.75rem;line-height:1.5">'
+                        + dayBlock('Domingo', '🌞', '#60a5fa', 'domingo', songsDom, r.dirige_domingo, false)
+                        + dayBlock('Lunes', '🌙', '#c084fc', 'lunes', songsLun, r.dirige_lunes, true)
+                        + '</div>';
+                }
             }
-            return '<div class="rep-card' + (isNext ? ' rep-card-next' : '') + '" onclick="viewRepertorio(\'' + r.id + '\')">' + (isNext ? '<span class="rep-card-badge">Actual</span>' : '') + '<div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ' + fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes) + '</div>' + (isNext ? '' : ('<div class="rep-card-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + sc + ' canciones</span>' + vocesMeta + '</div>' + (sc === 0 ? '<p style="font-size:.7rem;color:#71717a;margin-top:6px;font-style:italic">Aún sin canciones asignadas</p>' : ''))) + summaryHtml + '</div>' + (canManageReps() ? '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn-icon" onclick="event.stopPropagation();addSongToRepertorio(\'' + r.id + '\')" title="Agregar canción" style="color:#f59e0b"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepertorio(\'' + r.id + '\')" title="Eliminar" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div>' : '') + '</div></div>';
+            return '<div class="rep-card' + (isNext ? ' rep-card-next' : '') + '" onclick="viewRepertorio(\'' + r.id + '\')">' + (isNext ? '<span class="rep-card-badge">Actual</span>' : '') + '<div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ' + tituloHtml + '</div>' + (isNext ? '' : ('<div class="rep-card-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + sc + ' canciones</span>' + vocesMeta + '</div>' + (sc === 0 ? '<p style="font-size:.7rem;color:#71717a;margin-top:6px;font-style:italic">Aún sin canciones asignadas</p>' : ''))) + summaryHtml + '</div>' + (canManageReps() ? '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn-icon" onclick="event.stopPropagation();addSongToRepertorio(\'' + r.id + '\')" title="Agregar canción" style="color:#f59e0b"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepertorio(\'' + r.id + '\')" title="Eliminar" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div>' : '') + '</div></div>';
         }).join('');
     } else {
         const uniqueYears = [...new Set(archived.map(r => r.año))].sort((a, b) => b - a);
@@ -3566,26 +3636,43 @@ function renderRepertorios() {
         }
         c.innerHTML = filtered.map(r => {
             const sc = r.canciones.length;
-            return '<div class="rep-card" onclick="viewRepertorio(\'' + r.id + '\')" style="opacity:.8"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title" style="color:#a1a1aa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2"><polyline points="21,8 21,21 3,21 3,8"/><rect x="1" y="3" width="22" height="5"/></svg> ' + fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes) + '</div><span style="font-size:.7rem;color:#71717a">' + sc + ' canciones</span></div>' + (canManageReps() ? '<button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa;flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>' : '') + '</div></div>';
+            const tituloHtml = r.tipo === 'especial' ? ('🎉 ' + esc(r.titulo) + ' — ' + fmtDate(r.fecha_domingo)) : (fmtDate(r.fecha_domingo) + ' | ' + fmtDate(r.fecha_lunes));
+            return '<div class="rep-card" onclick="viewRepertorio(\'' + r.id + '\')" style="opacity:.8"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="flex:1"><div class="rep-card-title" style="color:#a1a1aa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2"><polyline points="21,8 21,21 3,21 3,8"/><rect x="1" y="3" width="22" height="5"/></svg> ' + tituloHtml + '</div><span style="font-size:.7rem;color:#71717a">' + sc + ' canciones</span></div>' + (canManageReps() ? '<button class="btn-icon" onclick="event.stopPropagation();showDuplicateRepertorioModal(\'' + r.id + '\')" title="Duplicar repertorio" style="color:#60a5fa;flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>' : '') + '</div></div>';
         }).join('');
     }
 }
 
 function viewRepertorio(id) {
     viewingRepId = id;
-    var savedDay = load('cb_rep_day_' + id, null);
-    repDay = savedDay || 'domingo';
-    document.getElementById('rep-day-dom').className = 'rep-tab ' + (repDay === 'domingo' ? 'active' : '');
-    document.getElementById('rep-day-lun').className = 'rep-tab ' + (repDay === 'lunes' ? 'active' : '');
+    const r = repertorios.find(x => x.id === id);
+    if (r && r.tipo === 'especial') {
+        // Un repertorio Especial solo tiene un grupo de voces real; no hay
+        // pestaña que elegir, así que no se guarda/lee preferencia de día.
+        repDay = r.grupo_usado || 'domingo';
+    } else {
+        var savedDay = load('cb_rep_day_' + id, null);
+        repDay = savedDay || 'domingo';
+    }
     showPage('repertorio')
 }
 
 function switchRepDay(day) {
     repDay = day;
     save('cb_rep_day_' + viewingRepId, day);
-    document.getElementById('rep-day-dom').className = 'rep-tab ' + (day === 'domingo' ? 'active' : '');
-    document.getElementById('rep-day-lun').className = 'rep-tab ' + (day === 'lunes' ? 'active' : '');
     renderRepertorioView()
+}
+
+// Pestañas de día: en un repertorio Normal son Domingo/Lunes (interactivas);
+// en uno Especial es una sola "pastilla" con el nombre del evento, informativa.
+function renderRepDayTabs(r) {
+    const el = document.getElementById('rep-day-tabs');
+    if (!el) return;
+    if (r.tipo === 'especial') {
+        el.innerHTML = '<button class="rep-tab active" style="cursor:default">🎉 ' + esc(r.titulo) + '</button>';
+    } else {
+        el.innerHTML = '<button class="rep-tab ' + (repDay === 'domingo' ? 'active' : '') + '" id="rep-day-dom" onclick="switchRepDay(\'domingo\')">🌞 Domingo</button>'
+            + '<button class="rep-tab ' + (repDay === 'lunes' ? 'active' : '') + '" id="rep-day-lun" onclick="switchRepDay(\'lunes\')">🌙 Lunes</button>';
+    }
 }
 
 function saveDirige(repId, day, name) {
@@ -3626,7 +3713,11 @@ function renderRepertorioView() {
         + '<button class="btn-icon" ' + (hasPrev ? 'onclick="navigateRepertorio(-1)"' : 'disabled style="opacity:.3"') + ' title="Repertorio anterior" style="gap:3px;color:#a1a1aa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg><span style="font-size:.75rem">Anterior</span></button>'
         + '<button class="btn-icon" ' + (hasNext ? 'onclick="navigateRepertorio(1)"' : 'disabled style="opacity:.3"') + ' title="Repertorio siguiente" style="gap:3px;color:#a1a1aa"><span style="font-size:.75rem">Siguiente</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>'
         + '</div>';
-    document.getElementById('rep-view-header').innerHTML = navHtml + '<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px">' + fmtDate(repDay === 'domingo' ? r.fecha_domingo : r.fecha_lunes) + '</h1><p style="font-size:.8rem;color:#71717a">' + fmtDate(repDay === 'domingo' ? r.fecha_lunes : r.fecha_domingo) + '</p>';
+    const headerDateHtml = r.tipo === 'especial'
+        ? '<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px">' + fmtDate(r.fecha_domingo) + '</h1>'
+        : ('<h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px">' + fmtDate(repDay === 'domingo' ? r.fecha_domingo : r.fecha_lunes) + '</h1><p style="font-size:.8rem;color:#71717a">' + fmtDate(repDay === 'domingo' ? r.fecha_lunes : r.fecha_domingo) + '</p>');
+    document.getElementById('rep-view-header').innerHTML = navHtml + headerDateHtml;
+    renderRepDayTabs(r);
     const songsForDay = r.canciones.filter(s => s.dia === 'ambos' || s.dia === repDay).sort((a, b) => a.orden - b.orden);
     const c = document.getElementById('rep-view-songs');
 

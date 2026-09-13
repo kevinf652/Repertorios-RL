@@ -346,10 +346,7 @@
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div id="rep-view-header"></div>
-    <div style="display:flex;gap:4px;background:#27272a;padding:4px;border-radius:12px;margin-bottom:12px">
-      <button class="rep-tab active" id="rep-day-dom" onclick="switchRepDay('domingo')">🌞 Domingo</button>
-      <button class="rep-tab" id="rep-day-lun" onclick="switchRepDay('lunes')">🌙 Lunes</button>
-    </div>
+    <div id="rep-day-tabs" style="display:flex;gap:4px;background:#27272a;padding:4px;border-radius:12px;margin-bottom:12px"></div>
     <div id="rep-view-songs"></div>
   </div>
 </div>
@@ -1026,6 +1023,40 @@
         <button type="submit" class="btn btn-amber" style="flex:1;justify-content:center">Enviar</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Modal: Crear repertorio -->
+<div id="create-rep-modal" class="auth-modal" onclick="if(event.target===this)closeCreateRepertorioModal()">
+  <div class="auth-card">
+    <div class="auth-title">Crear repertorio</div>
+    <div class="form-group">
+      <label class="label">Tipo</label>
+      <select id="crep-tipo" class="input" onchange="onCrepTipoChange()">
+        <option value="normal">Normal (Domingo y Lunes)</option>
+        <option value="especial">Especial (evento de un solo día)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="label" id="crep-fecha-label">Fecha del domingo</label>
+      <input type="date" id="crep-fecha" class="input">
+    </div>
+    <div class="form-group hidden" id="crep-grupo-group">
+      <label class="label">¿Qué grupo de voces usará?</label>
+      <select id="crep-grupo" class="input">
+        <option value="domingo">Domingo</option>
+        <option value="lunes">Lunes</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="label">Nombre del repertorio</label>
+      <input type="text" id="crep-nombre" class="input" placeholder="ej: 24/25 Agosto, o Evento Jóvenes">
+    </div>
+    <div id="crep-error" class="auth-error"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button type="button" class="btn btn-zinc" onclick="closeCreateRepertorioModal()" style="flex:1;justify-content:center">Cancelar</button>
+      <button type="button" class="btn btn-amber" onclick="submitCreateRepertorio()" style="flex:1;justify-content:center">Crear</button>
+    </div>
   </div>
 </div>
 
