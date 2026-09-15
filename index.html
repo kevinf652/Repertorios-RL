@@ -573,6 +573,13 @@
         <option value="notification_deleted">Notificación eliminada</option>
         <option value="notification_reaction_added">Reacción agregada</option>
         <option value="notification_reaction_removed">Reacción quitada</option>
+        <option value="song_shared_internal">Canción compartida dentro de App-RL</option>
+        <option value="list_shared_internal">Lista compartida dentro de App-RL</option>
+        <option value="song_shared_external">Canción compartida fuera de App-RL</option>
+        <option value="song_json_downloaded">JSON de canción descargado</option>
+        <option value="list_json_downloaded">JSON de lista descargado</option>
+        <option value="shared_item_dismissed">Notificación compartida quitada</option>
+        <option value="shared_item_deleted">Compartido vencido purgado</option>
         <option value="user_deleted">Usuario eliminado</option>
         <option value="help_video_added">Video de ayuda agregado</option>
         <option value="help_video_updated">Video de ayuda editado</option>
@@ -625,6 +632,43 @@
     <div class="admin-section-title">🔔 Notificaciones activas</div>
     <div class="admin-section-subtitle">Se autolimpian solas al vencer — puedes eliminarlas antes o mover su fecha</div>
     <div id="admin-notificaciones-content"></div>
+  </div>
+</div>
+
+<!-- PAGE: Admin - Compartidos -->
+<div id="page-admin-compartidos" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+      <button class="btn btn-zinc" onclick="renderAdminCompartidos(true)" style="font-size:.72rem">🔄 Refrescar</button>
+    </div>
+  </div>
+  <div style="max-width:70rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">📤 Compartidos internos</div>
+    <div class="admin-section-subtitle">Los compartidos vencidos se conservan para revisión; solo Admin puede eliminarlos definitivamente.</div>
+    <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">
+      <input type="text" id="admin-compartidos-search" class="admin-search-input" style="flex:2;min-width:180px;margin-bottom:0" placeholder="Buscar título, remitente o destinatario..." oninput="renderAdminCompartidos()">
+      <select id="admin-compartidos-type" class="admin-search-input" style="flex:1;min-width:125px;margin-bottom:0" onchange="renderAdminCompartidos()">
+        <option value="">Canciones y listas</option>
+        <option value="song">Canciones</option>
+        <option value="list">Listas</option>
+      </select>
+      <select id="admin-compartidos-lifecycle" class="admin-search-input" style="flex:1;min-width:125px;margin-bottom:0" onchange="renderAdminCompartidos()">
+        <option value="">Activos y vencidos</option>
+        <option value="active">Activos</option>
+        <option value="expired">Vencidos</option>
+      </select>
+      <select id="admin-compartidos-status" class="admin-search-input" style="flex:1;min-width:125px;margin-bottom:0" onchange="renderAdminCompartidos()">
+        <option value="">Todos los estados</option>
+        <option value="pending">Pendientes</option>
+        <option value="viewed">Vistos</option>
+        <option value="accepted">Guardados</option>
+      </select>
+    </div>
+    <div id="admin-compartidos-content"></div>
   </div>
 </div>
 

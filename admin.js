@@ -56,6 +56,7 @@ function renderAdminPanel() {
         ...(isAdmin() ? [{ page: 'admin-storage', title: 'Almacenamiento R2', subtitle: 'Ver archivos y espacio usado', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>' }] : []),
         ...((isAdmin() || isSubAdmin()) ? [{ page: 'admin-invitados', title: 'Invitados', subtitle: 'Uso sin cuenta: última conexión', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }] : []),
         ...(isAdmin() ? [{ page: 'admin-notificaciones', title: 'Notificaciones', subtitle: 'Ver, editar y eliminar activas', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' }] : []),
+        ...(isAdmin() ? [{ page: 'admin-compartidos', title: 'Compartidos', subtitle: 'Supervisar envíos internos (3 días)', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>' }] : []),
         { page: 'admin-logs', title: 'Registro de actividades', subtitle: 'Ver acciones de usuarios', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>' }
     ];
     const orderedCards = sortAdminCardDefinitions(cardDefinitions);
@@ -198,6 +199,9 @@ async function renderAdminSummary() {
                     password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento',
                     activity_created: 'propuso una actividad', activity_deleted: 'eliminó una actividad', social_profile_updated: 'actualizó sus datos',
                     help_video_added: 'agregó un video de ayuda', help_video_deleted: 'eliminó un video de ayuda', help_video_updated: 'editó un video de ayuda',
+                    song_shared_internal: 'compartió una canción dentro de App-RL', list_shared_internal: 'compartió una lista dentro de App-RL',
+                    song_shared_external: 'compartió una canción fuera de App-RL', song_json_downloaded: 'descargó un JSON de canción', list_json_downloaded: 'descargó un JSON de lista',
+                    shared_item_dismissed: 'eliminó una notificación compartida', shared_item_deleted: 'purgó un compartido vencido',
                     r2_file_deleted: 'limpió un duplicado de Storage'
                 };
                 const when = new Date(recent[0].created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -1691,6 +1695,149 @@ async function renderAdminInvitados() {
     } catch (e) { c.innerHTML = '<div class="admin-empty">Error: ' + esc(e.message) + '</div>' }
 }
 
+// ---------- Compartidos internos (solo Admin) ----------
+let adminSharedItemsCache = null;
+const ADMIN_SHARED_ACTIVE = 'active';
+const ADMIN_SHARED_EXPIRED = 'expired';
+
+function adminSharedStatusLabel(status) {
+    const labels = { pending: 'Pendiente', viewed: 'Visto', accepted: 'Guardado', rejected: 'Rechazado' };
+    return labels[status] || status || '-';
+}
+
+function adminSharedLifecycle(row, now) {
+    if (row && row.lifecycle_status === ADMIN_SHARED_EXPIRED) return ADMIN_SHARED_EXPIRED;
+    return row && row.expires_at && row.expires_at <= now ? ADMIN_SHARED_EXPIRED : ADMIN_SHARED_ACTIVE;
+}
+
+function adminSharedLifecycleLabel(lifecycle, reason) {
+    if (lifecycle === ADMIN_SHARED_EXPIRED) {
+        return reason === 'user_dismissed' ? 'Vencido · quitado por usuario' : 'Vencido';
+    }
+    return 'Activo';
+}
+
+async function markAdminExpiredSharedRows(rows, now) {
+    const ids = (rows || []).filter(row => adminSharedLifecycle(row, now) === ADMIN_SHARED_EXPIRED && row.lifecycle_status !== ADMIN_SHARED_EXPIRED).map(row => row.id);
+    if (!ids.length || !isOnline) return;
+    try {
+        const { error } = await supabaseClient.from('app_shared_items').update({
+            lifecycle_status: ADMIN_SHARED_EXPIRED,
+            expired_at: now,
+            expired_reason: 'timeout'
+        }).in('id', ids);
+        if (!error) rows.forEach(row => {
+            if (ids.includes(row.id)) {
+                row.lifecycle_status = ADMIN_SHARED_EXPIRED;
+                row.expired_at = row.expired_at || now;
+                row.expired_reason = row.expired_reason || 'timeout';
+            }
+        });
+    } catch (e) { console.warn('No se pudieron marcar compartidos vencidos desde Admin:', e.message) }
+}
+
+async function renderAdminCompartidos(force) {
+    const c = document.getElementById('admin-compartidos-content');
+    if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return; }
+    if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return; }
+    c.innerHTML = '<div class="admin-empty">Cargando compartidos...</div>';
+    try {
+        if (force || !adminSharedItemsCache) {
+            const { data: rows, error } = await supabaseClient.from('app_shared_items')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(1000);
+            if (error) throw error;
+            const now = Date.now();
+            adminSharedItemsCache = (rows || []).map(row => ({ ...row, lifecycle_status: adminSharedLifecycle(row, now) }));
+            await markAdminExpiredSharedRows(adminSharedItemsCache, now);
+        }
+        const q = (document.getElementById('admin-compartidos-search')?.value || '').trim().toLowerCase();
+        const typeFilter = document.getElementById('admin-compartidos-type')?.value || '';
+        const statusFilter = document.getElementById('admin-compartidos-status')?.value || '';
+        const lifecycleFilter = document.getElementById('admin-compartidos-lifecycle')?.value || '';
+        const filtered = adminSharedItemsCache.filter(row => {
+            const text = [row.title, row.sender_id, row.sender_name, row.recipient_id].join(' ').toLowerCase();
+            const lifecycle = adminSharedLifecycle(row, Date.now());
+            return (!q || text.includes(q))
+                && (!typeFilter || row.item_type === typeFilter)
+                && (!statusFilter || row.status === statusFilter)
+                && (!lifecycleFilter || lifecycle === lifecycleFilter);
+        });
+        const counts = {
+            total: adminSharedItemsCache.length,
+            active: adminSharedItemsCache.filter(r => adminSharedLifecycle(r, Date.now()) === ADMIN_SHARED_ACTIVE).length,
+            expired: adminSharedItemsCache.filter(r => adminSharedLifecycle(r, Date.now()) === ADMIN_SHARED_EXPIRED).length,
+            pending: adminSharedItemsCache.filter(r => r.status === 'pending' && adminSharedLifecycle(r, Date.now()) === ADMIN_SHARED_ACTIVE).length
+        };
+        const summary = '<div class="admin-summary-grid" style="margin-bottom:12px">'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + counts.total + '</div><div class="admin-summary-label">Total</div></div>'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + counts.active + '</div><div class="admin-summary-label">Activos</div></div>'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + counts.expired + '</div><div class="admin-summary-label">Vencidos</div></div>'
+            + '<div class="admin-summary-item"><div class="admin-summary-value">' + counts.pending + '</div><div class="admin-summary-label">Pendientes</div></div>'
+            + '</div>';
+        if (filtered.length === 0) {
+            c.innerHTML = summary + '<div class="admin-empty">No hay compartidos que coincidan con los filtros.</div>';
+            return;
+        }
+        const rowsHtml = filtered.map(row => {
+            const lifecycle = adminSharedLifecycle(row, Date.now());
+            const typeLabel = row.item_type === 'song' ? '🎵 Canción' : '📋 Lista';
+            const created = row.created_at ? new Date(row.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+            const expires = row.expires_at ? new Date(row.expires_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+            const lifecycleColor = lifecycle === ADMIN_SHARED_EXPIRED ? '#a1a1aa' : '#4ade80';
+            const action = lifecycle === ADMIN_SHARED_EXPIRED
+                ? '<button class="btn-danger-sm" onclick="adminDeleteExpiredSharedItem(\'' + String(row.id).replace(/'/g, "\\'") + '\')">🗑️ Eliminar</button>'
+                : '<span style="font-size:.68rem;color:#52525b">—</span>';
+            return '<tr>'
+                + '<td style="font-size:.7rem;color:#71717a;white-space:nowrap">' + created + '</td>'
+                + '<td><span style="font-size:.78rem;color:#e4e4e7">' + esc(row.sender_name || row.sender_id || '-') + '</span><br><span style="font-size:.68rem;color:#71717a">@' + esc(row.sender_id || '') + '</span></td>'
+                + '<td style="font-size:.75rem;color:#a1a1aa">@' + esc(row.recipient_id || '') + '</td>'
+                + '<td style="font-size:.75rem;color:#d4d4d8">' + typeLabel + '</td>'
+                + '<td style="font-size:.78rem;color:#e4e4e7">' + esc(row.title || '-') + '</td>'
+                + '<td style="font-size:.72rem;color:' + lifecycleColor + '">' + esc(adminSharedLifecycleLabel(lifecycle, row.expired_reason)) + '<br><span style="color:#71717a">' + esc(adminSharedStatusLabel(row.status)) + '</span></td>'
+                + '<td style="font-size:.7rem;color:#71717a;white-space:nowrap">' + expires + '</td>'
+                + '<td>' + action + '</td>'
+                + '</tr>';
+        }).join('');
+        c.innerHTML = summary + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Enviado</th><th>Remitente</th><th>Destinatario</th><th>Tipo</th><th>Contenido</th><th>Ciclo / estado</th><th>Vence</th><th>Acción</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+            + '<div style="font-size:.68rem;color:#71717a;margin-top:8px">Los compartidos no se borran automáticamente. El botón de eliminación solo aparece en los registros vencidos.</div>';
+    } catch (e) {
+        console.error('renderAdminCompartidos error:', e);
+        c.innerHTML = '<div class="admin-empty">No se pudo cargar Compartidos: ' + esc(e.message) + '</div>';
+    }
+}
+
+async function adminDeleteExpiredSharedItem(id) {
+    if (!isAdmin() || !supabaseReady || !id || blockIfOffline()) return;
+    const row = (adminSharedItemsCache || []).find(item => item.id === id);
+    if (!row || adminSharedLifecycle(row, Date.now()) !== ADMIN_SHARED_EXPIRED) return;
+    if (!confirm('¿Eliminar definitivamente este compartido vencido? Esta acción no se puede deshacer.')) return;
+    try {
+        if (row.lifecycle_status !== ADMIN_SHARED_EXPIRED) {
+            const { error: expiryError } = await supabaseClient.from('app_shared_items').update({
+                lifecycle_status: ADMIN_SHARED_EXPIRED,
+                expired_at: Date.now(),
+                expired_reason: 'timeout'
+            }).eq('id', id);
+            if (expiryError) throw expiryError;
+        }
+        const { error } = await supabaseClient.from('app_shared_items').delete().eq('id', id).eq('lifecycle_status', ADMIN_SHARED_EXPIRED);
+        if (error) throw error;
+        if (typeof logActivity === 'function') logActivity('shared_item_deleted', {
+            title: row.title || '',
+            type: row.item_type || '',
+            status: ADMIN_SHARED_EXPIRED
+        }, 'shared_item', id);
+        adminSharedItemsCache = null;
+        showNotification('Compartido vencido eliminado.', 'success');
+        await renderAdminCompartidos(true);
+    } catch (e) {
+        showNotification('No se pudo eliminar el compartido: ' + e.message, 'error');
+    }
+}
+
 // ---------- Enganches sin tocar app.js ----------
 if (typeof showPage === 'function') {
     const _adminOriginalShowPage = showPage;
@@ -1704,6 +1851,7 @@ if (typeof showPage === 'function') {
         if (name === 'admin-delete-users') { loadAdminUsersData(true).then(() => renderAdminInactiveUsersSection()); }
         if (name === 'admin-storage') renderAdminStorage();
         if (name === 'admin-invitados') renderAdminInvitados();
+        if (name === 'admin-compartidos') renderAdminCompartidos(true);
 	if (name === 'admin-logs') { logsPage = 0; renderAdminLogs(); }
     };
 }
@@ -1812,6 +1960,13 @@ async function renderAdminLogs() {
             notification_deleted: '🗑️ Eliminó notificación',
             notification_reaction_added: '👍 Reaccionó a notificación',
             notification_reaction_removed: '↩️ Quitó reacción',
+            song_shared_internal: '📤 Compartió canción dentro de App-RL',
+            list_shared_internal: '📤 Compartió lista dentro de App-RL',
+            song_shared_external: '🌐 Compartió canción fuera de App-RL',
+            song_json_downloaded: '📄 Descargó JSON de canción',
+            list_json_downloaded: '📄 Descargó JSON de lista',
+            shared_item_dismissed: '🗑️ Eliminó notificación compartida',
+            shared_item_deleted: '🧹 Purgó compartido vencido',
             user_deleted: '🗑️ Eliminó usuario',
             help_video_added: '🎬 Agregó video de ayuda',
             help_video_updated: '✏️ Editó video de ayuda',
@@ -1859,6 +2014,9 @@ async function renderAdminLogs() {
                                 if (d.dia) parts.push('📅 ' + d.dia);
                                 if (d.newRole) parts.push('➡️ ' + d.newRole);
                                 if (d.targetUser) parts.push('👤 @' + d.targetUser);
+                                if (d.targetUserName) parts.push('(' + d.targetUserName + ')');
+                                if (d.content) parts.push('📦 ' + d.content);
+                                if (d.status) parts.push('⚙️ ' + d.status);
                                 if (d.repertorio) parts.push('📁 ' + d.repertorio);
                                  if (d.type === 'vocal') parts.push('🎤 Vocal');
                                 if (d.type === 'song') parts.push('🎵 Canción');

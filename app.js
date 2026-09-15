@@ -481,7 +481,9 @@ async function confirmImportAll(listId) {
         return;
     }
     rows.forEach(row => {
-        if (!songs.find(x => x.id === row.id)) songs.push(canonicalSongToLocal(row));
+        const existing = songs.find(x => x.id === row.id);
+        if (!existing) songs.push(canonicalSongToLocal(row));
+        else mergeSongAudioFields(existing, row.audio_url, row.audio_original_url);
     });
 
     save('cb_songs', songs);
@@ -509,13 +511,17 @@ function confirmImportLater() {
 // Ventana de solo lectura para ver el contenido real de una canción que aún NO
 // está en tu biblioteca (viene de una lista importada en modo "guardar después").
 // No permite editar nada — solo ver, y opcionalmente añadir desde aquí mismo.
-function showCloudSongPreviewModal(songId) {
+function showCloudSongPreviewModal(songId, sharedItemId) {
     const preview = cloudSongPreviewCache[songId];
     if (!preview) { alert('Aún no se pudo obtener el contenido de esta canción.'); return }
     const alreadyInLibrary = songs.some(song => (song.sourceId || song.id) === songId);
+    const safeSongId = String(songId).replace(/'/g, "\\'");
+    const safeShareId = sharedItemId ? String(sharedItemId).replace(/'/g, "\\'") : '';
     const libraryAction = alreadyInLibrary
         ? '<button class="btn btn-zinc" style="width:100%;opacity:.75" disabled>Ya está en mi biblioteca</button>'
-        : '<button class="btn btn-amber" style="width:100%" onclick="addCloudSongToLibraryFromList(\'\',\'' + songId + '\');document.getElementById(\'cloud-preview-modal\').remove()">Añadir a mi biblioteca</button>';
+        : sharedItemId
+            ? '<button class="btn btn-amber" style="width:100%" onclick="acceptSharedSongFromPreview(\'' + safeShareId + '\',\'' + safeSongId + '\')">Añadir a mi biblioteca</button>'
+            : '<button class="btn btn-amber" style="width:100%" onclick="addCloudSongToLibraryFromList(\'\',\'' + safeSongId + '\');document.getElementById(\'cloud-preview-modal\').remove()">Añadir a mi biblioteca</button>';
     const old = document.getElementById('cloud-preview-modal');
     if (old) old.remove();
     const modal = document.createElement('div');
@@ -548,6 +554,14 @@ function showCloudSongPreviewModal(songId) {
         + libraryAction
         + '</div>';
     document.body.appendChild(modal);
+}
+
+async function acceptSharedSongFromPreview(sharedItemId, songId) {
+    await addCloudSongToLibraryFromList('', songId);
+    if (typeof markSharedItemAccepted === 'function') await markSharedItemAccepted(sharedItemId);
+    const modal = document.getElementById('cloud-preview-modal');
+    if (modal) modal.remove();
+    showNotification('Canción añadida a tu biblioteca.', 'success');
 }
 
 function createOrMergeList(listData, fileSongs, pendingOnly = false) {
@@ -3039,7 +3053,7 @@ function saveRepSongToLibrary() {
     const existing = songs.find(x => x.title === s.titulo && x.artist === s.artista);
     if (existing) { alert('Esta canción ya está en tu biblioteca'); return }
     const dk = s.tono_original || 'C';
-    songs.unshift({ id: s.source_song_id || genId(), sourceId: s.source_song_id || s.id, repSongId: s.id, sourceType: 'repertorio', title: s.titulo || 'Sin título', artist: s.artista || 'Desconocido', lyrics: s.letra_acordes || '', originalKey: dk, currentKey: dk, tags: s.tags || ['Repertorio'], tempo: s.tempo || 0, compas: s.compas || '', audio_url: s.audio_url || null, repSongId: s.id, repId: r.id, createdAt: s.created_at || Date.now(), updatedAt: Date.now(), createdBy: s.created_by || '', createdById: s.created_by_id || '', modifiedBy: s.modified_by || s.modificado_por || '' });
+    songs.unshift({ id: s.source_song_id || genId(), sourceId: s.source_song_id || s.id, repSongId: s.id, sourceType: 'repertorio', title: s.titulo || 'Sin título', artist: s.artista || 'Desconocido', lyrics: s.letra_acordes || '', originalKey: dk, currentKey: dk, tags: s.tags || ['Repertorio'], tempo: s.tempo || 0, compas: s.compas || '', audio_url: s.audio_url ? normalizeVocalAudioUrl(s.audio_url) : null, audio_original_url: s.audio_original_url ? normalizeVocalAudioUrl(s.audio_original_url) : null, repSongId: s.id, repId: r.id, createdAt: s.created_at || Date.now(), updatedAt: Date.now(), createdBy: s.created_by || '', createdById: s.created_by_id || '', modifiedBy: s.modified_by || s.modificado_por || '' });
     save('cb_songs', songs);
     const btn = document.getElementById('save-rep-btn');
     if (btn) { btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';
@@ -3203,26 +3217,48 @@ function resetKey() {
     renderView()
 }
 
+const APP_RL_SONG_TYPE = 'App-RL-song';
+const APP_RL_LIST_TYPE = 'App-RL-list';
+const LEGACY_SONG_TYPE = 'chordbook-song';
+const LEGACY_LIST_TYPE = 'chordbook-list';
+const INTERNAL_SHARE_EXPIRE_DAYS = 3;
+
+function isSharedSongType(type) { return type === APP_RL_SONG_TYPE || type === LEGACY_SONG_TYPE }
+function isSharedListType(type) { return type === APP_RL_LIST_TYPE || type === LEGACY_LIST_TYPE }
+
 function songShareData(songId) {
-    return { type: 'chordbook-song', version: 3, id: songId };
+    return { type: APP_RL_SONG_TYPE, version: 4, id: songId };
+}
+
+function listShareData(list) {
+    return {
+        type: APP_RL_LIST_TYPE,
+        version: 4,
+        list: {
+            name: list.name,
+            description: list.description || '',
+            songIds: [...new Set(list.songIds || [])]
+        }
+    };
+}
+
+function safeShareFilename(value, prefix) {
+    return (prefix || '') + String(value || 'archivo').replace(/[^a-z0-9]/gi, '_').toLowerCase();
 }
 
 function exportSong() {
     const s = songs.find(x => x.id === viewingSongId);
     if (!s) return;
-    dlJson(songShareData(s.id), s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
+    const songId = s.sourceId || s.id;
+    const filename = safeShareFilename(s.title) + '.json';
+    dlJson(songShareData(songId), filename);
+    if (typeof logActivity === 'function') logActivity('song_json_downloaded', { title: s.title, artist: s.artist, type: 'song' }, 'song', songId);
 }
 
 function shareSong() {
     const s = songs.find(x => x.id === viewingSongId);
     if (!s) return;
-    const data = songShareData(s.id);
-    const text = JSON.stringify(data);
-    if (navigator.share) {
-        navigator.share({ title: s.title + ' - ChordBook', text: '🎵 ' + s.title + ' - ' + s.artist }).then(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') }).catch(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') })
-    } else {
-        navigator.clipboard.writeText(text).then(() => { showNotif('import-notification', 'JSON copiado. Pégalo donde quieras para compartir.', 'success') }).catch(() => { dlJson(data, s.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json') })
-    }
+    showShareOptionsModal('song', s.id);
 }
 
 function dlJson(d, f) {
@@ -3232,8 +3268,337 @@ function dlJson(d, f) {
     a.href = u;
     a.download = f;
     a.click();
-    URL.revokeObjectURL(u)
+    setTimeout(() => URL.revokeObjectURL(u), 1000)
 }
+
+function downloadBlob(blob, filename) {
+    const u = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = u;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 1000)
+}
+
+function closeShareModals() {
+    ['share-options-modal', 'internal-share-modal', 'external-song-share-modal', 'shared-list-preview-modal'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    });
+    // Libera el Blob/File preparado si el usuario cancela o cambia de modal.
+    if (typeof externalShareState !== 'undefined') externalShareState = null;
+}
+
+function shareModalShell(id, title, body) {
+    closeShareModals();
+    const modal = document.createElement('div');
+    modal.id = id;
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10000;display:flex;align-items:flex-end;justify-content:center;padding:12px';
+    modal.innerHTML = '<div style="background:#18181b;border:1px solid rgba(63,63,70,.7);border-radius:16px;width:100%;max-width:520px;max-height:88vh;overflow-y:auto;padding:18px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px"><div style="font-size:1rem;font-weight:700;color:#fff">' + title + '</div><button class="btn-icon" onclick="closeShareModals()" style="color:#a1a1aa">×</button></div>'
+        + body + '</div>';
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function showShareOptionsModal(kind, id) {
+    const isSong = kind === 'song';
+    const target = isSong ? songs.find(x => x.id === id) : lists.find(x => x.id === id);
+    if (!target) return;
+    const targetId = String(id).replace(/'/g, "\\'");
+    const title = isSong ? 'Compartir canción' : 'Compartir lista';
+    let body = '<div style="display:flex;flex-direction:column;gap:8px">'
+        + '<button class="btn btn-amber" style="width:100%;justify-content:flex-start;padding:13px" onclick="showInternalShareModal(\'' + kind + '\',\'' + targetId + '\')">'
+        + (isSong ? '👥 Compartir con usuarios de App-RL' : '👥 Compartir lista con usuarios de App-RL') + '</button>'
+        + '<button class="btn btn-zinc" style="width:100%;justify-content:flex-start;padding:13px" onclick="closeShareModals();' + (isSong ? 'exportSong()' : 'exportList(\'' + targetId + '\')') + '">📄 Descargar ' + (isSong ? 'canción' : 'lista') + ' .json</button>';
+    if (isSong && viewReturnTo !== 'listview') {
+        body += '<button class="btn btn-zinc" style="width:100%;justify-content:flex-start;padding:13px" onclick="showExternalSongShareModal(\'' + targetId + '\')">🌐 Compartir fuera de App-RL</button>';
+    }
+    body += '<div style="font-size:.7rem;line-height:1.45;color:#71717a;margin-top:6px">'
+        + (isSong ? 'El compartir externo está disponible para canciones desde Biblioteca. El archivo JSON es para importar en App-RL.' : 'Las listas se comparten dentro de App-RL o como archivo JSON; desde aquí no se envía audio.')
+        + '</div></div>';
+    shareModalShell('share-options-modal', title, body);
+}
+
+let shareUsersCache = null;
+let shareUsersCacheUserId = null;
+let shareUserSelections = {};
+let shareModalContext = null;
+let externalShareState = null;
+
+async function loadShareUsers() {
+    if (shareUsersCache && shareUsersCacheUserId === (currentUser && currentUser.id)) return shareUsersCache;
+    const { data, error } = await supabaseClient.from('admin_users').select('id,nombre,apellido').order('nombre', { ascending: true });
+    if (error) throw error;
+    shareUsersCache = (data || []).filter(u => currentUser && u.id !== currentUser.id);
+    shareUsersCacheUserId = currentUser ? currentUser.id : null;
+    return shareUsersCache;
+}
+
+function renderShareUserList() {
+    const container = document.getElementById('share-users-list');
+    const search = (document.getElementById('share-users-search')?.value || '').trim().toLowerCase();
+    if (!container || !shareModalContext) return;
+    const users = (shareUsersCache || []).filter(u => {
+        const name = (((u.nombre || '') + ' ' + (u.apellido || '') + ' ' + (u.id || '')).toLowerCase());
+        return !search || name.includes(search);
+    });
+    if (users.length === 0) {
+        container.innerHTML = '<div style="padding:16px;text-align:center;color:#71717a;font-size:.8rem">No se encontraron usuarios.</div>';
+        return;
+    }
+    container.innerHTML = users.map(u => {
+        const fullName = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.id;
+        const checked = shareUserSelections[u.id] ? ' checked' : '';
+        return '<label style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(63,63,70,.35);cursor:pointer">'
+            + '<input type="checkbox" value="' + esc(u.id) + '" onchange="toggleShareUser(\'' + String(u.id).replace(/'/g, "\\'") + '\',this.checked)"' + checked + ' style="width:17px;height:17px;accent-color:#f59e0b">'
+            + '<span style="min-width:0"><strong style="display:block;color:#e4e4e7;font-size:.82rem">' + esc(fullName) + '</strong><span style="color:#71717a;font-size:.7rem">@' + esc(u.id) + '</span></span></label>';
+    }).join('');
+}
+
+function toggleShareUser(id, checked) {
+    if (checked) shareUserSelections[id] = true;
+    else delete shareUserSelections[id];
+    const count = document.getElementById('share-selected-count');
+    if (count) count.textContent = Object.keys(shareUserSelections).length + ' seleccionados';
+}
+
+async function showInternalShareModal(kind, id) {
+    closeShareModals();
+    if (!currentUser || !supabaseReady || blockIfOffline()) return;
+    shareModalContext = { kind: kind, id: id };
+    shareUserSelections = {};
+    try {
+        await loadShareUsers();
+        const target = kind === 'song' ? songs.find(x => x.id === id) : lists.find(x => x.id === id);
+        if (!target) return;
+        const title = kind === 'song' ? target.title : target.name;
+        const body = '<div style="font-size:.78rem;color:#a1a1aa;margin-bottom:10px">Comparte <strong style="color:#fff">' + esc(title) + '</strong> con uno o varios usuarios registrados.</div>'
+            + '<input id="share-users-search" class="input" placeholder="Buscar por nombre o usuario..." oninput="renderShareUserList()" style="margin-bottom:10px">'
+            + '<div id="share-users-list" style="max-height:42vh;overflow-y:auto;border:1px solid rgba(63,63,70,.45);border-radius:10px;padding:0 10px"></div>'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px"><span id="share-selected-count" style="font-size:.72rem;color:#a1a1aa">0 seleccionados</span><div style="display:flex;gap:8px"><button class="btn btn-zinc" onclick="closeShareModals()">Cancelar</button><button class="btn btn-amber" onclick="submitInternalShare()">Enviar</button></div></div>';
+        shareModalShell('internal-share-modal', kind === 'song' ? 'Compartir canción' : 'Compartir lista', body);
+        renderShareUserList();
+    } catch (e) {
+        showNotification('No se pudieron cargar los usuarios: ' + e.message, 'error');
+    }
+}
+
+async function submitInternalShare() {
+    if (!shareModalContext || !currentUser || !supabaseReady || blockIfOffline()) return;
+    const selectedIds = Object.keys(shareUserSelections);
+    if (selectedIds.length === 0) { showNotification('Selecciona al menos un usuario.', 'error'); return; }
+    const kind = shareModalContext.kind;
+    const id = shareModalContext.id;
+    const target = kind === 'song' ? songs.find(x => x.id === id) : lists.find(x => x.id === id);
+    if (!target) return;
+    const recipientMap = {};
+    (shareUsersCache || []).forEach(u => { recipientMap[u.id] = u; });
+    const now = Date.now();
+    const senderName = currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id;
+    let itemId = id;
+    let payload = {};
+    let title = kind === 'song' ? target.title : target.name;
+    if (kind === 'song') {
+        itemId = target.sourceId || target.id;
+        payload = { songId: itemId };
+        if (target.needsCloudSync && typeof syncSongsToCloud === 'function') {
+            try { await syncSongsToCloud() } catch (e) { showNotification('No se pudo sincronizar la canción antes de compartir: ' + e.message, 'error'); return; }
+        }
+    } else {
+        payload = { name: target.name, description: target.description || '', songIds: [...new Set(target.songIds || [])] };
+    }
+    const batchId = genId();
+    const rows = selectedIds.map(recipientId => ({
+        id: genId(),
+        batch_id: batchId,
+        sender_id: currentUser.id,
+        sender_name: senderName,
+        recipient_id: recipientId,
+        item_type: kind,
+        item_id: itemId,
+        title: title,
+        payload: payload,
+        status: 'pending',
+        created_at: now,
+        expires_at: now + INTERNAL_SHARE_EXPIRE_DAYS * 24 * 60 * 60 * 1000
+    }));
+    try {
+        const { error } = await supabaseClient.from('app_shared_items').insert(rows);
+        if (error) throw error;
+        rows.forEach(row => {
+            const recipient = recipientMap[row.recipient_id];
+            if (typeof logActivity === 'function') logActivity(kind === 'song' ? 'song_shared_internal' : 'list_shared_internal', {
+                title: title,
+                targetUser: row.recipient_id,
+                targetUserName: recipient ? (((recipient.nombre || '') + ' ' + (recipient.apellido || '')).trim() || recipient.id) : row.recipient_id,
+                type: kind,
+                batchId: batchId
+            }, kind, itemId);
+        });
+        closeShareModals();
+        showNotification((kind === 'song' ? 'Canción' : 'Lista') + ' compartida con ' + rows.length + ' usuario' + (rows.length === 1 ? '' : 's'), 'success');
+    } catch (e) {
+        showNotification('No se pudo compartir: ' + e.message, 'error');
+    }
+}
+
+function buildPlainSongLyrics(song) {
+    const plain = String(song.lyrics || '').split(/\r?\n/).map(line => line.replace(/\[[^\]]+\]/g, '').replace(/[ \t]{2,}/g, ' ').trim()).filter(line => line.length > 0).join('\n');
+    return '🎵 ' + song.title + '\n' + (song.artist ? 'Artista: ' + song.artist + '\n' : '') + 'Tono original: ' + (song.originalKey || '—') + '\n\n' + (plain || '(Sin letra)');
+}
+
+function externalAudioFilename(song, contentType) {
+    const match = String(contentType || '').match(/audio\/([a-z0-9.+-]+)/i);
+    let ext = match ? match[1].toLowerCase().replace('mpeg', 'mp3').replace('x-m4a', 'm4a') : '';
+    if (ext === 'mp4') ext = 'm4a';
+    if (!['mp3', 'm4a', 'wav', 'aac', 'ogg', 'webm', 'flac'].includes(ext)) ext = 'mp3';
+    return safeShareFilename(song.title, '') + '-cancion.' + ext;
+}
+
+async function fetchSongAudioFile(song) {
+    const url = normalizeVocalAudioUrl(song.audio_original_url);
+    if (!url) throw new Error('La canción no tiene audio vinculado.');
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('El servidor no permitió descargar el audio.');
+    const blob = await response.blob();
+    return new File([blob], externalAudioFilename(song, blob.type), { type: blob.type || 'audio/mpeg' });
+}
+
+function updateExternalShareUi() {
+    const state = externalShareState;
+    const audioCheck = document.getElementById('external-share-audio');
+    const submitBtn = document.getElementById('external-share-submit');
+    const statusEl = document.getElementById('external-share-status');
+    if (!state || !audioCheck || !submitBtn) return;
+    const includeAudio = !!audioCheck.checked;
+    const audioReady = !!state.audioFile;
+    submitBtn.disabled = includeAudio && !audioReady;
+    submitBtn.style.opacity = submitBtn.disabled ? '.55' : '1';
+    if (!statusEl) return;
+    if (!includeAudio) {
+        statusEl.textContent = 'La letra se enviará como texto al selector de aplicaciones.';
+        statusEl.style.color = '#71717a';
+    } else if (state.audioLoading) {
+        statusEl.textContent = 'Preparando el audio para adjuntarlo...';
+        statusEl.style.color = '#fbbf24';
+    } else if (state.audioError) {
+        statusEl.textContent = 'No se pudo preparar el audio. Puedes compartir solo la letra.';
+        statusEl.style.color = '#f87171';
+    } else if (audioReady) {
+        statusEl.textContent = 'Audio listo. Se adjuntará junto con la letra si eliges ambas opciones.';
+        statusEl.style.color = '#4ade80';
+    }
+}
+
+async function prepareExternalSongAudio(id) {
+    const state = externalShareState;
+    const song = songs.find(x => x.id === id);
+    if (!state || state.songId !== id || !song || !song.audio_original_url) return;
+    state.audioLoading = true;
+    updateExternalShareUi();
+    try {
+        const file = await fetchSongAudioFile(song);
+        if (!externalShareState || externalShareState.songId !== id) return;
+        state.audioFile = file;
+        state.audioLoading = false;
+        state.audioError = null;
+    } catch (e) {
+        if (!externalShareState || externalShareState.songId !== id) return;
+        state.audioLoading = false;
+        state.audioError = e;
+        const audioCheck = document.getElementById('external-share-audio');
+        if (audioCheck) {
+            audioCheck.checked = false;
+            audioCheck.disabled = true;
+        }
+    }
+    updateExternalShareUi();
+}
+
+function showExternalSongShareModal(id) {
+    closeShareModals();
+    if (viewReturnTo === 'listview') {
+        showNotification('El compartir externo solo está disponible desde Biblioteca.', 'error');
+        return;
+    }
+    const song = songs.find(x => x.id === id);
+    if (!song) return;
+    externalShareState = {
+        songId: id,
+        audioFile: null,
+        audioLoading: !!song.audio_original_url,
+        audioError: null
+    };
+    const audioNote = song.audio_original_url
+        ? '<div id="external-share-status" style="font-size:.7rem;color:#fbbf24;margin-top:10px">Preparando el audio para adjuntarlo...</div>'
+        : '<div id="external-share-status" style="font-size:.7rem;color:#fbbf24;margin-top:10px">Esta canción no tiene audio original vinculado.</div>';
+    const body = '<div style="font-size:.78rem;color:#a1a1aa;margin-bottom:12px">Comparte <strong style="color:#fff">' + esc(song.title) + '</strong> con personas que no tienen cuenta en App-RL.</div>'
+        + '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(63,63,70,.35);color:#e4e4e7;font-size:.82rem"><input type="checkbox" id="external-share-lyrics" checked style="width:17px;height:17px;accent-color:#f59e0b"> Letra sin acordes</label>'
+        + '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;color:' + (song.audio_original_url ? '#e4e4e7' : '#71717a') + ';font-size:.82rem"><input type="checkbox" id="external-share-audio" onchange="updateExternalShareUi()" ' + (song.audio_original_url ? 'checked' : 'disabled') + ' style="width:17px;height:17px;accent-color:#f59e0b"> Audio original</label>'
+        + audioNote
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-zinc" onclick="closeShareModals()">Cancelar</button><button id="external-share-submit" class="btn btn-amber" onclick="submitExternalSongShare(\'' + String(id).replace(/'/g, "\\'") + '\')">Compartir</button></div>';
+    shareModalShell('external-song-share-modal', 'Compartir fuera de App-RL', body);
+    updateExternalShareUi();
+    if (song.audio_original_url) prepareExternalSongAudio(id);
+}
+
+async function submitExternalSongShare(id) {
+    const song = songs.find(x => x.id === id);
+    const state = externalShareState && externalShareState.songId === id ? externalShareState : null;
+    if (!song || !state) return;
+    const includeLyrics = !!document.getElementById('external-share-lyrics')?.checked;
+    const includeAudio = !!document.getElementById('external-share-audio')?.checked;
+    if (!includeLyrics && !includeAudio) { showNotification('Selecciona la letra, el audio o ambos.', 'error'); return; }
+    if (includeAudio && !state.audioFile) {
+        showNotification(state.audioLoading ? 'Espera a que termine de preparar el audio.' : 'No se pudo preparar el audio.', 'error');
+        return;
+    }
+
+    const audioFile = includeAudio ? state.audioFile : null;
+    const content = includeLyrics && includeAudio ? 'lyrics_audio' : (includeLyrics ? 'lyrics' : 'audio');
+    const text = includeLyrics ? buildPlainSongLyrics(song) : '🎵 ' + song.title + (song.artist ? ' - ' + song.artist : '');
+    const shareData = { title: song.title + ' - App-RL-song', text: text };
+    let attached = false;
+    if (audioFile && typeof navigator.canShare === 'function') {
+        try {
+            if (navigator.canShare({ files: [audioFile] })) {
+                shareData.files = [audioFile];
+                attached = true;
+            }
+        } catch (e) { attached = false; }
+    }
+    let status = attached ? 'attached' : (audioFile ? 'downloaded_fallback' : 'text');
+    closeShareModals();
+    try {
+        // No hay ningún await antes de esta llamada: el toque final conserva
+        // la activación de usuario necesaria para abrir el selector Android.
+        if (typeof navigator.share === 'function') {
+            await navigator.share(shareData);
+            status = attached ? 'shared' : (audioFile ? 'shared_text_audio_fallback' : 'shared');
+            if (audioFile && !attached) {
+                downloadBlob(audioFile, audioFile.name);
+                showNotification('La letra se compartió; el navegador descargó el audio para adjuntarlo manualmente.', 'success');
+            }
+        } else {
+            if (includeLyrics && navigator.clipboard) {
+                try { await navigator.clipboard.writeText(text); } catch (clipboardError) {}
+            }
+            if (audioFile) downloadBlob(audioFile, audioFile.name);
+            if (includeLyrics) {
+                showNotification(audioFile ? 'Letra copiada y audio descargado.' : 'Letra copiada.', 'success');
+            } else if (audioFile) {
+                showNotification('El audio se descargó porque este navegador no ofrece selector de compartir.', 'success');
+            }
+        }
+        if (typeof logActivity === 'function') logActivity('song_shared_external', { title: song.title, content: content, status: status, origin: 'library', attached: attached }, 'song', song.sourceId || song.id);
+    } catch (e) {
+        const cancelled = e && e.name === 'AbortError';
+        if (typeof logActivity === 'function') logActivity('song_shared_external', { title: song.title, content: content, status: cancelled ? 'cancelled' : 'error', origin: 'library', attached: attached }, 'song', song.sourceId || song.id);
+        if (!cancelled) showNotification('No se pudo completar el compartir: ' + (e.message || e), 'error');
+    }
+}
+
+// ============= INTERNAL USER SHARE =============
 
 // ============= LIST FUNCTIONS =============
 function renderLists() {
@@ -3281,7 +3646,10 @@ function confirmDeleteList(id) {
 function exportList(id) {
     const l = lists.find(x => x.id === id);
     if (!l) return;
-    dlJson({ type: 'chordbook-list', version: 3, list: { name: l.name, description: l.description, songIds: [...new Set(l.songIds)] } }, 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json')
+    const data = listShareData(l);
+    const filename = 'lista-' + safeShareFilename(l.name) + '.json';
+    dlJson(data, filename);
+    if (typeof logActivity === 'function') logActivity('list_json_downloaded', { title: l.name, type: 'list', songCount: [...new Set(l.songIds || [])].length }, 'list', l.id);
 }
 
 function exportCurrentList() { exportList(viewingListId) }
@@ -3289,14 +3657,7 @@ function exportCurrentList() { exportList(viewingListId) }
 function shareList(id) {
     const l = lists.find(x => x.id === id);
     if (!l) return;
-    const data = { type: 'chordbook-list', version: 3, list: { name: l.name, description: l.description, songIds: [...new Set(l.songIds)] } };
-    const text = JSON.stringify(data);
-    const fname = 'lista-' + l.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json';
-    if (navigator.share) {
-        navigator.share({ title: l.name + ' - ChordBook', text: '📋 Lista: ' + l.name + ' (' + l.songIds.length + ' canciones)' }).then(() => { dlJson(data, fname) }).catch(() => { dlJson(data, fname) })
-    } else {
-        navigator.clipboard.writeText(text).then(() => { showNotif('import-list-notification', 'JSON de lista copiado. Pégalo donde quieras.', 'success') }).catch(() => { dlJson(data, fname) })
-    }
+    showShareOptionsModal('list', id);
 }
 
 function shareCurrentList() { shareList(viewingListId) }
@@ -3441,7 +3802,9 @@ async function resolveMissingListSongs(ids) {
                     id: r.id, sourceId: r.id, title: r.title, artist: r.artist,
                     lyrics: r.lyrics || '', originalKey: r.original_key, tags: [],
                     tempo: r.tempo || 0, compas: r.compas || '',
-                    audio_url: r.audio_url || null, createdAt: r.created_at, createdBy: r.created_by || '', createdById: r.created_by_id || ''
+                    audio_url: r.audio_url ? normalizeVocalAudioUrl(r.audio_url) : null,
+                    audio_original_url: r.audio_original_url ? normalizeVocalAudioUrl(r.audio_original_url) : null,
+                    createdAt: r.created_at, createdBy: r.created_by || '', createdById: r.created_by_id || ''
                 };
             });
         }
@@ -3451,12 +3814,14 @@ async function resolveMissingListSongs(ids) {
     renderListView();
 }
 
-function addCloudSongToLibraryFromList(listId, songId) {
+async function addCloudSongToLibraryFromList(listId, songId) {
     if (blockIfOffline()) return;
     const preview = cloudSongPreviewCache[songId];
     if (!preview) { alert('No se pudo obtener esta canción.'); return }
-    const existing = songs.find(x => x.id === songId);
-    if (!existing) {
+    const existing = songs.find(x => (x.sourceId || x.id) === songId);
+    if (existing) {
+        if (mergeSongAudioFields(existing, preview.audio_url, preview.audio_original_url)) save('cb_songs', songs);
+    } else {
         songs.push({
             id: songId,
             sourceId: preview.sourceId || songId,
@@ -3469,7 +3834,8 @@ function addCloudSongToLibraryFromList(listId, songId) {
             tags: preview.tags || [],
             tempo: preview.tempo || 0,
             compas: preview.compas || '',
-            audio_url: preview.audio_url || null,
+            audio_url: preview.audio_url ? normalizeVocalAudioUrl(preview.audio_url) : null,
+            audio_original_url: preview.audio_original_url ? normalizeVocalAudioUrl(preview.audio_original_url) : null,
             createdAt: preview.createdAt || Date.now(),
             updatedAt: Date.now(),
             createdBy: preview.createdBy || '',
@@ -3485,8 +3851,10 @@ function addCloudSongToLibraryFromList(listId, songId) {
     }
     // También se usa desde el catálogo de Admin (listId vacío): en ese caso
     // solo se crea el enlace personal, nunca se comparte la canción.
-    if (currentUser && supabaseReady) syncSongsToCloud();
-    renderListView();
+    if (currentUser && supabaseReady) await syncSongsToCloud();
+    if (document.getElementById('page-library')?.classList.contains('active')) renderLibrary();
+    if (document.getElementById('page-listview')?.classList.contains('active')) renderListView();
+    if (viewingSongId === songId && document.getElementById('page-view')?.classList.contains('active')) await renderView();
 }
 
 // ============= IMPORT FUNCTIONS =============
@@ -3516,6 +3884,22 @@ async function fetchCanonicalSongsByIds(ids) {
     return data || [];
 }
 
+function mergeSongAudioFields(song, audioUrl, audioOriginalUrl) {
+    if (!song) return false;
+    let changed = false;
+    const normalizedAudio = audioUrl ? normalizeVocalAudioUrl(audioUrl) : null;
+    const normalizedOriginal = audioOriginalUrl ? normalizeVocalAudioUrl(audioOriginalUrl) : null;
+    if (normalizedAudio && song.audio_url !== normalizedAudio) {
+        song.audio_url = normalizedAudio;
+        changed = true;
+    }
+    if (normalizedOriginal && song.audio_original_url !== normalizedOriginal) {
+        song.audio_original_url = normalizedOriginal;
+        changed = true;
+    }
+    return changed;
+}
+
 function canonicalSongToLocal(row, sourceType) {
     const key = row.original_key || 'C';
     return {
@@ -3530,7 +3914,8 @@ function canonicalSongToLocal(row, sourceType) {
         tags: [],
         tempo: row.tempo || 0,
         compas: row.compas || '',
-        audio_url: row.audio_url || null,
+        audio_url: row.audio_url ? normalizeVocalAudioUrl(row.audio_url) : null,
+        audio_original_url: row.audio_original_url ? normalizeVocalAudioUrl(row.audio_original_url) : null,
         createdAt: row.created_at || Date.now(),
         updatedAt: row.updated_at || Date.now(),
         createdBy: row.created_by || '',
@@ -3550,18 +3935,21 @@ document.getElementById('import-input').addEventListener('change', async functio
         if (ext === 'json') {
             try {
                 const d = JSON.parse(content);
-                if (d.type === 'chordbook-song') {
+                if (isSharedSongType(d.type)) {
                     const ids = sharedSongIds(d);
                     if (ids.length === 0) { showNotification('El JSON no contiene un ID de canción.', 'error'); continue; }
                     const rows = await fetchCanonicalSongsByIds(ids);
                     rows.forEach(row => {
-                        if (!songs.find(x => x.id === row.id)) {
+                        const existing = songs.find(x => x.id === row.id);
+                        if (existing) {
+                            if (mergeSongAudioFields(existing, row.audio_url, row.audio_original_url)) total++;
+                        } else {
                             songs.unshift(canonicalSongToLocal(row));
                             total++;
                         }
                     });
                     if (rows.length < ids.length) showNotification('Una o más canciones ya no existen en songs.', 'error');
-                } else if (d.type === 'chordbook-list') {
+                } else if (isSharedListType(d.type)) {
                     importListData(d);
                 } else {
                     showNotification('JSON no reconocido.', 'error');
@@ -3600,11 +3988,11 @@ document.getElementById('import-list-input').addEventListener('change', async fu
             let listName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ').trim() || 'Lista importada';
             let listDescription = '';
 
-            if (d.type === 'chordbook-list') {
+            if (isSharedListType(d.type)) {
                 ids = sharedListSongIds(d);
                 listName = d.list?.name || listName;
                 listDescription = d.list?.description || '';
-            } else if (d.type === 'chordbook-song') {
+            } else if (isSharedSongType(d.type)) {
                 ids = sharedSongIds(d);
                 listDescription = 'Importada desde canción';
             }
@@ -4225,6 +4613,9 @@ function toggleRepVocesCollapse() {
 function collapseChevronSvg(collapsed) {
     return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="transition:transform .15s;transform:rotate(' + (collapsed ? '0' : '180') + 'deg)"><polyline points="6,9 12,15 18,9"/></svg>';
 }
+function collapseHintHtml(collapsed) {
+    return '<span style="font-size:.62rem;color:#71717a;font-weight:400;margin-left:auto;margin-right:6px;white-space:nowrap">Toca para ' + (collapsed ? 'expandir' : 'minimizar') + '</span>';
+}
 
 function setRepSongView(showChords) {
     repShowChords = showChords;
@@ -4400,7 +4791,10 @@ function renderRepSongView() {
 
     // En app.js, en la función renderRepSongView(), reemplaza esta sección:
     const audioCollapsed = loadCollapsePref('cb_rep_audio_collapsed', true);
-    const vocesCollapsed = loadCollapsePref('cb_rep_voces_collapsed', true);
+    // Las voces son el bloque que más suele necesitar orientación durante el
+    // ensayo, por eso quedan abiertas por defecto; la preferencia del usuario
+    // sigue teniendo prioridad si ya se guardó una elección.
+    const vocesCollapsed = loadCollapsePref('cb_rep_voces_collapsed', false);
 
     const repSecuenciaHtml = '<div style="font-size:.7rem;color:#71717a;font-weight:600;margin-bottom:4px">🎵 Secuencia</div>' + (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchstart="seekRepAudioTouch(event)" ontouchmove="seekRepAudioTouch(event)" style=touch-action:none"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>');
     // "Canción" (audio_original_url) es opcional: si no tiene, el bloque no aparece en absoluto (nadie ve un hueco vacío aquí).
@@ -4409,9 +4803,9 @@ function renderRepSongView() {
     // Sección "Audio" colapsable (Secuencia + Canción juntas) — se recuerda
     // abierta/cerrada por usuario, igual para todas las canciones.
     const audioCount = (s.audio_url ? 1 : 0) + (s.audio_original_url ? 1 : 0);
-    const audioSectionHtml = '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px;margin-bottom:6px"><button onclick="toggleRepAudioCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="font-size:.8rem;font-weight:600;color:#d4d4d8;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Audio (' + audioCount + ')</span>' + collapseChevronSvg(!audioCollapsed) + '</button><div style="display:' + (audioCollapsed ? 'none' : '') + ';margin-top:8px">' + repSecuenciaHtml + repCancionHtml + '</div></div>';
+    const audioSectionHtml = '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px;margin-bottom:6px"><button onclick="toggleRepAudioCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="font-size:.8rem;font-weight:600;color:#d4d4d8;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Audio (' + audioCount + ')</span>' + collapseHintHtml(audioCollapsed) + collapseChevronSvg(!audioCollapsed) + '</button><div style="display:' + (audioCollapsed ? 'none' : '') + ';margin-top:8px">' + repSecuenciaHtml + repCancionHtml + '</div></div>';
 
-    document.getElementById('rep-song-audio').innerHTML = audioSectionHtml + (vocalAudiosHtml ? ('<div id="rep-song-vocal-note" style="display:' + (repShowChords ? '' : 'none') + ';font-size:.7rem;color:#71717a;margin-top:14px;text-align:center">Audios de voces disponibles en Solo Letra</div>' + '<div id="rep-song-vocal-section" style="display:' + (repShowChords ? 'none' : '') + ';margin-top:6px;background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px"><button onclick="toggleRepVocesCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces (' + vocesCountForDay + ')</span></span>' + collapseChevronSvg(!vocesCollapsed) + '</button><div style="display:' + (vocesCollapsed ? 'none' : '') + ';margin-top:8px">' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div></div>') : '');
+    document.getElementById('rep-song-audio').innerHTML = audioSectionHtml + (vocalAudiosHtml ? ('<div id="rep-song-vocal-note" style="display:' + (repShowChords ? '' : 'none') + ';font-size:.7rem;color:#71717a;margin-top:14px;text-align:center">Audios de voces disponibles en Solo Letra</div>' + '<div id="rep-song-vocal-section" style="display:' + (repShowChords ? 'none' : '') + ';margin-top:6px;background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px"><button onclick="toggleRepVocesCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces (' + vocesCountForDay + ')</span></span>' + collapseHintHtml(vocesCollapsed) + collapseChevronSvg(!vocesCollapsed) + '</button><div style="display:' + (vocesCollapsed ? 'none' : '') + ';margin-top:8px">' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div></div>') : '');
     document.getElementById('toggle-lyrics').className = repShowChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = repShowChords ? 'active' : 'inactive';
     document.getElementById('rep-song-key').style.display = repShowChords ? '' : 'none';

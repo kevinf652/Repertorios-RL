@@ -44,6 +44,188 @@ async function loadNotifications(force) {
     }
 }
 
+// ---------- Compartidos privados ----------
+let sharedItemsCache = null;
+const SHARED_LIFECYCLE_ACTIVE = 'active';
+const SHARED_LIFECYCLE_EXPIRED = 'expired';
+
+function sharedItemLifecycle(item, now) {
+    if (!item) return SHARED_LIFECYCLE_EXPIRED;
+    if (item.lifecycle_status === SHARED_LIFECYCLE_EXPIRED) return SHARED_LIFECYCLE_EXPIRED;
+    return item.expires_at && item.expires_at <= now ? SHARED_LIFECYCLE_EXPIRED : SHARED_LIFECYCLE_ACTIVE;
+}
+
+async function loadSharedItems(force) {
+    if (!currentUser || !supabaseReady) return [];
+    if (sharedItemsCache && !force) return sharedItemsCache;
+    try {
+        const now = Date.now();
+        // Nunca se borra un compartido desde la carga del usuario. Los vencidos
+        // se conservan para que Admin pueda revisarlos y purgarlos después.
+        const { data, error } = await supabaseClient.from('app_shared_items')
+            .select('*')
+            .eq('recipient_id', currentUser.id)
+            .order('created_at', { ascending: false });
+        if (error || !data) return [];
+
+        const rows = data.map(item => ({ ...item, lifecycle_status: sharedItemLifecycle(item, now) }));
+
+        // Las filas antiguas o que acaban de vencer se marcan sin borrar. La
+        // condición de fecha sigue siendo la fuente de verdad si una escritura
+        // puntual no pudiera completarse.
+        const justExpiredIds = data
+            .filter(item => item.lifecycle_status !== SHARED_LIFECYCLE_EXPIRED && item.expires_at && item.expires_at <= now)
+            .map(item => item.id);
+        if (isOnline && justExpiredIds.length > 0) {
+            try {
+                const { error: expiryError } = await supabaseClient.from('app_shared_items')
+                    .update({ lifecycle_status: SHARED_LIFECYCLE_EXPIRED, expired_at: now, expired_reason: 'timeout' })
+                    .eq('recipient_id', currentUser.id)
+                    .in('id', justExpiredIds);
+                if (!expiryError) rows.forEach(item => {
+                    if (justExpiredIds.includes(item.id)) {
+                        item.lifecycle_status = SHARED_LIFECYCLE_EXPIRED;
+                        item.expired_at = now;
+                        item.expired_reason = 'timeout';
+                    }
+                });
+            } catch (e) { console.warn('No se pudieron marcar compartidos vencidos:', e.message) }
+        }
+
+        sharedItemsCache = rows.filter(item => sharedItemLifecycle(item, now) === SHARED_LIFECYCLE_ACTIVE);
+        return sharedItemsCache;
+    } catch (e) {
+        console.error('loadSharedItems error:', e);
+        return [];
+    }
+}
+
+function invalidateSharedItemsCache() { sharedItemsCache = null; }
+
+async function getSharedItemById(id) {
+    const cached = (sharedItemsCache || []).find(item => item.id === id);
+    if (cached) return cached;
+    if (!supabaseReady || !currentUser) return null;
+    const { data, error } = await supabaseClient.from('app_shared_items').select('*').eq('id', id).eq('recipient_id', currentUser.id).maybeSingle();
+    if (error || !data) return null;
+    return data;
+}
+
+async function markSharedItemViewed(id) {
+    if (!currentUser || !supabaseReady || !id) return;
+    try {
+        await supabaseClient.from('app_shared_items').update({ status: 'viewed', viewed_at: Date.now() })
+            .eq('id', id).eq('recipient_id', currentUser.id).eq('status', 'pending').eq('lifecycle_status', SHARED_LIFECYCLE_ACTIVE);
+        invalidateSharedItemsCache();
+    } catch (e) { console.error('markSharedItemViewed error:', e) }
+}
+
+async function markSharedItemAccepted(id) {
+    if (!currentUser || !supabaseReady || !id) return;
+    try {
+        await supabaseClient.from('app_shared_items').update({ status: 'accepted', accepted_at: Date.now() })
+            .eq('id', id).eq('recipient_id', currentUser.id).eq('lifecycle_status', SHARED_LIFECYCLE_ACTIVE);
+        invalidateSharedItemsCache();
+        updateNotificationBellDot();
+    } catch (e) { console.error('markSharedItemAccepted error:', e) }
+}
+
+async function dismissSharedItem(id) {
+    if (!currentUser || !supabaseReady || !id || blockIfOffline()) return;
+    if (!confirm('¿Quitar esta notificación? El compartido desaparecerá de tu panel y quedará como vencido para Admin.')) return;
+    try {
+        const item = await getSharedItemById(id);
+        const now = Date.now();
+        const { error } = await supabaseClient.from('app_shared_items').update({
+            lifecycle_status: SHARED_LIFECYCLE_EXPIRED,
+            expired_at: now,
+            expired_reason: 'user_dismissed'
+        }).eq('id', id).eq('recipient_id', currentUser.id).eq('lifecycle_status', SHARED_LIFECYCLE_ACTIVE);
+        if (error) throw error;
+        invalidateSharedItemsCache();
+        if (typeof logActivity === 'function') logActivity('shared_item_dismissed', {
+            title: item ? item.title : '',
+            type: item ? item.item_type : '',
+            status: SHARED_LIFECYCLE_EXPIRED,
+            reason: 'user_dismissed'
+        }, 'shared_item', id);
+        await renderNotificationsPanel();
+        showNotification('Notificación quitada.', 'success');
+    } catch (e) {
+        showNotification('No se pudo quitar la notificación: ' + e.message, 'error');
+    }
+}
+
+function sharedItemPayload(item) {
+    const payload = item && item.payload ? item.payload : {};
+    return typeof payload === 'string' ? (function() { try { return JSON.parse(payload) } catch (e) { return {} } })() : payload;
+}
+
+async function openSharedItemPreview(id) {
+    closeNotificationsPanel();
+    const item = await getSharedItemById(id);
+    if (!item) { showNotification('Este compartido ya no está disponible.', 'error'); return; }
+    if (sharedItemLifecycle(item, Date.now()) !== SHARED_LIFECYCLE_ACTIVE) { showNotification('Este compartido ya venció.', 'error'); return; }
+    await markSharedItemViewed(id);
+    if (item.item_type === 'song') {
+        const { data, error } = await supabaseClient.from('songs').select('*').eq('id', item.item_id).maybeSingle();
+        if (error || !data) { showNotification('La canción compartida ya no está disponible.', 'error'); return; }
+        cloudSongPreviewCache[item.item_id] = canonicalSongToLocal(data, 'shared');
+        showCloudSongPreviewModal(item.item_id, item.id);
+        return;
+    }
+    if (item.item_type === 'list') {
+        await showSharedListPreview(item);
+    }
+}
+
+async function showSharedListPreview(item) {
+    const payload = sharedItemPayload(item);
+    const ids = [...new Set((payload.songIds || []).filter(Boolean))];
+    let rows = [];
+    if (ids.length > 0) {
+        const result = await supabaseClient.from('songs').select('id,title,artist,original_key').in('id', ids);
+        rows = result.data || [];
+    }
+    const byId = {};
+    rows.forEach(row => { byId[row.id] = row; });
+    const songsHtml = ids.length === 0
+        ? '<div style="font-size:.78rem;color:#71717a;padding:12px 0">Esta lista no tiene canciones todavía.</div>'
+        : '<div style="display:flex;flex-direction:column;gap:6px;margin:12px 0">' + ids.map(songId => {
+            const row = byId[songId];
+            return '<div style="padding:9px 10px;border-radius:8px;background:rgba(39,39,42,.55);font-size:.78rem;color:' + (row ? '#e4e4e7' : '#fbbf24') + '">'
+                + (row ? '🎵 ' + esc(row.title || 'Sin título') + ' <span style="color:#71717a">— ' + esc(row.artist || 'Desconocido') + '</span>' : '⚠ Canción no disponible en el catálogo: ' + esc(songId))
+                + '</div>';
+        }).join('') + '</div>';
+    const safeId = String(item.id).replace(/'/g, "\\'");
+    const modal = document.createElement('div');
+    modal.id = 'shared-list-preview-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10000;display:flex;align-items:flex-end;justify-content:center;padding:12px';
+    modal.innerHTML = '<div style="background:#18181b;border:1px solid rgba(63,63,70,.7);border-radius:16px;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;padding:18px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><div style="font-size:1.05rem;font-weight:700;color:#fff">' + esc(payload.name || item.title || 'Lista compartida') + '</div><div style="font-size:.76rem;color:#a1a1aa">Compartida por ' + esc(item.sender_name || item.sender_id || 'Usuario') + '</div></div><button class="btn-icon" onclick="document.getElementById(\'shared-list-preview-modal\').remove()" style="color:#a1a1aa">×</button></div>'
+        + (payload.description ? '<div style="font-size:.78rem;color:#a1a1aa;margin-top:10px">' + esc(payload.description) + '</div>' : '')
+        + '<div style="font-size:.7rem;color:#71717a;margin-top:12px">Vista previa · ' + ids.length + ' canciones. Guardar la lista no añade automáticamente las canciones a tu biblioteca.</div>'
+        + songsHtml
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn btn-zinc" onclick="document.getElementById(\'shared-list-preview-modal\').remove()">Cerrar</button><button class="btn btn-amber" onclick="acceptSharedListItem(\'' + safeId + '\')">Guardar lista</button></div>'
+        + '</div>';
+    document.body.appendChild(modal);
+}
+
+async function acceptSharedListItem(id) {
+    const item = await getSharedItemById(id);
+    if (!item) { showNotification('Este compartido ya no está disponible.', 'error'); return; }
+    const payload = sharedItemPayload(item);
+    const ids = [...new Set((payload.songIds || []).filter(Boolean))];
+    const pendingOnly = ids.some(songId => !songs.some(song => (song.sourceId || song.id) === songId));
+    const created = createOrMergeList({ name: payload.name || item.title || 'Lista compartida', description: payload.description || '' }, ids.map(songId => ({ id: songId })), pendingOnly);
+    if (created === false) return;
+    await markSharedItemAccepted(id);
+    const modal = document.getElementById('shared-list-preview-modal');
+    if (modal) modal.remove();
+    renderLists();
+    showNotification('Lista guardada en Listas. Puedes elegir qué canciones añadir a tu biblioteca.', 'success');
+}
+
 // ---------- Reacciones (👍🏽 / ❤️) ----------
 async function loadReactionsForNotifs(notifIds) {
     const result = {};
@@ -226,8 +408,9 @@ async function updateNotificationBellDot() {
     if (!hasNotif && supabaseReady) {
         try {
             const notifs = await loadNotifications(false);
+            const sharedItems = await loadSharedItems(false);
             const lastSeen = parseInt(localStorage.getItem(NOTIF_LAST_SEEN_KEY) || '0', 10);
-            if (notifs.some(n => (n.created_at || 0) > lastSeen)) hasNotif = true;
+            if (notifs.some(n => (n.created_at || 0) > lastSeen) || sharedItems.some(n => n.status === 'pending' && (n.created_at || 0) > lastSeen)) hasNotif = true;
         } catch (e) {}
     }
     let dot = bell.querySelector('.bell-dot');
@@ -276,7 +459,17 @@ async function renderNotificationsPanel() {
     const birthdays = await getBirthdayVirtualNotifications();
     const welcome = getLocalWelcomeNotification();
     const dbNotifs = await loadNotifications(true);
-    const all = [...(welcome ? [welcome] : []), ...birthdays, ...dbNotifs].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    const sharedItems = await loadSharedItems(true);
+    const sharedDisplay = sharedItems.map(item => ({
+        id: 'shared-' + item.id,
+        _sharedItemId: item.id,
+        titulo: item.item_type === 'song' ? '🎵 Canción compartida' : '📋 Lista compartida',
+        cuerpo: (item.sender_name || item.sender_id || 'Un usuario') + ' te compartió "' + (item.title || (item.item_type === 'song' ? 'una canción' : 'una lista')) + '"',
+        created_by: item.sender_name || item.sender_id || '',
+        created_at: item.created_at,
+        tipo: 'shared_item'
+    }));
+    const all = [...(welcome ? [welcome] : []), ...birthdays, ...dbNotifs, ...sharedDisplay].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
     const reactionsByNotif = await loadReactionsForNotifs(dbNotifs.map(n => n.id));
 
@@ -285,8 +478,9 @@ async function renderNotificationsPanel() {
     } else {
         list.innerHTML = all.map(n => {
             const when = n.created_at ? new Date(n.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-            const isSystem = n.tipo === 'sistema' || n.tipo === 'cumpleanos' || n.tipo === 'bienvenida';
-            const canReact = !!currentUser && n.tipo !== 'cumpleanos' && n.tipo !== 'bienvenida';
+            const isShared = n.tipo === 'shared_item';
+            const isSystem = n.tipo === 'sistema' || n.tipo === 'cumpleanos' || n.tipo === 'bienvenida' || isShared;
+            const canReact = !!currentUser && !isShared && n.tipo !== 'cumpleanos' && n.tipo !== 'bienvenida';
             const rx = reactionsByNotif[n.id] || { like: [], heart: [] };
             const iReactedLike = currentUser && rx.like.includes(currentUser.id);
             const iReactedHeart = currentUser && rx.heart.includes(currentUser.id);
@@ -296,20 +490,24 @@ async function renderNotificationsPanel() {
                     + '<button class="notif-reaction-btn' + (iReactedHeart ? ' active' : '') + '" onclick="event.stopPropagation();toggleNotificationReaction(\'' + n.id + '\',\'heart\')">❤️ ' + (rx.heart.length || '') + '</button>'
                     + '</div>'
                 : '';
-            const isVirtual = n.tipo === 'cumpleanos' || n.tipo === 'bienvenida';
+            const isVirtual = n.tipo === 'cumpleanos' || n.tipo === 'bienvenida' || isShared;
             const isRealDbNotif = !isVirtual;
             const canClickToSeeReactions = isRealDbNotif && canSendNotifications();
             const titleEsc = esc(n.titulo).replace(/'/g, "\\'");
+            const sharedAction = isShared
+                ? '<div style="display:flex;align-items:center;gap:12px;margin-top:10px"><button class="btn btn-amber" style="padding:6px 12px;font-size:.72rem" onclick="event.stopPropagation();openSharedItemPreview(\'' + String(n._sharedItemId).replace(/'/g, "\\'") + '\')">Ver</button><button class="btn btn-zinc" style="padding:6px 12px;font-size:.72rem;color:#fca5a5;border-color:rgba(248,113,113,.35)" onclick="event.stopPropagation();dismissSharedItem(\'' + String(n._sharedItemId).replace(/'/g, "\\'") + '\')">Eliminar</button></div>'
+                : '';
             return '<div class="notif-item' + (isSystem ? ' notif-item-system' : '') + (canClickToSeeReactions ? ' notif-item-clickable' : '') + '"' + (canClickToSeeReactions ? ' onclick="showNotificationReactionsModal(\'' + n.id + '\',\'' + titleEsc + '\')"' : '') + '>'
                 + '<div class="notif-item-title">' + esc(n.titulo) + '</div>'
                 + (n.cuerpo ? '<div class="notif-item-body">' + esc(n.cuerpo) + '</div>' : '')
                 + '<div class="notif-item-meta">' + (n.created_by ? esc(n.created_by) + ' · ' : '') + when + '</div>'
+                + sharedAction
                 + reactionsHtml
                 + '</div>';
         }).join('');
     }
 
-    markNotificationsSeen(dbNotifs.concat(birthdays));
+    markNotificationsSeen(dbNotifs.concat(birthdays, sharedItems));
 }
 
 // ---------- Envío manual ----------
