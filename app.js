@@ -3543,12 +3543,6 @@ function showExternalSongShareModal(id) {
     }
     const song = songs.find(x => x.id === id);
     if (!song) return;
-    externalShareState = {
-        songId: id,
-        audioFile: null,
-        audioLoading: !!song.audio_original_url,
-        audioError: null
-    };
     const audioNote = song.audio_original_url
         ? '<div id="external-share-status" style="font-size:.7rem;color:#fbbf24;margin-top:10px">Preparando el audio para adjuntarlo...</div>'
         : '<div id="external-share-status" style="font-size:.7rem;color:#fbbf24;margin-top:10px">Esta canción no tiene audio original vinculado.</div>';
@@ -3558,6 +3552,12 @@ function showExternalSongShareModal(id) {
         + audioNote
         + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-zinc" onclick="closeShareModals()">Cancelar</button><button id="external-share-submit" class="btn btn-amber" onclick="submitExternalSongShare(\'' + String(id).replace(/'/g, "\\'") + '\')">Compartir</button></div>';
     shareModalShell('external-song-share-modal', 'Compartir fuera de App-RL', body);
+    externalShareState = {
+        songId: id,
+        audioFile: null,
+        audioLoading: !!song.audio_original_url,
+        audioError: null
+    };
     updateExternalShareUi();
     if (song.audio_original_url) prepareExternalSongAudio(id);
 }
