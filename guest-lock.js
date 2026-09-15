@@ -64,14 +64,102 @@ function checkGuestLock() {
     else hideGuestLockScreen();
 }
 
+// ============= REGISTRO DE INVITADOS (panel Admin > Invitados) =============
+// Identificador anónimo por navegador/dispositivo — NO es una cuenta, es solo
+// "alguien está usando la app sin cuenta desde este navegador". Se guarda en
+// guest_sessions (tabla aparte, nunca se mezcla con admin_users/profiles).
+const GUEST_UUID_KEY = 'cb_guest_uuid';
+const GUEST_LAST_SYNC_KEY = 'cb_guest_last_sync';
+
+function getOrCreateGuestUuid() {
+    let id = localStorage.getItem(GUEST_UUID_KEY);
+    // guest_sessions.id es UUID. Regeneramos identificadores antiguos de
+    // fallback (por ejemplo "g...") para que la RPC pueda validarlos.
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!id || !uuidPattern.test(id)) {
+        if (window.crypto && crypto.randomUUID) {
+            id = crypto.randomUUID();
+        } else {
+            id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        localStorage.setItem(GUEST_UUID_KEY, id);
+    }
+    return id;
+}
+
+async function upsertGuestSession() {
+    if (currentUser || !supabaseReady || !supabaseClient) return;
+    if (typeof isOnline !== 'undefined' && !isOnline) return;
+    // Throttle de 5 min, mismo patrón que updateLastAccess() para usuarios con cuenta.
+    const lastSync = localStorage.getItem(GUEST_LAST_SYNC_KEY);
+    const now = Date.now();
+    if (lastSync && (now - parseInt(lastSync, 10)) < 300000) return;
+    const id = getOrCreateGuestUuid();
+    try {
+        // El invitado no tiene permisos directos sobre la tabla. La RPC
+        // SECURITY DEFINER registra el alta o actualiza solo last_seen en el
+        // servidor, sin exponer INSERT/UPDATE generales al rol anon.
+        const { error: recordError } = await supabaseClient.rpc('record_guest_session', { p_id: id });
+        if (recordError) {
+            console.warn('[Guest] No se pudo registrar la sesión:', recordError.message);
+            return;
+        }
+        localStorage.setItem(GUEST_LAST_SYNC_KEY, String(now));
+    } catch (e) {
+        console.warn('[Guest] Error registrando actividad:', e.message);
+    }
+}
+
+// La presencia de invitados comparte el canal de usuarios. app.js etiqueta
+// cada entrada como user/guest y filtra los contadores; así un invitado puede
+// ver cuántas cuentas registradas están en línea y Admin puede ver invitados.
+let guestOnlineIds = new Set();
+function setupGuestPresenceChannel() {
+    if (currentUser || !supabaseReady || !supabaseClient) return;
+    if (typeof setupPresenceChannel === 'function') setupPresenceChannel();
+}
+
+// Cuando ese mismo navegador termina logueándose (registro nuevo o cuenta
+// existente), se marca su fila de guest_sessions como "convertida" — no se
+// borra sola, el Admin decide cuándo borrarla desde el panel.
+let _guestConversionChecked = false;
+async function checkGuestConversion() {
+    if (_guestConversionChecked || !currentUser || !supabaseReady || !supabaseClient) return;
+    const id = localStorage.getItem(GUEST_UUID_KEY);
+    if (!id) { _guestConversionChecked = true; return; }
+    _guestConversionChecked = true;
+    const nombre = currentUser.nombre ? (currentUser.nombre + ' ' + (currentUser.apellido || '')).trim() : (currentUser.id || '');
+    try {
+        const { error } = await supabaseClient
+            .from('guest_sessions')
+            .update({ registered_user_id: currentUser.id, registered_name: nombre, registered_at: Date.now() })
+            .eq('id', id);
+        if (error) console.warn('[Guest] No se pudo marcar la conversión:', error.message);
+    } catch (e) { console.warn('[Guest] Error marcando conversión:', e.message); }
+}
+
 // ---------- Enganches sin tocar los demás archivos ----------
 if (typeof updateUserUI === 'function') {
     const _guestLockOriginalUpdateUserUI = updateUserUI;
     updateUserUI = function() {
         _guestLockOriginalUpdateUserUI();
         checkGuestLock();
+        if (!currentUser) { upsertGuestSession(); setupGuestPresenceChannel() }
+        else { checkGuestConversion() }
     };
 }
 
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && !currentUser) upsertGuestSession();
+});
+setInterval(function() { if (!currentUser) upsertGuestSession() }, 300000);
+
 // Revisión al cargar la app (currentUser ya está restaurado por app.js en este punto)
 checkGuestLock();
+setTimeout(function() {
+    if (!currentUser) { upsertGuestSession(); setupGuestPresenceChannel() }
+}, 2000);

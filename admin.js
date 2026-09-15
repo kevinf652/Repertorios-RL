@@ -6,6 +6,37 @@
 let adminUsersCache = null;
 let adminSongCountsCache = null;
 let adminSongsCache = null;
+let adminCardEditMode = false;
+let adminDraggedCard = null;
+let adminPointerDrag = null;
+const ADMIN_CARD_ORDER_KEY = 'cb_admin_card_order_';
+
+function adminCardOrderStorageKey() {
+    return ADMIN_CARD_ORDER_KEY + ((currentUser && currentUser.id) ? currentUser.id : 'local');
+}
+
+function loadAdminCardOrder() {
+    try {
+        const raw = localStorage.getItem(adminCardOrderStorageKey());
+        const order = raw ? JSON.parse(raw) : [];
+        return Array.isArray(order) ? order : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveAdminCardOrder(order) {
+    try { localStorage.setItem(adminCardOrderStorageKey(), JSON.stringify(order)); } catch (e) {}
+}
+
+function sortAdminCardDefinitions(definitions) {
+    const savedOrder = loadAdminCardOrder();
+    return definitions.slice().sort((a, b) => {
+        const ai = savedOrder.indexOf(a.page);
+        const bi = savedOrder.indexOf(b.page);
+        return (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) - (bi === -1 ? Number.MAX_SAFE_INTEGER : bi);
+    });
+}
 
 // ---------- Menú principal (cards) ----------
 function renderAdminPanel() {
@@ -13,19 +44,177 @@ function renderAdminPanel() {
     if (!c) return;
     if (!isAdmin() && !isSubAdmin()) {
         c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>';
+        updateAdminCardEditButton();
         return;
     }
+
+    const cardDefinitions = [
+        { page: 'admin-usuarios', title: 'Usuarios', subtitle: 'Ver registrados y su biblioteca', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
+        ...(isAdmin() ? [{ page: 'admin-canciones', title: 'Canciones', subtitle: 'Catálogo registrado y duplicados', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>' }] : []),
+        { page: 'admin-repertorios', title: 'Repertorios', subtitle: 'Ver todos, activos y archivados', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>' },
+        { page: 'admin-mantenimiento', title: 'Mantenimiento', subtitle: 'Datos y limpieza pendiente', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.77z"/></svg>' },
+        ...(isAdmin() ? [{ page: 'admin-storage', title: 'Almacenamiento R2', subtitle: 'Ver archivos y espacio usado', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>' }] : []),
+        ...(isAdmin() ? [{ page: 'admin-invitados', title: 'Invitados', subtitle: 'Uso sin cuenta: última conexión', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }] : []),
+        ...(isAdmin() ? [{ page: 'admin-notificaciones', title: 'Notificaciones', subtitle: 'Ver, editar y eliminar activas', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' }] : []),
+        { page: 'admin-logs', title: 'Registro de actividades', subtitle: 'Ver acciones de usuarios', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>' }
+    ];
+    const orderedCards = sortAdminCardDefinitions(cardDefinitions);
     c.innerHTML = '<div class="admin-cards-grid">'
         + '<div class="admin-summary-panel" id="admin-summary-panel"><div class="admin-summary-title">Vistazo rápido</div><div class="admin-empty" style="padding:10px 0">Cargando...</div></div>'
-        + adminCardHtml('admin-usuarios', 'Usuarios', 'Ver registrados y su biblioteca', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>')
-        + (isAdmin() ? adminCardHtml('admin-canciones', 'Canciones', 'Catálogo registrado y duplicados', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>') : '')
-        + adminCardHtml('admin-repertorios', 'Repertorios', 'Ver todos, activos y archivados', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>')
-        + adminCardHtml('admin-mantenimiento', 'Mantenimiento', 'Datos y limpieza pendiente', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.77z"/></svg>')
-        + (isAdmin() ? adminCardHtml('admin-storage', 'Almacenamiento R2', 'Ver archivos y espacio usado', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>') : '')
-        + (isAdmin() ? adminCardHtml('admin-notificaciones', 'Notificaciones', 'Ver, editar y eliminar activas', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>') : '')
-	+ adminCardHtml('admin-logs', 'Registro de actividades', 'Ver acciones de usuarios', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>')
+        + (adminCardEditMode ? '<div class="admin-order-hint">Arrastra las tarjetas para cambiar el orden. El orden se guarda para tu usuario.</div>' : '')
+        + orderedCards.map(card => adminCardHtml(card.page, card.title, card.subtitle, card.icon)).join('')
         + '</div>';
+    configureAdminCardOrdering();
+    updateAdminCardEditButton();
     renderAdminSummary();
+}
+
+function updateAdminCardEditButton() {
+    const btn = document.getElementById('admin-card-edit-toggle');
+    if (!btn) return;
+    const canEdit = typeof isAdmin === 'function' && (isAdmin() || isSubAdmin());
+    btn.style.display = canEdit ? '' : 'none';
+    btn.setAttribute('aria-pressed', adminCardEditMode ? 'true' : 'false');
+    btn.title = adminCardEditMode ? 'Cerrar modo edición' : 'Editar orden de tarjetas';
+    btn.innerHTML = adminCardEditMode
+        ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span class="hide-mobile">Cerrar edición</span>'
+        : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="hide-mobile">Editar orden</span>';
+}
+
+function toggleAdminCardEditMode() {
+    if (!isAdmin() && !isSubAdmin()) return;
+    adminCardEditMode = !adminCardEditMode;
+    renderAdminPanel();
+}
+
+function configureAdminCardOrdering() {
+    const c = document.getElementById('admin-content');
+    if (!c) return;
+    c.classList.toggle('admin-cards-editing', adminCardEditMode);
+    const cards = [...c.querySelectorAll('.admin-card[data-admin-card]')];
+    cards.forEach(card => {
+        card.draggable = adminCardEditMode;
+        card.classList.toggle('admin-card-sortable', adminCardEditMode);
+        if (!adminCardEditMode) return;
+        card.addEventListener('dragstart', adminCardDragStart);
+        card.addEventListener('dragover', adminCardDragOver);
+        card.addEventListener('drop', adminCardDrop);
+        card.addEventListener('dragend', adminCardDragEnd);
+        card.addEventListener('pointerdown', adminCardPointerDown);
+        card.addEventListener('pointermove', adminCardPointerMove);
+        card.addEventListener('pointerup', adminCardPointerUp);
+        card.addEventListener('pointercancel', adminCardPointerUp);
+    });
+}
+
+function adminCardDragStart(event) {
+    if (!adminCardEditMode) return;
+    adminDraggedCard = event.currentTarget;
+    adminDraggedCard.classList.add('admin-card-dragging');
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', adminDraggedCard.dataset.adminCard || '');
+    }
+}
+
+function adminCardDragOver(event) {
+    if (!adminCardEditMode || !adminDraggedCard || event.currentTarget === adminDraggedCard) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function adminCardDrop(event) {
+    if (!adminCardEditMode || !adminDraggedCard || event.currentTarget === adminDraggedCard) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    const rect = target.getBoundingClientRect();
+    const insertAfter = event.clientY > rect.top + rect.height / 2;
+    if (insertAfter) target.parentNode.insertBefore(adminDraggedCard, target.nextSibling);
+    else target.parentNode.insertBefore(adminDraggedCard, target);
+    const order = [...target.parentNode.querySelectorAll('.admin-card[data-admin-card]')].map(card => card.dataset.adminCard);
+    saveAdminCardOrder(order);
+    showNotification('Orden de tarjetas guardado', 'success');
+}
+
+function adminCardDragEnd() {
+    if (adminDraggedCard) adminDraggedCard.classList.remove('admin-card-dragging');
+    adminDraggedCard = null;
+}
+
+// Fallback para pantallas táctiles: mantiene pulsada una tarjeta para iniciar
+// el arrastre y permite reordenarla sin depender del drag & drop HTML5.
+function adminCardPointerDown(event) {
+    if (!adminCardEditMode || event.pointerType === 'mouse') return;
+    const card = event.currentTarget;
+    if (adminPointerDrag && adminPointerDrag.timer) clearTimeout(adminPointerDrag.timer);
+    adminPointerDrag = {
+        card: card,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+        moved: false,
+        timer: setTimeout(function() {
+            if (!adminPointerDrag || adminPointerDrag.card !== card) return;
+            adminPointerDrag.active = true;
+            adminDraggedCard = card;
+            card.classList.add('admin-card-dragging');
+            try { card.setPointerCapture(event.pointerId); } catch (e) {}
+        }, 280)
+    };
+}
+
+function adminCardPointerMove(event) {
+    const drag = adminPointerDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.active) {
+        const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+        if (distance > 10) {
+            clearTimeout(drag.timer);
+            adminPointerDrag = null;
+        }
+        return;
+    }
+    event.preventDefault();
+    const targetNode = document.elementFromPoint(event.clientX, event.clientY);
+    const target = targetNode && targetNode.closest ? targetNode.closest('.admin-card[data-admin-card]') : null;
+    if (!target || target === drag.card || target.parentNode !== drag.card.parentNode) return;
+    const rect = target.getBoundingClientRect();
+    const insertAfter = event.clientY > rect.top + rect.height / 2;
+    if (insertAfter && target.nextSibling !== drag.card) {
+        target.parentNode.insertBefore(drag.card, target.nextSibling);
+        drag.moved = true;
+    } else if (!insertAfter && target.previousSibling !== drag.card) {
+        target.parentNode.insertBefore(drag.card, target);
+        drag.moved = true;
+    }
+}
+
+function adminCardPointerUp(event) {
+    const drag = adminPointerDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    clearTimeout(drag.timer);
+    if (drag.active) {
+        try { drag.card.releasePointerCapture(event.pointerId); } catch (e) {}
+        drag.card.classList.remove('admin-card-dragging');
+        if (drag.moved) {
+            const order = [...drag.card.parentNode.querySelectorAll('.admin-card[data-admin-card]')].map(card => card.dataset.adminCard);
+            saveAdminCardOrder(order);
+            showNotification('Orden de tarjetas guardado', 'success');
+        }
+        adminDraggedCard = null;
+    }
+    adminPointerDrag = null;
+}
+
+function handleAdminCardClick(event, page) {
+    if (adminCardEditMode && event.currentTarget && event.currentTarget.closest('#admin-content')) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+    }
+    showPage(page);
 }
 
 // ---------- Panel resumen (vistazo rápido) ----------
@@ -86,7 +275,7 @@ async function renderAdminSummary() {
 }
 
 function adminCardHtml(page, title, subtitle, icon) {
-    return '<div class="admin-card" onclick="showPage(\'' + page + '\')"><div class="admin-card-icon">' + icon + '</div><div class="admin-card-title">' + title + '</div><div class="admin-card-subtitle">' + subtitle + '</div></div>';
+    return '<div class="admin-card" data-admin-card="' + esc(page) + '" onclick="handleAdminCardClick(event,\'' + page + '\')"><div class="admin-card-icon">' + icon + '</div><div class="admin-card-title">' + title + '</div><div class="admin-card-subtitle">' + subtitle + '</div></div>';
 }
 
 function roleBadgeHtml(role) {
@@ -156,7 +345,8 @@ async function renderAdminUsuarios(force) {
             hour: '2-digit', minute: '2-digit'
           })
         : 'Nunca';
-    const isOnlineNow = typeof onlineUserIds !== 'undefined' && onlineUserIds.has(u.id);
+    const publicUserPresenceKey = (typeof hashPublicPresenceId === 'function') ? hashPublicPresenceId(u.id) : u.id;
+    const isOnlineNow = typeof onlineUserIds !== 'undefined' && (onlineUserIds.has(publicUserPresenceKey) || onlineUserIds.has(u.id));
     const lastLoginCell = isOnlineNow ? '<span style="color:#4ade80;font-weight:600">🟢 En línea</span>' : lastLogin;
     return `<tr class="admin-row-clickable" onclick="viewAdminUserSongs('${u.id}')">
         <td>${esc((u.nombre || '') + ' ' + (u.apellido || '')).trim()}<br><span style="color:#71717a;font-size:.68rem">@${esc(u.id)}</span></td>
@@ -580,11 +770,8 @@ function extractDuplicateGroupKey(key) {
         return null;
     }
     if (isSong) {
-        const filename = key.split('/').pop() || '';
-        const base = filename.replace(/\.[^/.]+$/, '');
-        const parts = base.split('-');
-        const songId = parts.length >= 2 ? parts[parts.length - 1] : base;
-        return 'song|' + songId;
+        const { songId, tipo } = parseSongKeyInfo(key);
+        return 'song|' + songId + '|' + tipo;
     }
     return null;
 }
@@ -616,7 +803,8 @@ async function renderAdminR2Duplicates(force) {
         for (const [gKey, objs] of dupGroups) {
             const isVocal = gKey.startsWith('vocal|');
             const songData = await resolveSongDataForKey(objs[0].key);
-            const title = songData ? (songData.title + (songData.artist ? ' - ' + songData.artist : '')) : 'Audio sin identificar';
+            const gTipo = !isVocal ? gKey.split('|')[2] : null;
+            const title = (songData ? (songData.title + (songData.artist ? ' - ' + songData.artist : '')) : 'Audio sin identificar') + (gTipo ? (gTipo === 'cancion' ? ' — Canción' : ' — Secuencia') : '');
 
             // Detectar cuál archivo está realmente enlazado usando audio_url de la DB
             let linkedKey = null;
@@ -632,8 +820,9 @@ async function renderAdminR2Duplicates(force) {
                     }
                 } else {
                     const songId = gKey.split('|')[1];
-                    const { data: rows } = await supabaseClient.from('canciones_repertorio').select('audio_url').eq('source_song_id', songId).limit(1);
-                    if (rows && rows[0]) linkedKey = extractR2Key(rows[0].audio_url);
+                    const col = gTipo === 'cancion' ? 'audio_original_url' : 'audio_url';
+                    const { data: rows } = await supabaseClient.from('songs').select(col).eq('id', songId).limit(1);
+                    if (rows && rows[0]) linkedKey = extractR2Key(rows[0][col]);
                 }
             } catch (e) { console.warn('Error detecting linked key:', e); }
 
@@ -892,9 +1081,9 @@ async function renderAdminOrphanedAudios(force) {
         const r2SongIds = [];
         objects.forEach(o => {
             if (o.key.startsWith('songs/')) {
-                const songId = parseSongIdFromKey(o.key);
+                const { songId, tipo } = parseSongKeyInfo(o.key);
                 r2SongIds.push(songId);
-                if (songId && !referencedSongIds.has(songId)) orphans.push({ obj: o, tipo: 'Canción', detalle: 'ID: ' + songId });
+                if (songId && !referencedSongIds.has(songId)) orphans.push({ obj: o, tipo: (tipo === 'cancion' ? 'Canción' : 'Secuencia'), detalle: 'ID: ' + songId });
             } else if (o.key.startsWith('vocal-audios/')) {
                 const parts = parseVocalKeyParts(o.key);
                 if (parts.sourceSongId && parts.coro && parts.dia) {
@@ -972,6 +1161,7 @@ function getFriendlyAudioName(key, songData) {
     const filename = key.split('/').pop() || key;
     const isVocal = key.includes('vocal-audios');
     const isSong = key.includes('songs/');
+    const tipoLabel = isSong ? (parseSongKeyInfo(key).tipo === 'cancion' ? ' (Canción/Original)' : ' (Secuencia)') : '';
 
     if (songData) {
         const title = songData.title || 'Sin título';
@@ -985,7 +1175,7 @@ function getFriendlyAudioName(key, songData) {
             return '🎤 Audio vocal de ' + title + ' - ' + artist;
         }
         if (isSong) {
-            return '🎵 ' + title + ' - ' + artist;
+            return '🎵 ' + title + ' - ' + artist + tipoLabel;
         }
         return '📁 ' + title + ' - ' + artist;
     }
@@ -999,7 +1189,7 @@ function getFriendlyAudioName(key, songData) {
         return '🎤 Audio vocal - ' + filename;
     }
     if (isSong) {
-        return '🎵 Canción - ' + filename;
+        return '🎵 Canción - ' + filename + tipoLabel;
     }
     return '📁 ' + filename;
 }
@@ -1015,7 +1205,7 @@ async function getAllSongsMap() {
         rows.forEach(r => {
             // Se conserva la forma (originalKey, sourceId=id) que ya esperaba
             // el resto del panel de Almacenamiento, para no tocar más código.
-            map[r.id] = { id: r.id, sourceId: r.id, title: r.title, artist: r.artist, originalKey: r.original_key, createdBy: r.created_by, audio_url: r.audio_url };
+            map[r.id] = { id: r.id, sourceId: r.id, title: r.title, artist: r.artist, originalKey: r.original_key, createdBy: r.created_by, audio_url: r.audio_url, audio_original_url: r.audio_original_url };
         });
         allSongsCache = map;
         return map;
@@ -1035,14 +1225,7 @@ async function resolveSongDataForKey(key) {
             const match = key.match(/([a-z0-9]+)_coro/i);
             if (match) songId = match[1];
         } else if (isSong) {
-            const filename = key.split('/').pop() || '';
-            const base = filename.replace(/\.[^/.]+$/, '');
-            const parts = base.split('-');
-            if (parts.length >= 2) {
-                songId = parts[parts.length - 1];
-            } else {
-                songId = base;
-            }
+            songId = parseSongKeyInfo(key).songId;
         }
 
         if (!songId) return null;
@@ -1292,20 +1475,27 @@ function parseVocalKeyParts(key) {
     };
 }
 
-function parseSongIdFromKey(key) {
+// Un archivo de canción en R2 puede ser "Secuencia" (sin sufijo, songId.ext) o
+// "Canción" / Original (songId_cancion.ext). Esto separa el songId real del
+// tipo, para que ambos se sigan reconociendo como archivos válidos (no huérfanos)
+// y no se confundan entre sí como si fueran duplicados del mismo archivo.
+function parseSongKeyInfo(key) {
     const filename = key.split('/').pop() || '';
     const withoutExt = filename.replace(/\.[^/.]+$/, '');
-    // El R2 worker agrega un timestamp al inicio: "1787062021193-songId.mp3"
-    // Necesitamos extraer solo la parte del songId después del guión
     const dashIndex = withoutExt.indexOf('-');
+    let base = withoutExt;
     if (dashIndex !== -1) {
         const possibleTimestamp = withoutExt.substring(0, dashIndex);
-        // Si la parte antes del guión es solo números (timestamp), quitarla
-        if (/^\d+$/.test(possibleTimestamp)) {
-            return withoutExt.substring(dashIndex + 1);
-        }
+        if (/^\d+$/.test(possibleTimestamp)) base = withoutExt.substring(dashIndex + 1);
     }
-    return withoutExt;
+    if (base.endsWith('_cancion')) {
+        return { songId: base.slice(0, -'_cancion'.length), tipo: 'cancion' };
+    }
+    return { songId: base, tipo: 'secuencia' };
+}
+
+function parseSongIdFromKey(key) {
+    return parseSongKeyInfo(key).songId;
 }
 
 async function adminDeleteStorageAudio(key) {
@@ -1334,23 +1524,21 @@ async function adminDeleteStorageAudio(key) {
 
         // ✅ 2. Eliminar referencia de la base de datos
         if (isSong) {
-            const songId = (songData && songData.id) || parseSongIdFromKey(key);
-            
-            // Eliminar de canciones_repertorio
-            try { 
-                await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId);
-                console.log('✅ Referencia eliminada de canciones_repertorio');
-            } catch (e) { console.warn('⚠️ Error actualizando canciones_repertorio:', e.message); }
-            
-            // Eliminar de songs (fuente única y compartida del audio)
+            const { songId: parsedId, tipo } = parseSongKeyInfo(key);
+            const songId = (songData && songData.id) || parsedId;
+            const col = tipo === 'cancion' ? 'audio_original_url' : 'audio_url';
+
+            // songs es la única fuente del audio (Secuencia/Canción); un solo
+            // update basta, no hay copias en canciones_repertorio que limpiar.
             try {
-                await supabaseClient.from('songs').update({ audio_url: null, updated_at: Date.now() }).eq('id', songId);
-                console.log('✅ Referencia eliminada de songs');
+                await supabaseClient.from('songs').update({ [col]: null, updated_at: Date.now() }).eq('id', songId);
+                console.log('✅ Referencia eliminada de songs (' + tipo + ')');
                 allSongsCache = null;
             } catch (e) { console.warn('⚠️ Error actualizando songs:', e.message); }
             
             logActivity('audio_deleted', { 
                 type: 'song', 
+                audioType: tipo,
                 songTitle: (songData && songData.title) || songId 
             }, 'song', songId);
             
@@ -1423,9 +1611,12 @@ async function handleAdminStorageReplace(e) {
         await r2Fetch(deleteUrl, { method: 'DELETE' });
 
         if (type === 'song') {
-            const songId = (songData && songData.id) || parseSongIdFromKey(key);
+            const { songId: parsedId, tipo } = parseSongKeyInfo(key);
+            const songId = (songData && songData.id) || parsedId;
+            const col = tipo === 'cancion' ? 'audio_original_url' : 'audio_url';
+            const sendFilename = songId + (tipo === 'cancion' ? '_cancion' : '') + '.' + getAudioExtension(file);
             const formData = new FormData();
-            formData.append('file', file, songId + '.' + getAudioExtension(file));
+            formData.append('file', file, sendFilename);
             formData.append('folder', 'songs');
             const uploadRes = await r2Fetch(R2_WORKER_URL + '/upload', { method: 'POST', body: formData });
             const uploadData = await uploadRes.json();
@@ -1433,12 +1624,10 @@ async function handleAdminStorageReplace(e) {
             const audioUrl = normalizeVocalAudioUrl(uploadData.url);
             if (!audioUrl) throw new Error('El worker no devolvió URL');
 
-            await supabaseClient.from('canciones_repertorio').update({ audio_url: audioUrl }).eq('source_song_id', songId);
-            // songs es ahora la fuente única y compartida del audio: un solo
-            // update basta, ya no hace falta recorrer copias en user_songs.
-            await supabaseClient.from('songs').update({ audio_url: audioUrl, updated_at: Date.now() }).eq('id', songId);
+            // songs es la única fuente del audio: un solo update basta.
+            await supabaseClient.from('songs').update({ [col]: audioUrl, updated_at: Date.now() }).eq('id', songId);
             allSongsCache = null;
-            logActivity('audio_uploaded', { type: 'song', songTitle: (songData && songData.title) || songId, fileSize: file.size }, 'song', songId);
+            logActivity('audio_uploaded', { type: 'song', audioType: tipo, songTitle: (songData && songData.title) || songId, fileSize: file.size }, 'song', songId);
         } else {
             const parts = parseVocalKeyParts(key);
             if (!parts.sourceSongId || !parts.coro || !parts.dia) throw new Error('No se pudo identificar la canción/coro de este archivo.');
@@ -1477,6 +1666,75 @@ async function handleAdminStorageReplace(e) {
     pendingReplaceSongData = null;
 }
 
+// ---------- Invitados (uso sin cuenta) ----------
+function timeAgo(ms) {
+    if (!ms) return '-';
+    const diff = Date.now() - ms;
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return 'justo ahora';
+    if (min < 60) return 'hace ' + min + ' min';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return 'hace ' + hr + ' h';
+    const d = Math.floor(hr / 24);
+    return 'hace ' + d + ' d';
+}
+
+// Se llama desde guest-lock.js cada vez que cambia quién está en línea entre
+// los invitados (Realtime Presence). Solo refresca si la pestaña está visible.
+function refreshAdminGuestOnlineIndicators() {
+    if (document.getElementById('admin-invitados-content')) renderAdminInvitados();
+}
+
+async function deleteGuestSession(id) {
+    if (!isAdmin() || !supabaseReady) return;
+    if (!confirm('¿Borrar este invitado de la lista? Si vuelve a entrar, aparecerá como uno nuevo.')) return;
+    try {
+        const { error } = await supabaseClient.from('guest_sessions').delete().eq('id', id);
+        if (error) throw error;
+        renderAdminInvitados();
+    } catch (e) { alert('Error: ' + e.message) }
+}
+
+async function cleanOldGuestSessions() {
+    if (!isAdmin() || !supabaseReady) return;
+    const days = 30;
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    if (!confirm('¿Borrar invitados sin actividad en los últimos ' + days + ' días?')) return;
+    try {
+        const { error } = await supabaseClient.from('guest_sessions').delete().lt('last_seen', cutoff);
+        if (error) throw error;
+        renderAdminInvitados();
+    } catch (e) { alert('Error: ' + e.message) }
+}
+
+async function renderAdminInvitados() {
+    const c = document.getElementById('admin-invitados-content');
+    if (!c) return;
+    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
+    if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
+    c.innerHTML = '<div class="admin-empty">Cargando...</div>';
+    try {
+        const { data: rows, error } = await supabaseClient.from('guest_sessions').select('*').order('first_seen', { ascending: true });
+        if (error) throw error;
+        if (!rows || rows.length === 0) { c.innerHTML = '<div class="admin-empty">Sin invitados registrados por ahora.</div>'; return }
+        c.innerHTML = '<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-zinc" style="font-size:.72rem" onclick="cleanOldGuestSessions()">🧹 Limpiar antiguos (30+ días)</button></div>'
+            + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Invitado</th><th>Primera vez</th><th>Última conexión</th><th></th></tr></thead><tbody>'
+            + rows.map((g, idx) => {
+                const num = idx + 1;
+                const guestPresenceKey = (typeof hashPublicPresenceId === 'function') ? hashPublicPresenceId(g.id) : g.id;
+                const online = guestOnlineIds.has(guestPresenceKey) || guestOnlineIds.has(g.id);
+                const convertido = g.registered_user_id
+                    ? ('<br><span style="color:#4ade80;font-size:.68rem">✅ Se registró' + (g.registered_name ? (' (ahora es "' + esc(g.registered_name) + '")') : '') + '</span>')
+                    : '';
+                return '<tr><td>👤 Invitado ' + num + convertido + '</td>'
+                    + '<td style="font-size:.7rem;color:#71717a">' + fmtDate(new Date(g.first_seen).toISOString().split('T')[0]) + '</td>'
+                    + '<td style="font-size:.7rem;color:#a1a1aa">' + (online ? '<span style="color:#4ade80;font-weight:600">🟢 En línea</span>' : timeAgo(g.last_seen)) + '</td>'
+                    + '<td><button class="btn-icon btn-icon-red" onclick="deleteGuestSession(\'' + g.id + '\')" title="Borrar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></td></tr>';
+            }).join('')
+            + '</tbody></table></div>';
+    } catch (e) { c.innerHTML = '<div class="admin-empty">Error: ' + esc(e.message) + '</div>' }
+}
+
 // ---------- Enganches sin tocar app.js ----------
 if (typeof showPage === 'function') {
     const _adminOriginalShowPage = showPage;
@@ -1489,6 +1747,7 @@ if (typeof showPage === 'function') {
         if (name === 'admin-mantenimiento') { renderAdminMantenimiento(); renderAdminR2Duplicates(); }
         if (name === 'admin-delete-users') { loadAdminUsersData(true).then(() => renderAdminInactiveUsersSection()); }
         if (name === 'admin-storage') renderAdminStorage();
+        if (name === 'admin-invitados') renderAdminInvitados();
 	if (name === 'admin-logs') { logsPage = 0; renderAdminLogs(); }
     };
 }

@@ -207,11 +207,16 @@ let vocalNotesCache = {};
 let vocalNotesTimers = {};
 let cloudSongPreviewCache = {};
 let audioUploadSongId = null;
+let audioUploadTipo = 'secuencia'; // 'secuencia' | 'cancion'
 let viewAudioEl = null;
 let viewAudioPlaying = false;
+let viewAudioOrigEl = null;
+let viewAudioOrigPlaying = false;
 let viewAudioInterval = null;
 let repAudioEl = null;
 let repAudioPlaying = false;
+let repAudioOrigEl = null;
+let repAudioOrigPlaying = false;
 let repAudioInterval = null;
 let vocalAudioPlayers = {};
 let vocalAudioCurrentKey = null;
@@ -755,6 +760,7 @@ async function syncSongsToCloud(options) {
         for (const song of editable) {
             const sid = song.sourceId || song.id;
             const audioUrl = song.audio_url ? normalizeVocalAudioUrl(song.audio_url) : null;
+            const audioOriginalUrl = song.audio_original_url ? normalizeVocalAudioUrl(song.audio_original_url) : null;
             const { error } = await supabaseClient.from('songs').upsert({
                 id: sid,
                 title: song.title,
@@ -764,6 +770,7 @@ async function syncSongsToCloud(options) {
                 tempo: song.tempo || 0,
                 compas: song.compas || '',
                 audio_url: audioUrl,
+                audio_original_url: audioOriginalUrl,
                 created_by: song.createdBy || '',
                 created_by_id: song.createdById || null,
                 modified_by: song.modifiedBy || '',
@@ -902,6 +909,7 @@ async function loadSongsFromCloud() {
                 tempo: r.tempo || 0,
                 compas: r.compas || '',
                 audio_url: r.audio_url ? normalizeVocalAudioUrl(r.audio_url) : null,
+                audio_original_url: r.audio_original_url ? normalizeVocalAudioUrl(r.audio_original_url) : null,
                 tags: [],
                 createdAt: r.created_at,
                 updatedAt: r.updated_at,
@@ -923,24 +931,81 @@ async function loadSongsFromCloud() {
 }
 
 // ============= PRESENCIA ("en línea") =============
-// Se apoya en Realtime Presence (no hace NINGUNA escritura a la base de
-// datos, viaja sobre la misma conexión websocket que ya usan los demás
-// canales). Con ~30 usuarios esto no se acerca ni de cerca a los límites
-// del plan gratis (200 conexiones concurrentes / 2M mensajes al mes).
-let onlineUserIds = new Set();
-let _presenceChannelActive = false;
+// Este canal solo expone tipos y claves opacas. No se envía username, UUID de
+// Auth ni otro identificador legible al navegador de un invitado. Admin puede
+// comparar las claves opacas con los usuarios que ya cargó desde la base.
+// El sufijo v2 evita que clientes antiguos, que usaban usernames como clave,
+// compartan estado con esta versión durante una actualización gradual.
+// Presence no escribe en la base de datos: viaja por WebSocket.
+const PRESENCE_CHANNEL_NAME = 'presencia-usuarios-v2';
+let onlineUserIds = new Set(); // contiene hashes opacos, no usernames
+let onlineRegisteredCount = 0;
+let _presenceChannel = null;
+let _presenceIdentityKey = null;
+
+// Este valor no es un secreto (el JavaScript es público); solo evita exponer el
+// username directamente en el estado de Presence.
+const PUBLIC_PRESENCE_SALT = 'repertorios-rl-public-presence-v1';
+function hashPublicPresenceId(value) {
+    const text = PUBLIC_PRESENCE_SALT + '|' + String(value || '');
+    let h1 = 0x811c9dc5;
+    let h2 = 0x9e3779b9;
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        h1 = Math.imul(h1 ^ code, 16777619);
+        h2 = Math.imul(h2 ^ (code + i), 2246822519);
+    }
+    return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
+}
+
+function getCurrentPresenceIdentity() {
+    if (currentUser && currentUser.id) {
+        return { key: 'user:' + hashPublicPresenceId(currentUser.id), kind: 'user' };
+    }
+    if (typeof getOrCreateGuestUuid !== 'function') return null;
+    const guestId = getOrCreateGuestUuid();
+    return { key: 'guest:' + hashPublicPresenceId(guestId), kind: 'guest' };
+}
+
+function updatePresenceSets(state) {
+    const users = new Set();
+    const guests = new Set();
+    Object.keys(state || {}).forEach(function(key) {
+        if (key.indexOf('user:') === 0) users.add(key.substring(5));
+        else if (key.indexOf('guest:') === 0) guests.add(key.substring(6));
+        // No aceptar claves antiguas/desconocidas: podrían contener usernames.
+    });
+    onlineUserIds = users;
+    onlineRegisteredCount = users.size;
+    if (typeof guestOnlineIds !== 'undefined') guestOnlineIds = guests;
+    showConnectionStatus();
+    if (typeof refreshAdminOnlineIndicators === 'function') refreshAdminOnlineIndicators();
+    if (typeof refreshAdminGuestOnlineIndicators === 'function') refreshAdminGuestOnlineIndicators();
+}
+
 function setupPresenceChannel() {
-    if (_presenceChannelActive || !currentUser || !currentUser.id || !supabaseReady) return;
-    _presenceChannelActive = true;
-    const channel = supabaseClient.channel('presencia-usuarios', { config: { presence: { key: currentUser.id } } });
+    if (!supabaseReady || !supabaseClient) return;
+    const identity = getCurrentPresenceIdentity();
+    if (!identity) return;
+    if (_presenceChannel && _presenceIdentityKey === identity.key) return;
+
+    // Cambió la identidad (invitado -> usuario o usuario -> invitado).
+    if (_presenceChannel) supabaseClient.removeChannel(_presenceChannel);
+    _presenceIdentityKey = identity.key;
+    onlineUserIds = new Set();
+    onlineRegisteredCount = 0;
+    if (typeof guestOnlineIds !== 'undefined') guestOnlineIds = new Set();
+
+    const channel = supabaseClient.channel(PRESENCE_CHANNEL_NAME, {
+        config: { presence: { key: identity.key } }
+    });
+    _presenceChannel = channel;
     channel
         .on('presence', { event: 'sync' }, function() {
-            onlineUserIds = new Set(Object.keys(channel.presenceState()));
-            showConnectionStatus();
-            if (typeof refreshAdminOnlineIndicators === 'function') refreshAdminOnlineIndicators();
+            updatePresenceSets(channel.presenceState());
         })
         .subscribe(function(status) {
-            if (status === 'SUBSCRIBED') channel.track({ at: Date.now() });
+            if (status === 'SUBSCRIBED') channel.track({ kind: identity.kind, at: Date.now() });
         });
 }
 
@@ -1631,6 +1696,24 @@ async function loadRepertorios() {
         const { data: songsData, error: e2 } = await supabaseClient.from('canciones_repertorio').select('*');
         if (e2) throw e2;
 
+        // El audio (Secuencia y Canción original) YA NO se guarda duplicado en
+        // canciones_repertorio — vive únicamente en songs. Se resuelve aquí, al
+        // cargar, para que cualquiera que vea el repertorio lo tenga disponible
+        // aunque esa canción no esté en su propia biblioteca personal.
+        const sourceSongIds = Array.from(new Set(songsData.map(s => s.source_song_id).filter(Boolean)));
+        let songsAudioById = {};
+        if (sourceSongIds.length > 0) {
+            try {
+                const { data: audioRows } = await supabaseClient.from('songs').select('id,audio_url,audio_original_url').in('id', sourceSongIds);
+                (audioRows || []).forEach(sr => { songsAudioById[sr.id] = sr });
+            } catch (e) { console.log('No se pudo resolver audio de songs para repertorios:', e.message) }
+        }
+        songsData.forEach(s => {
+            const sa = s.source_song_id ? songsAudioById[s.source_song_id] : null;
+            s.audio_url = sa ? sa.audio_url : null;
+            s.audio_original_url = sa ? sa.audio_original_url : null;
+        });
+
         let vocalAudios = [];
         try {
             const { data: vaData, error: vaErr } = await supabaseClient.from('vocal_audios').select('*');
@@ -1710,7 +1793,7 @@ async function loadRepertorios() {
 function showConnectionStatus() {
     const status = document.getElementById('rep-connection-status');
     if (!status) return;
-    const onlineBadge = '<span style="color:#a1a1aa;font-size:.65rem">🟢 ' + onlineUserIds.size + ' en línea</span>';
+    const onlineBadge = '<span style="color:#a1a1aa;font-size:.65rem">🟢 ' + onlineRegisteredCount + ' en línea</span>';
     if (isOnline) {
         status.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><span style="color:#4ade80;font-size:.65rem">● Conectado</span>' + onlineBadge + '</div>';
     } else {
@@ -1802,20 +1885,28 @@ function stopAllAudio() {
     if (viewAudioEl) { viewAudioEl.pause();
         viewAudioEl.currentTime = 0;
         viewAudioEl = null;
-        viewAudioPlaying = false;
-        stopViewAudioProgress() }
+        viewAudioPlaying = false }
+    if (viewAudioOrigEl) { viewAudioOrigEl.pause();
+        viewAudioOrigEl.currentTime = 0;
+        viewAudioOrigEl = null;
+        viewAudioOrigPlaying = false }
     if (repAudioEl) { repAudioEl.pause();
         repAudioEl.currentTime = 0;
         repAudioEl = null;
-        repAudioPlaying = false;
-        stopAudioProgress() }
+        repAudioPlaying = false }
+    if (repAudioOrigEl) { repAudioOrigEl.pause();
+        repAudioOrigEl.currentTime = 0;
+        repAudioOrigEl = null;
+        repAudioOrigPlaying = false }
     Object.keys(vocalAudioPlayers).forEach(function(k) { try { vocalAudioPlayers[k].pause();
             vocalAudioPlayers[k].currentTime = 0 } catch (e) {} });
     vocalAudioPlayers = {};
     vocalAudioCurrentKey = null;
     stopVocalAudioProgress();
     updateViewAudioBtn();
+    updateViewAudioOrigBtn();
     updateAudioBtn();
+    updateRepAudioOrigBtn();
     updateVocalAudioButtons();
 }
 
@@ -1938,6 +2029,121 @@ function seekViewAudioTouch(e) {
     }
 }
 
+// ============= VIEW AUDIO FUNCTIONS (Canción original) =============
+// Reproductor propio, separado del de Secuencia arriba, para no arriesgar el
+// que ya está en uso — mismo comportamiento, apuntando a audio_original_url.
+function toggleViewAudioOriginal() {
+    const s = songs.find(x => x.id === viewingSongId);
+    if (!s || !s.audio_original_url) return;
+    const audioUrl = normalizeVocalAudioUrl(s.audio_original_url);
+
+    if (!viewAudioOrigEl) {
+        viewAudioOrigEl = new Audio();
+        viewAudioOrigEl.crossOrigin = 'anonymous';
+        viewAudioOrigEl.preload = 'auto';
+
+        viewAudioOrigEl.addEventListener('loadedmetadata', function() {
+            const dur = document.getElementById('view-audio-original-duration');
+            if (dur) dur.textContent = formatTime(this.duration);
+            updateViewAudioOrigProgress();
+        });
+
+        viewAudioOrigEl.addEventListener('timeupdate', function() {
+            updateViewAudioOrigProgress();
+        });
+
+        viewAudioOrigEl.addEventListener('ended', function() {
+            viewAudioOrigPlaying = false;
+            updateViewAudioOrigBtn();
+        });
+
+        viewAudioOrigEl.addEventListener('error', function() {
+            console.error('Audio error:', this.error);
+            viewAudioOrigPlaying = false;
+            updateViewAudioOrigBtn();
+            showNotification('Error al cargar el audio', 'error');
+        });
+
+        viewAudioOrigEl.src = audioUrl;
+    }
+
+    if (viewAudioOrigPlaying) {
+        viewAudioOrigEl.pause();
+        viewAudioOrigPlaying = false;
+    } else {
+        viewAudioOrigEl.play().catch(function(e) {
+            console.error('Play error:', e);
+            showNotification('Error al reproducir', 'error');
+        });
+        viewAudioOrigPlaying = true;
+    }
+    updateViewAudioOrigBtn();
+}
+
+function updateViewAudioOrigProgress() {
+    if (!viewAudioOrigEl || !viewAudioOrigEl.duration) return;
+    const pct = (viewAudioOrigEl.currentTime / viewAudioOrigEl.duration) * 100;
+    const fill = document.getElementById('view-audio-original-fill');
+    if (fill) fill.style.width = Math.min(pct, 100) + '%';
+    const cur = document.getElementById('view-audio-original-current');
+    if (cur) cur.textContent = formatTime(viewAudioOrigEl.currentTime);
+}
+
+function updateViewAudioOrigBtn() {
+    const icon = document.getElementById('view-audio-original-icon');
+    if (!icon) return;
+    if (viewAudioOrigPlaying) {
+        icon.outerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5" id="view-audio-original-icon"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    } else {
+        icon.outerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-original-icon"><polygon points="5,3 19,12 5,21"/></svg>';
+    }
+}
+
+function seekViewAudioOriginal(e) {
+    if (!viewAudioOrigEl || !viewAudioOrigEl.duration) {
+        if (viewAudioOrigEl) {
+            viewAudioOrigEl.addEventListener('loadedmetadata', function() { seekViewAudioOriginal(e) }, { once: true });
+        }
+        return;
+    }
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const pct = Math.max(0, Math.min(1, x));
+    const newTime = pct * viewAudioOrigEl.duration;
+    if (isFinite(newTime) && newTime >= 0) {
+        viewAudioOrigEl.currentTime = newTime;
+        const fill = document.getElementById('view-audio-original-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('view-audio-original-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
+}
+
+function seekViewAudioOriginalTouch(e) {
+    e.preventDefault();
+    if (!viewAudioOrigEl || !viewAudioOrigEl.duration) {
+        if (viewAudioOrigEl) {
+            viewAudioOrigEl.addEventListener('loadedmetadata', function() { seekViewAudioOriginalTouch(e) }, { once: true });
+        }
+        return;
+    }
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const x = (touch.clientX - rect.left) / rect.width;
+    const pct = Math.max(0, Math.min(1, x));
+    const newTime = pct * viewAudioOrigEl.duration;
+    if (isFinite(newTime) && newTime >= 0) {
+        viewAudioOrigEl.currentTime = newTime;
+        const fill = document.getElementById('view-audio-original-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('view-audio-original-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
+}
+
 // ============= REP AUDIO FUNCTIONS =============
 function toggleRepAudio() {
     const r = repertorios.find(x => x.id === viewingRepId);
@@ -2053,6 +2259,118 @@ function seekRepAudioTouch(e) {
         const fill = document.getElementById('rep-audio-fill');
         if (fill) fill.style.width = (pct * 100) + '%';
         const cur = document.getElementById('rep-audio-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
+}
+
+// ---- Canción original dentro de Repertorio: solo reproducción (subir/borrar
+// siempre se hace desde Biblioteca), reproductor propio y separado del de arriba.
+function toggleRepAudioOriginal() {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    if (!r) return;
+    const s = r.canciones.find(x => x.id === viewingRepSongId);
+    if (!s || !s.audio_original_url) return;
+    const audioUrl = normalizeVocalAudioUrl(s.audio_original_url);
+
+    if (!repAudioOrigEl) {
+        repAudioOrigEl = new Audio();
+        repAudioOrigEl.crossOrigin = 'anonymous';
+        repAudioOrigEl.preload = 'auto';
+
+        repAudioOrigEl.addEventListener('loadedmetadata', function() {
+            const dur = document.getElementById('rep-audio-original-duration');
+            if (dur) dur.textContent = formatTime(this.duration);
+            updateRepAudioOrigProgress();
+        });
+
+        repAudioOrigEl.addEventListener('timeupdate', function() {
+            updateRepAudioOrigProgress();
+        });
+
+        repAudioOrigEl.addEventListener('ended', function() {
+            repAudioOrigPlaying = false;
+            updateRepAudioOrigBtn();
+        });
+
+        repAudioOrigEl.addEventListener('error', function() {
+            console.error('Rep audio (original) error:', this.error);
+            repAudioOrigPlaying = false;
+            updateRepAudioOrigBtn();
+            showNotification('Error al cargar el audio', 'error');
+        });
+
+        repAudioOrigEl.src = audioUrl;
+    }
+
+    if (repAudioOrigPlaying) {
+        repAudioOrigEl.pause();
+        repAudioOrigPlaying = false;
+    } else {
+        repAudioOrigEl.play().catch(function(e) {
+            console.error('Play error:', e);
+            showNotification('Error al reproducir', 'error');
+        });
+        repAudioOrigPlaying = true;
+    }
+    updateRepAudioOrigBtn();
+}
+
+function updateRepAudioOrigProgress() {
+    if (!repAudioOrigEl || !repAudioOrigEl.duration) return;
+    const pct = (repAudioOrigEl.currentTime / repAudioOrigEl.duration) * 100;
+    const fill = document.getElementById('rep-audio-original-fill');
+    if (fill) fill.style.width = Math.min(pct, 100) + '%';
+    const cur = document.getElementById('rep-audio-original-current');
+    if (cur) cur.textContent = formatTime(repAudioOrigEl.currentTime);
+}
+
+function updateRepAudioOrigBtn() {
+    const btn = document.getElementById('rep-audio-original-play-btn');
+    if (!btn) return;
+    if (repAudioOrigPlaying) {
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    } else {
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>';
+    }
+}
+
+function seekRepAudioOriginal(e) {
+    if (!repAudioOrigEl || !repAudioOrigEl.duration) {
+        if (repAudioOrigEl) repAudioOrigEl.addEventListener('loadedmetadata', function() { seekRepAudioOriginal(e) }, { once: true });
+        return;
+    }
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const pct = Math.max(0, Math.min(1, x));
+    const newTime = pct * repAudioOrigEl.duration;
+    if (isFinite(newTime) && newTime >= 0) {
+        repAudioOrigEl.currentTime = newTime;
+        const fill = document.getElementById('rep-audio-original-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('rep-audio-original-current');
+        if (cur) cur.textContent = formatTime(newTime);
+    }
+}
+
+function seekRepAudioOriginalTouch(e) {
+    e.preventDefault();
+    if (!repAudioOrigEl || !repAudioOrigEl.duration) {
+        if (repAudioOrigEl) repAudioOrigEl.addEventListener('loadedmetadata', function() { seekRepAudioOriginalTouch(e) }, { once: true });
+        return;
+    }
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const x = (touch.clientX - rect.left) / rect.width;
+    const pct = Math.max(0, Math.min(1, x));
+    const newTime = pct * repAudioOrigEl.duration;
+    if (isFinite(newTime) && newTime >= 0) {
+        repAudioOrigEl.currentTime = newTime;
+        const fill = document.getElementById('rep-audio-original-fill');
+        if (fill) fill.style.width = (pct * 100) + '%';
+        const cur = document.getElementById('rep-audio-original-current');
         if (cur) cur.textContent = formatTime(newTime);
     }
 }
@@ -2253,8 +2571,16 @@ function playVocalAudio(key, url) {
 // startViewAudioProgress, stopViewAudioProgress, startAudioProgress, stopAudioProgress, startVocalAudioProgress, stopVocalAudioProgress
 
 // ============= AUDIO UPLOAD FUNCTIONS =============
+// Generalizado por tipo: 'secuencia' (audio_url, obligatorio/siempre visible)
+// o 'cancion' (audio_original_url, opcional, se oculta si está vacío).
+function audioTipoCol(tipo) { return tipo === 'cancion' ? 'audio_original_url' : 'audio_url' }
+function audioTipoLabel(tipo) { return tipo === 'cancion' ? 'Canción' : 'Secuencia' }
+function audioTipoSuffix(tipo) { return tipo === 'cancion' ? '_cancion' : '' }
+
 async function handleAudioUpload(e) {
     const file = e.target.files[0];
+    const tipo = audioUploadTipo || 'secuencia';
+    const col = audioTipoCol(tipo);
     if (!file || !audioUploadSongId) return;
     if (blockIfOffline() || !canUploadAudio()) { e.target.value = ''; audioUploadSongId = null; return }
     if (!supabaseReady) { alert('Sin conexión a Supabase'); return }
@@ -2266,50 +2592,29 @@ async function handleAudioUpload(e) {
     const songTitle = songs[si].title;
     const songId = songs[si].id;
 
-    const sendFilename = songId + '.' + getAudioExtension(file);
+    const sendFilename = songId + audioTipoSuffix(tipo) + '.' + getAudioExtension(file);
 
-    const zone = document.getElementById('view-upload-zone');
+    const zoneId = tipo === 'cancion' ? 'view-upload-zone-original' : 'view-upload-zone';
+    const zone = document.getElementById(zoneId);
     if (zone) { zone.innerHTML = '<div class="upload-progress"><div class="upload-progress-bar"><div class="upload-progress-fill" id="upload-fill" style="width:10%"></div></div><p style="font-size:.75rem;color:#a1a1aa;margin-top:8px">Subiendo ' + esc(songTitle) + '...</p></div>' }
 
-    const btn = document.querySelector('[data-audio-upload="' + audioUploadSongId + '"]');
+    const btnAttr = tipo === 'cancion' ? 'data-audio-upload-original' : 'data-audio-upload';
+    const btn = document.querySelector('[' + btnAttr + '="' + audioUploadSongId + '"]');
     if (btn) btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><circle cx="12" cy="12" r="10"/></svg>';
 
     try {
         const fill = document.getElementById('upload-fill');
         if (fill) fill.style.width = '15%';
 
-        const pathsToDelete = new Set();
-        if (songs[si].audio_url) {
-            try { 
-                const storedKey = extractR2Key(songs[si].audio_url);
-                pathsToDelete.add(storedKey);
-            } catch (e) {}
-        }
-        try {
-            const { data: repSongs } = await supabaseClient.from('canciones_repertorio').select('audio_url').eq('source_song_id', songId);
-            if (repSongs) {
-                repSongs.forEach(rs => { 
-                    if (rs.audio_url) { 
-                        try { 
-                            const p = extractR2Key(rs.audio_url);
-                            pathsToDelete.add(p);
-                        } catch (e) {} 
-                    } 
-                });
-            }
-        } catch (e) {}
-        // (Ya no hace falta escanear user_songs: audio_url ahora vive una sola
-        // vez en songs, ya capturado arriba desde songs[si].audio_url)
-
-        for (const delPath of pathsToDelete) {
-            try { 
-                // ✅ Usar getR2DeleteUrl en lugar de encodeURIComponent
-                const deleteUrl = getR2DeleteUrl(delPath);
+        // El audio ya solo vive en songs (no hay copias en canciones_repertorio
+        // que limpiar): si había un archivo anterior de este mismo tipo, se borra.
+        if (songs[si][col]) {
+            try {
+                const storedKey = extractR2Key(songs[si][col]);
+                const deleteUrl = getR2DeleteUrl(storedKey);
                 await r2Fetch(deleteUrl, { method: 'DELETE' });
-                console.log('✅ Audio anterior eliminado:', delPath);
-            } catch (e) {
-                console.warn('⚠️ No se pudo eliminar archivo anterior:', delPath, e.message);
-            }
+                console.log('✅ Audio anterior (' + tipo + ') eliminado:', storedKey);
+            } catch (e) { console.warn('⚠️ No se pudo eliminar archivo anterior:', e.message) }
         }
 
         if (fill) fill.style.width = '35%';
@@ -2339,7 +2644,7 @@ async function handleAudioUpload(e) {
             return;
         }
 
-        songs[si].audio_url = audioUrl;
+        songs[si][col] = audioUrl;
         songs[si].needsCloudSync = true;
         save('cb_songs', songs);
 
@@ -2347,15 +2652,7 @@ async function handleAudioUpload(e) {
             try { await syncSongsToCloud() } catch (e) { console.log('syncSongsToCloud after upload failed:', e.message) }
         }
 
-        if (fill) fill.style.width = '80%';
-
-        try {
-            // Mientras canciones_repertorio conserve su columna audio_url (fase
-            // de transición), se actualiza también aquí; el resto de usuarios
-            // ya recibe el cambio gratis vía songs (tabla compartida), sin
-            // necesidad de recorrer copias individuales.
-            await supabaseClient.from('canciones_repertorio').update({ audio_url: audioUrl }).eq('source_song_id', songId);
-        } catch (dbErr) { console.log('DB update error:', dbErr.message) }
+        if (fill) fill.style.width = '85%';
 
         try { await loadRepertorios() } catch (e) { console.log('Reload repertorios error:', e.message) }
 
@@ -2365,7 +2662,7 @@ async function handleAudioUpload(e) {
         if (viewingSongId === audioUploadSongId) { renderView() } else { renderLibrary() }
         if (viewingRepId) { renderRepertorioView() }
 
-        showNotif('import-notification', 'Audio vinculado a "' + songTitle + '"', 'success');
+        showNotif('import-notification', audioTipoLabel(tipo) + ' vinculada a "' + songTitle + '"', 'success');
 
     } catch (err) {
         alert('Error al subir audio: ' + err.message);
@@ -2375,34 +2672,38 @@ async function handleAudioUpload(e) {
     audioUploadSongId = null;
 logActivity('audio_uploaded', {
     type: 'song',
+    audioType: tipo,
     fileSize: file.size,
     songTitle: songTitle
 }, 'song', songId);
 }
 
-function triggerAudioUpload(songId) {
+function triggerAudioUpload(songId, tipo) {
     if (!canUploadAudio()) { if (!isOnline) blockIfOffline(); return }
-    // Si es iOS, mostrar menú con opción de grabar
-    if (isIOS()) {
+    audioUploadTipo = tipo || 'secuencia';
+    // Si es iOS, mostrar menú con opción de grabar (solo para Secuencia, que es
+    // la que se suele grabar en vivo; Canción normalmente es un archivo ya hecho)
+    if (isIOS() && audioUploadTipo === 'secuencia') {
         triggerAudioUploadWithRecording(songId);
     } else {
-        // Comportamiento normal en Android/Desktop
         audioUploadSongId = songId;
         document.getElementById('audio-upload-input').click();
     }
 }
 
-async function removeSongAudio(songId) {
+async function removeSongAudio(songId, tipo) {
+    tipo = tipo || 'secuencia';
+    const col = audioTipoCol(tipo);
     if (!canUploadAudio()) { if (!isOnline) blockIfOffline(); return }
-    if (!confirm('¿Eliminar el audio vinculado a esta canción?')) return;
+    if (!confirm('¿Eliminar el audio (' + audioTipoLabel(tipo) + ') vinculado a esta canción?')) return;
     const si = songs.findIndex(s => s.id === songId);
     if (si === -1) return;
     const s = songs[si];
 
     // --- Eliminar de R2 correctamente ---
-    if (s.audio_url) {
+    if (s[col]) {
         try {
-            let path = s.audio_url;
+            let path = s[col];
             // Si es URL de Supabase, extrae la ruta
             if (path.includes('supabase.co')) {
                 const match = path.match(/\/storage\/v1\/object\/public\/([^?]+)/);
@@ -2413,7 +2714,7 @@ async function removeSongAudio(songId) {
             
             // Usar la función helper para construir la URL correcta
             const deleteUrl = getR2DeleteUrl(path);
-            console.log('📤 Eliminando audio de canción:', deleteUrl);
+            console.log('📤 Eliminando audio (' + tipo + ') de canción:', deleteUrl);
             
             const response = await r2Fetch(deleteUrl, { method: 'DELETE' });
             
@@ -2429,19 +2730,14 @@ async function removeSongAudio(songId) {
     }
 
     // Limpiar en la base de datos local
-    songs[si].audio_url = null;
+    songs[si][col] = null;
     songs[si].needsCloudSync = true;
     save('cb_songs', songs);
 
-    // Limpiar en Supabase: songs.audio_url es la única fuente compartida ahora,
-    // así que un solo upsert basta para que todos dejen de verlo.
+    // Limpiar en Supabase: songs es la única fuente compartida ahora, así que
+    // un solo upsert basta para que todos dejen de verlo.
     if (currentUser && supabaseReady) {
         try { await syncSongsToCloud() } catch (e) { console.log('syncSongsToCloud tras borrar audio falló:', e.message) }
-    }
-    try {
-        await supabaseClient.from('canciones_repertorio').update({ audio_url: null }).eq('source_song_id', songId);
-    } catch (e) {
-        console.log('Supabase update skipped:', e.message);
     }
 
     try { await loadRepertorios() } catch (e) { console.log("Reload repertorios error:", e.message) }
@@ -2449,9 +2745,10 @@ async function removeSongAudio(songId) {
     if (viewingSongId === songId) { renderView() } else { renderLibrary() }
     if (viewingRepId) { renderRepertorioView() }
     
-    showNotif('import-notification', 'Audio desvinculado de "' + s.title + '"', 'success');
+    showNotif('import-notification', audioTipoLabel(tipo) + ' desvinculada de "' + s.title + '"', 'success');
     logActivity('audio_deleted', {
         type: 'song',
+        audioType: tipo,
         songTitle: s.title
     }, 'song', songId);
 }
@@ -2464,9 +2761,9 @@ async function removeSongAudio(songId) {
 async function syncRepertorioFromLibrary(libSong) {
     if (!supabaseReady || !isOnline) return;
     try {
-        // Mientras canciones_repertorio conserve sus columnas de datos de
-        // canción (fase de transición, antes de dropearlas), se les refleja
-        // el cambio aquí también.
+        // El audio (Secuencia/Canción) ya no se duplica aquí — vive solo en
+        // songs y loadRepertorios() lo resuelve al cargar. Solo se sincronizan
+        // los datos de texto/tono que sí siguen denormalizados por ahora.
         let repSongs = [];
         try {
             const { data: byId, error: e1 } = await supabaseClient.from('canciones_repertorio').select('id').eq('source_song_id', libSong.id);
@@ -2480,7 +2777,6 @@ async function syncRepertorioFromLibrary(libSong) {
             tempo: libSong.tempo || 0,
             compas: libSong.compas || '',
             letra_acordes: libSong.lyrics,
-            audio_url: libSong.audio_url || null,
             fecha_modificacion: Date.now(),
             modificado_por: libSong.modifiedBy || '',
             modified_by: libSong.modifiedBy || ''
@@ -2537,7 +2833,7 @@ function renderLibrary() {
     c.innerHTML = filtered.map(s => {
        // const pv = s.lyrics.split('\n').slice(0, 3).join(' / '); //
         const il = lists.filter(l => l.songIds.includes(s.id)).length;
-        return '<div class="card" onclick="viewSong(\'' + s.id + '\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + esc(s.title) + (!canEditRepSongs() && isSongInAnyRepertorio(s.sourceId || s.id) ? ' 🔒' : '') + '</div><div class="card-artist">' + esc(s.artist) + '</div><div class="card-meta"><span class="tag tag-key">' + dn(s.originalKey) + '</span>' + (s.tempo ? '<span class="tag tag-zinc">' + s.tempo + ' BPM</span>' : '') + (s.compas ? '<span class="tag tag-zinc">' + s.compas + '</span>' : '') + s.tags.slice(0, 2).map(t => '<span class="tag tag-zinc">' + esc(t) + '</span>').join('') + (il > 0 ? '<span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> ' + il + '</span>' : '') + (s.audio_url ? '<span class="tag" style="background:rgba(34,197,94,.2);color:#4ade80">🎵 Audio</span>' : '') + '</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">' + (canUploadAudio() ? '<button class="btn-icon" onclick="event.stopPropagation();triggerAudioUpload(\'' + s.id + '\')" data-audio-upload="' + s.id + '" title="' + (s.audio_url ? 'Cambiar audio' : 'Subir audio') + '" style="color:' + (s.audio_url ? '#4ade80' : '#71717a') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>' : '') + '<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteSong(\'' + s.id + '\')" title="Eliminar de biblioteca" style="flex-shrink:0;align-self:flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' + '</div></div></div>';
+        return '<div class="card" onclick="viewSong(\'' + s.id + '\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + esc(s.title) + (!canEditRepSongs() && isSongInAnyRepertorio(s.sourceId || s.id) ? ' 🔒' : '') + '</div><div class="card-artist">' + esc(s.artist) + '</div><div class="card-meta"><span class="tag tag-key">' + dn(s.originalKey) + '</span>' + (s.tempo ? '<span class="tag tag-zinc">' + s.tempo + ' BPM</span>' : '') + (s.compas ? '<span class="tag tag-zinc">' + s.compas + '</span>' : '') + s.tags.slice(0, 2).map(t => '<span class="tag tag-zinc">' + esc(t) + '</span>').join('') + (il > 0 ? '<span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> ' + il + '</span>' : '') + (s.audio_url ? '<span class="tag" style="background:rgba(34,197,94,.2);color:#4ade80">🎵 Secuencia</span>' : '') + (s.audio_original_url ? '<span class="tag" style="background:rgba(96,165,250,.2);color:#60a5fa">🎤 Canción</span>' : '') + '</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">' + (canUploadAudio() ? '<button class="btn-icon" onclick="event.stopPropagation();triggerAudioUpload(\'' + s.id + '\',\'secuencia\')" data-audio-upload="' + s.id + '" title="' + (s.audio_url ? 'Cambiar Secuencia' : 'Subir Secuencia') + '" style="color:' + (s.audio_url ? '#4ade80' : '#71717a') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>' : '') + '<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteSong(\'' + s.id + '\')" title="Eliminar de biblioteca" style="flex-shrink:0;align-self:flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' + '</div></div></div>';
     }).join('');
 }
 
@@ -2604,7 +2900,7 @@ function saveSong() {
     } else {
         var dk = detectKey(l);
         var creatorName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
-        songs.unshift({ id: genId(), title: t, artist: a, lyrics: l, originalKey: formKey || dk, currentKey: formKey || dk, tags: [...formTags], tempo: bpm, compas: cmp, audio_url: null, createdAt: Date.now(), updatedAt: Date.now(), createdBy: creatorName || '', createdById: currentUser ? currentUser.id : '', needsCloudSync: true })
+        songs.unshift({ id: genId(), title: t, artist: a, lyrics: l, originalKey: formKey || dk, currentKey: formKey || dk, tags: [...formTags], tempo: bpm, compas: cmp, audio_url: null, audio_original_url: null, createdAt: Date.now(), updatedAt: Date.now(), createdBy: creatorName || '', createdById: currentUser ? currentUser.id : '', needsCloudSync: true })
 
 logActivity('song_created', { 
     title: t, 
@@ -2774,11 +3070,25 @@ async function renderView() {
 
     // En app.js, en la función renderView(), reemplaza la sección del audio:
 const audioSection = document.getElementById('view-audio-section');
-if (s.audio_url) {
-    audioSection.innerHTML = '<div class="audio-player" id="view-audio-player"><button class="audio-play-btn" onclick="toggleViewAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekViewAudio(event)" ontouchstart="seekViewAudioTouch(event)" ontouchmove="seekViewAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="view-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-current">0:00</span><span id="view-audio-duration">--:--</span></div></div>' + (canUploadAudio() ? '<button class="btn-icon" onclick="triggerAudioUpload(\'' + s.id + '\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\'' + s.id + '\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
-} else {
-    audioSection.innerHTML = '' + (canUploadAudio() ? '<div class="upload-zone" onclick="triggerAudioUpload(\'' + s.id + '\')" id="view-upload-zone"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir audio de esta canción</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — el audio quedará vinculado a la canción</p></div>' : '') + '';
+const secuenciaHtml = s.audio_url
+    ? ('<div class="audio-player" id="view-audio-player"><button class="audio-play-btn" onclick="toggleViewAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekViewAudio(event)" ontouchstart="seekViewAudioTouch(event)" ontouchmove="seekViewAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="view-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-current">0:00</span><span id="view-audio-duration">--:--</span></div></div>' + (canUploadAudio() ? '<button class="btn-icon" onclick="triggerAudioUpload(\'' + s.id + '\',\'secuencia\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\'' + s.id + '\',\'secuencia\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>')
+    : (canUploadAudio() ? ('<div class="upload-zone" onclick="triggerAudioUpload(\'' + s.id + '\',\'secuencia\')" id="view-upload-zone"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir audio de esta canción</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — el audio quedará vinculado a la canción</p></div>') : '');
+
+// "Canción" (audio_original_url) es opcional: si un usuario normal no la tiene
+// cargada, el bloque entero no aparece (ni la etiqueta).
+let cancionHtml = '';
+if (s.audio_original_url) {
+    cancionHtml = '<div class="audio-player" id="view-audio-original-player"><button class="audio-play-btn" onclick="toggleViewAudioOriginal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" id="view-audio-original-icon"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekViewAudioOriginal(event)" ontouchstart="seekViewAudioOriginalTouch(event)" ontouchmove="seekViewAudioOriginalTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="view-audio-original-fill" style="width:0%"></div></div><div class="audio-time"><span id="view-audio-original-current">0:00</span><span id="view-audio-original-duration">--:--</span></div></div>' + (canUploadAudio() ? '<button class="btn-icon" onclick="triggerAudioUpload(\'' + s.id + '\',\'cancion\')" title="Cambiar audio" style="color:#71717a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button><button class="btn-icon btn-icon-red" onclick="removeSongAudio(\'' + s.id + '\',\'cancion\')" title="Eliminar audio" style="color:#f87171"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
+} else if (canUploadAudio()) {
+    cancionHtml = '<div class="upload-zone" onclick="triggerAudioUpload(\'' + s.id + '\',\'cancion\')" id="view-upload-zone-original"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="margin:0 auto 8px;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:4px">Subir la canción original (opcional)</p><p style="font-size:.65rem;color:#71717a">MP3, WAV, OGG — para escuchar de referencia</p></div>';
 }
+
+const libraryAudioCollapsed = loadCollapsePref('cb_lib_audio_collapsed', true);
+const libraryAudioCount = (s.audio_url ? 1 : 0) + (s.audio_original_url ? 1 : 0);
+const libraryAudioContent = '<div style="font-size:.7rem;color:#71717a;font-weight:600;margin-bottom:4px">🎵 Secuencia</div>' + secuenciaHtml
+    + (cancionHtml ? '<div style="font-size:.7rem;color:#71717a;font-weight:600;margin:14px 0 4px">🎤 Canción</div>' + cancionHtml : '');
+audioSection.innerHTML = '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px;margin-bottom:6px"><button onclick="toggleLibraryAudioCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="font-size:.8rem;font-weight:600;color:#d4d4d8;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Audio (' + libraryAudioCount + ')</span>' + collapseChevronSvg(!libraryAudioCollapsed) + '</button><div style="display:' + (libraryAudioCollapsed ? 'none' : '') + ';margin-top:8px">' + libraryAudioContent + '</div></div>';
+
 
     const semi = getS(s.originalKey, s.currentKey);
     var _vnSrc2 = s.sourceId || s.id;
@@ -3856,6 +4166,33 @@ function viewRepSong(rid, sid) {
 function goBackFromRepSong() { stopAllAudio();
     showPage('repertorio') }
 
+// ---- "Memoria" de mostrar/ocultar: preferencia por usuario (localStorage),
+// aplica a todas las canciones — igual que ya se recuerda Domingo/Lunes.
+function loadCollapsePref(key, defaultVal) {
+    const v = localStorage.getItem(key);
+    if (v === null) return defaultVal;
+    return v === '1';
+}
+function toggleRepAudioCollapse() {
+    const collapsed = !loadCollapsePref('cb_rep_audio_collapsed', true);
+    localStorage.setItem('cb_rep_audio_collapsed', collapsed ? '1' : '0');
+    renderRepSongView();
+}
+function toggleLibraryAudioCollapse() {
+    const collapsed = !loadCollapsePref('cb_lib_audio_collapsed', true);
+    localStorage.setItem('cb_lib_audio_collapsed', collapsed ? '1' : '0');
+    stopAllAudio();
+    renderView();
+}
+function toggleRepVocesCollapse() {
+    const collapsed = !loadCollapsePref('cb_rep_voces_collapsed', true);
+    localStorage.setItem('cb_rep_voces_collapsed', collapsed ? '1' : '0');
+    renderRepSongView();
+}
+function collapseChevronSvg(collapsed) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" style="transition:transform .15s;transform:rotate(' + (collapsed ? '0' : '180') + 'deg)"><polyline points="6,9 12,15 18,9"/></svg>';
+}
+
 function setRepSongView(showChords) {
     repShowChords = showChords;
     document.getElementById('toggle-lyrics').className = showChords ? 'inactive' : 'active';
@@ -3923,6 +4260,7 @@ function renderRepSongView() {
 
     // Build vocal audios section
     let vocalAudiosHtml = '';
+    let vocesCountForDay = 0;
     if (r && r.vocalAudios) {
         const sourceSongId = s.source_song_id || viewingRepSongId;
         const songAudios = r.vocalAudios.filter(va => (va.source_song_id || va.cancion_repertorio_id) === sourceSongId);
@@ -3956,10 +4294,12 @@ function renderRepSongView() {
                     const corosDomB = s.coros_domingo_b ? (typeof s.coros_domingo_b === 'string' ? JSON.parse(s.coros_domingo_b || '[]') : s.coros_domingo_b) : [];
                     const coroNameB = (Array.isArray(corosDomB) && corosDomB[coro - 1]) ? corosDomB[coro - 1] : '';
                     const cc = coroColors[coro - 1];
-                    const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_a';
-                    const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_b';
                     const hasA = !!(coroNameA || (audioA && audioA.audio_url));
                     const hasB = !!(coroNameB || (audioB && audioB.audio_url));
+                    if (hasA) vocesCountForDay++;
+                    if (hasB) vocesCountForDay++;
+                    const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_a';
+                    const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_domingo_' + coro + '_b';
                     const cellA = '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">'
                         + '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>'
                         + (audioA && audioA.audio_url ? '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>' : '')
@@ -3994,10 +4334,12 @@ function renderRepSongView() {
                     const corosLunB = s.coros_lunes_b ? (typeof s.coros_lunes_b === 'string' ? JSON.parse(s.coros_lunes_b || '[]') : s.coros_lunes_b) : [];
                     const coroNameB = (Array.isArray(corosLunB) && corosLunB[coro - 1]) ? corosLunB[coro - 1] : '';
                     const cc = coroColors[coro - 1];
-                    const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_a';
-                    const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_b';
                     const hasA = !!(coroNameA || (audioA && audioA.audio_url));
                     const hasB = !!(coroNameB || (audioB && audioB.audio_url));
+                    if (hasA) vocesCountForDay++;
+                    if (hasB) vocesCountForDay++;
+                    const audioKeyA = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_a';
+                    const audioKeyB = viewingRepId + '_' + viewingRepSongId + '_lunes_' + coro + '_b';
                     const cellA = '<div style="display:flex;align-items:center;gap:4px;padding:4px 5px;background:' + cc.bg + ';border-radius:5px;border:1px solid ' + cc.border + '">'
                         + '<span style="min-width:14px;font-size:.55rem;color:' + cc.text + ';font-weight:700;background:' + cc.badge + ';padding:1px 3px;border-radius:3px;text-align:center">' + coro + 'A</span>'
                         + (audioA && audioA.audio_url ? '<button class="btn-icon" data-vocal-key="' + audioKeyA + '" onclick="playVocalAudio(\'' + audioKeyA + '\',\'' + audioA.audio_url + '\')" style="color:#4ade80;padding:1px" title="Reproducir"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>' : '')
@@ -4024,7 +4366,19 @@ function renderRepSongView() {
     }
 
     // En app.js, en la función renderRepSongView(), reemplaza esta sección:
-    document.getElementById('rep-song-audio').innerHTML = (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchstart="seekRepAudioTouch(event)" ontouchmove="seekRepAudioTouch(event)" style=touch-action:none"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>') + (vocalAudiosHtml ? ('<div id="rep-song-vocal-note" style="display:' + (repShowChords ? '' : 'none') + ';font-size:.7rem;color:#71717a;margin-top:14px;text-align:center">Audios de voces disponibles en Solo Letra</div>' + '<div id="rep-song-vocal-section" style="display:' + (repShowChords ? 'none' : '') + ';margin-top:16px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces</span></div>' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div>') : '');
+    const audioCollapsed = loadCollapsePref('cb_rep_audio_collapsed', true);
+    const vocesCollapsed = loadCollapsePref('cb_rep_voces_collapsed', true);
+
+    const repSecuenciaHtml = '<div style="font-size:.7rem;color:#71717a;font-weight:600;margin-bottom:4px">🎵 Secuencia</div>' + (s.audio_url ? '<div class="audio-player" id="rep-audio-player"><button class="audio-play-btn" onclick="toggleRepAudio()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudio(event)" ontouchstart="seekRepAudioTouch(event)" ontouchmove="seekRepAudioTouch(event)" style=touch-action:none"><div class="audio-bar-fill" id="rep-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-current">0:00</span><span id="rep-audio-duration">--:--</span></div></div></div>' : '<div style="background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" style="margin:0 auto 8px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><p style="font-size:.8rem;color:#71717a">Audio no disponible</p></div>');
+    // "Canción" (audio_original_url) es opcional: si no tiene, el bloque no aparece en absoluto (nadie ve un hueco vacío aquí).
+    const repCancionHtml = s.audio_original_url ? ('<div style="font-size:.7rem;color:#71717a;font-weight:600;margin:10px 0 4px">🎤 Canción</div><div class="audio-player" id="rep-audio-original-player"><button class="audio-play-btn" id="rep-audio-original-play-btn" onclick="toggleRepAudioOriginal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekRepAudioOriginal(event)" ontouchstart="seekRepAudioOriginalTouch(event)" ontouchmove="seekRepAudioOriginalTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="rep-audio-original-fill" style="width:0%"></div></div><div class="audio-time"><span id="rep-audio-original-current">0:00</span><span id="rep-audio-original-duration">--:--</span></div></div></div>') : '';
+
+    // Sección "Audio" colapsable (Secuencia + Canción juntas) — se recuerda
+    // abierta/cerrada por usuario, igual para todas las canciones.
+    const audioCount = (s.audio_url ? 1 : 0) + (s.audio_original_url ? 1 : 0);
+    const audioSectionHtml = '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px;margin-bottom:6px"><button onclick="toggleRepAudioCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="font-size:.8rem;font-weight:600;color:#d4d4d8;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Audio (' + audioCount + ')</span>' + collapseChevronSvg(!audioCollapsed) + '</button><div style="display:' + (audioCollapsed ? 'none' : '') + ';margin-top:8px">' + repSecuenciaHtml + repCancionHtml + '</div></div>';
+
+    document.getElementById('rep-song-audio').innerHTML = audioSectionHtml + (vocalAudiosHtml ? ('<div id="rep-song-vocal-note" style="display:' + (repShowChords ? '' : 'none') + ';font-size:.7rem;color:#71717a;margin-top:14px;text-align:center">Audios de voces disponibles en Solo Letra</div>' + '<div id="rep-song-vocal-section" style="display:' + (repShowChords ? 'none' : '') + ';margin-top:6px;background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px"><button onclick="toggleRepVocesCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces (' + vocesCountForDay + ')</span></span>' + collapseChevronSvg(!vocesCollapsed) + '</button><div style="display:' + (vocesCollapsed ? 'none' : '') + ';margin-top:8px">' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div></div>') : '');
     document.getElementById('toggle-lyrics').className = repShowChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = repShowChords ? 'active' : 'inactive';
     document.getElementById('rep-song-key').style.display = repShowChords ? '' : 'none';

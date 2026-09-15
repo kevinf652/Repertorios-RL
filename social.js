@@ -25,6 +25,32 @@ function renderSocialPanel() {
 }
 
 // ---------- Información de usuarios ----------
+const SOCIAL_PROFILE_FIELDS = [
+    'fecha_cumpleanos',
+    'color_favorito',
+    'comida_favorita',
+    'pastel_o_pizza',
+    'instrumento_rol',
+    'mejorar_grupo'
+];
+
+function socialProfileHasData(profile) {
+    return SOCIAL_PROFILE_FIELDS.some(field => {
+        const value = profile && profile[field];
+        return value !== null && value !== undefined && String(value).trim() !== '';
+    });
+}
+
+function updateSocialUsersSummary(users, visibleCount) {
+    const summary = document.getElementById('social-usuarios-summary');
+    if (!summary) return;
+    const filled = users.filter(u => socialProfileHasData(u.profile || {})).length;
+    const empty = users.length - filled;
+    summary.textContent = visibleCount === users.length
+        ? `${filled} con información · ${empty} sin información`
+        : `${visibleCount} visibles · ${filled} con información · ${empty} sin información`;
+}
+
 async function loadSocialUsersData(force) {
     if (socialUsersCache && !force) return socialUsersCache;
     if (!supabaseReady) return [];
@@ -48,18 +74,30 @@ async function renderSocialUsuarios(force) {
     c.innerHTML = '<div class="admin-empty">Cargando...</div>';
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
     const users = await loadSocialUsersData(force);
+    const filter = document.getElementById('social-usuarios-filter')?.value || 'all';
+    const filteredUsers = users.filter(u => {
+        const hasData = socialProfileHasData(u.profile || {});
+        return filter === 'filled' ? hasData : filter === 'empty' ? !hasData : true;
+    });
+    updateSocialUsersSummary(users, filteredUsers.length);
     if (users.length === 0) {
         c.innerHTML = '<div class="admin-empty">No hay usuarios registrados.</div>';
         return;
     }
+    if (filteredUsers.length === 0) {
+        c.innerHTML = '<div class="admin-empty">No hay usuarios que coincidan con este filtro.</div>';
+        return;
+    }
     c.innerHTML = '<div class="admin-table-wrap"><table class="admin-table"><thead><tr>'
-        + '<th>Nombre</th><th>Cumpleaños</th><th>Color fav.</th><th>Comida fav.</th><th>Pastel/Pizza</th><th>Instrumento/Rol</th><th>Qué mejorar</th>'
+        + '<th>Nombre</th><th>Perfil</th><th>Cumpleaños</th><th>Color fav.</th><th>Comida fav.</th><th>Pastel/Pizza</th><th>Instrumento/Rol</th><th>Qué mejorar</th>'
         + '</tr></thead><tbody>'
-        + users.map(u => {
+        + filteredUsers.map(u => {
             const p = u.profile || {};
+            const hasData = socialProfileHasData(p);
             const fullName = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.id;
             return '<tr>'
                 + '<td>' + esc(fullName) + '<br><span style="color:#71717a;font-size:.68rem">@' + esc(u.id) + '</span></td>'
+                + '<td><span class="social-profile-status ' + (hasData ? 'filled' : 'empty') + '">' + (hasData ? 'Con información' : 'Sin información') + '</span></td>'
                 + '<td style="font-size:.72rem;white-space:nowrap">' + (p.fecha_cumpleanos ? fmtShortDate(p.fecha_cumpleanos) : '-') + '</td>'
                 + '<td style="font-size:.72rem">' + esc(p.color_favorito || '-') + '</td>'
                 + '<td style="font-size:.72rem">' + esc(p.comida_favorita || '-') + '</td>'

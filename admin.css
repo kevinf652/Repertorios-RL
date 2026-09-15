@@ -18,7 +18,31 @@
   gap: 8px;
   text-align: center;
   cursor: pointer;
-  transition: border-color .15s, background .15s;
+  transition: border-color .15s, background .15s, transform .15s, opacity .15s;
+}
+
+.admin-cards-editing .admin-card-sortable {
+  cursor: grab;
+  border-style: dashed;
+  border-color: rgba(245, 158, 11, .45);
+}
+
+.admin-cards-editing .admin-card-sortable:active,
+.admin-card-dragging {
+  cursor: grabbing;
+}
+
+.admin-card-dragging {
+  opacity: .45;
+  transform: scale(.98);
+}
+
+.admin-order-hint {
+  grid-column: 1 / -1;
+  padding: 0 4px 2px;
+  color: #fbbf24;
+  font-size: .7rem;
+  text-align: center;
 }
 
 .admin-card:active {
@@ -244,6 +268,19 @@
   white-space: nowrap;
 }
 .btn-outline-sm:active { background: rgba(63, 63, 70, .4); }
+
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-height: 32px;
+}
+
+.admin-card-edit-toggle[aria-pressed="true"] {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, .12);
+}
 
 /* Panel resumen (vistazo rápido) en el home del admin */
 .admin-summary-panel {

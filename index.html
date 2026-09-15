@@ -390,6 +390,12 @@
   <div class="header">
     <div class="header-inner">
       <div><div class="header-title">Administración</div><div class="header-sub">Panel de configuración</div></div>
+      <div class="admin-header-actions" id="admin-header-actions">
+        <button class="btn-icon admin-card-edit-toggle" id="admin-card-edit-toggle" onclick="toggleAdminCardEditMode()" title="Editar orden de tarjetas" aria-label="Editar orden de tarjetas" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span class="hide-mobile">Editar orden</span>
+        </button>
+      </div>
     </div>
   </div>
   <div style="max-width:56rem;margin:0 auto;padding:12px" id="admin-content"></div>
@@ -588,6 +594,23 @@
   </div>
 </div>
 
+<!-- PAGE: Admin - Invitados -->
+<div id="page-admin-invitados" class="page">
+  <div class="header">
+    <div class="header-inner">
+      <button class="btn-icon" onclick="showPage('admin')" style="gap:4px;color:#a1a1aa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/></svg>
+        <span class="text-sm">Admin</span>
+      </button>
+    </div>
+  </div>
+  <div style="max-width:56rem;margin:0 auto;padding:12px">
+    <div class="admin-section-title">👥 Invitados</div>
+    <div class="admin-section-subtitle">Personas usando la app sin cuenta (por navegador/dispositivo, no por persona)</div>
+    <div id="admin-invitados-content"></div>
+  </div>
+</div>
+
 <!-- PAGE: Admin - Notificaciones -->
 <div id="page-admin-notificaciones" class="page">
   <div class="header">
@@ -628,6 +651,15 @@
   <div style="max-width:56rem;margin:0 auto;padding:12px">
     <div class="admin-section-title">Información de usuarios</div>
     <div class="admin-section-subtitle">Datos recopilados para celebrar cumpleaños, actividades y reuniones</div>
+    <div class="social-users-toolbar">
+      <label for="social-usuarios-filter">Mostrar</label>
+      <select id="social-usuarios-filter" class="admin-search-input" onchange="renderSocialUsuarios(false)">
+        <option value="all">Todos los usuarios</option>
+        <option value="filled">Con información</option>
+        <option value="empty">Sin información</option>
+      </select>
+      <span id="social-usuarios-summary" class="social-users-summary"></span>
+    </div>
     <div id="social-usuarios-content"></div>
   </div>
 </div>
@@ -1050,7 +1082,7 @@
     </div>
     <div class="form-group">
       <label class="label">Nombre del repertorio</label>
-      <input type="text" id="crep-nombre" class="input" placeholder="ej: 24/25 Agosto, o Evento Jóvenes">
+      <input type="text" id="crep-nombre" class="input" placeholder="ej: 24/25 Agosto, o Evento Rescate Jóvenes">
     </div>
     <div id="crep-error" class="auth-error"></div>
     <div style="display:flex;gap:8px;margin-top:8px">
