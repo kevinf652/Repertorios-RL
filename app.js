@@ -3458,10 +3458,26 @@ function externalAudioFilename(song, contentType) {
 async function fetchSongAudioFile(song) {
     const url = normalizeVocalAudioUrl(song.audio_original_url);
     if (!url) throw new Error('La canción no tiene audio vinculado.');
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('El servidor no permitió descargar el audio.');
-    const blob = await response.blob();
-    return new File([blob], externalAudioFilename(song, blob.type), { type: blob.type || 'audio/mpeg' });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+        // Los audios almacenados en el Worker de R2 requieren el mismo header
+        // de aplicación que el resto de llamadas al Worker. Para URLs públicas
+        // de Supabase se mantiene fetch normal.
+        const request = url.indexOf(R2_WORKER_URL + '/') === 0
+            ? r2Fetch(url, { signal: controller.signal })
+            : fetch(url, { signal: controller.signal });
+        const response = await request;
+        if (!response.ok) throw new Error('El servidor no permitió descargar el audio (' + response.status + ').');
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) throw new Error('El servidor devolvió un audio vacío.');
+        return new File([blob], externalAudioFilename(song, blob.type), { type: blob.type || 'audio/mpeg' });
+    } catch (e) {
+        if (e && e.name === 'AbortError') throw new Error('La descarga del audio tardó demasiado.');
+        throw e;
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 function updateExternalShareUi() {
@@ -3472,14 +3488,18 @@ function updateExternalShareUi() {
     if (!state || !audioCheck || !submitBtn) return;
     const includeAudio = !!audioCheck.checked;
     const audioReady = !!state.audioFile;
-    submitBtn.disabled = includeAudio && !audioReady;
-    submitBtn.style.opacity = submitBtn.disabled ? '.55' : '1';
+    // La letra siempre debe poder compartirse aunque el audio esté tardando
+    // o no pueda descargarse. El botón solo se bloquea por validación del
+    // contenido, no por una petición remota que podría quedarse pendiente.
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+    submitBtn.title = includeAudio && !audioReady ? 'El audio todavía se está preparando; puedes compartir solo la letra' : '';
     if (!statusEl) return;
     if (!includeAudio) {
         statusEl.textContent = 'La letra se enviará como texto al selector de aplicaciones.';
         statusEl.style.color = '#71717a';
     } else if (state.audioLoading) {
-        statusEl.textContent = 'Preparando el audio para adjuntarlo...';
+        statusEl.textContent = 'Preparando el audio para adjuntarlo... Puedes desmarcarlo para compartir solo la letra.';
         statusEl.style.color = '#fbbf24';
     } else if (state.audioError) {
         statusEl.textContent = 'No se pudo preparar el audio. Puedes compartir solo la letra.';
@@ -3547,11 +3567,17 @@ async function submitExternalSongShare(id) {
     const state = externalShareState && externalShareState.songId === id ? externalShareState : null;
     if (!song || !state) return;
     const includeLyrics = !!document.getElementById('external-share-lyrics')?.checked;
-    const includeAudio = !!document.getElementById('external-share-audio')?.checked;
+    let includeAudio = !!document.getElementById('external-share-audio')?.checked;
     if (!includeLyrics && !includeAudio) { showNotification('Selecciona la letra, el audio o ambos.', 'error'); return; }
     if (includeAudio && !state.audioFile) {
-        showNotification(state.audioLoading ? 'Espera a que termine de preparar el audio.' : 'No se pudo preparar el audio.', 'error');
-        return;
+        if (includeLyrics) {
+            const proceed = confirm('El audio todavía no está disponible. ¿Quieres compartir solo la letra?');
+            if (!proceed) return;
+            includeAudio = false;
+        } else {
+            showNotification(state.audioLoading ? 'El audio todavía se está preparando.' : 'No se pudo preparar el audio.', 'error');
+            return;
+        }
     }
 
     const audioFile = includeAudio ? state.audioFile : null;
