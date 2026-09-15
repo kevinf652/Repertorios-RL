@@ -1704,13 +1704,21 @@ async function loadRepertorios() {
         let songsAudioById = {};
         let audioQueryFailed = false;
         if (sourceSongIds.length > 0) {
-            try {
-                const { data: audioRows, error: audioErr } = await supabaseClient.from('songs').select('id,audio_url,audio_original_url').in('id', sourceSongIds);
-                if (audioErr) throw audioErr;
-                (audioRows || []).forEach(sr => { songsAudioById[sr.id] = sr });
-            } catch (e) {
-                audioQueryFailed = true;
-                console.log('No se pudo resolver audio de songs para repertorios, se conserva lo último cargado:', e.message);
+            // Reintenta una vez si falla: cubre sobre todo la primera carga de la
+            // sesión (pestaña recién abierta), donde todavía no hay nada en
+            // memoria para usar de respaldo si esta consulta se corta.
+            for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    const { data: audioRows, error: audioErr } = await supabaseClient.from('songs').select('id,audio_url,audio_original_url').in('id', sourceSongIds);
+                    if (audioErr) throw audioErr;
+                    (audioRows || []).forEach(sr => { songsAudioById[sr.id] = sr });
+                    audioQueryFailed = false;
+                    break;
+                } catch (e) {
+                    audioQueryFailed = true;
+                    console.log('No se pudo resolver audio de songs para repertorios (intento ' + attempt + '):', e.message);
+                    if (attempt === 1) await new Promise(r => setTimeout(r, 700));
+                }
             }
         }
         // Si esta consulta falla (red inestable, conexión cortada a mitad de carga,

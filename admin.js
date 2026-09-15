@@ -87,12 +87,12 @@ function toggleAdminCardEditMode() {
     renderAdminPanel();
 }
 
-// Mismo patrón que el drag & drop de canciones dentro de un repertorio (que
-// ya funciona bien en táctil): un handle dedicado con touch-action:none,
-// pointerdown sobre el handle arranca el arrastre al toque (sin pulsación
-// larga ni umbral de distancia que lo pueda cancelar), y listeners de
-// pointermove/pointerup puestos en document (no en cada tarjeta) para que el
-// arrastre siga aunque el dedo/cursor se salga del área de la tarjeta.
+// Handle dedicado (touch-action:none) para que el navegador no se quede con
+// el gesto táctil, con arranque inmediato al tocar (sin pulsación larga).
+// A diferencia de las canciones de un repertorio (lista de una sola columna,
+// donde alcanza con comparar solo la posición Y), las tarjetas de Admin están
+// en un grid de varias columnas — por eso acá el objetivo se detecta con la
+// posición real (X e Y) bajo el dedo/cursor en cada movimiento, no solo Y.
 function configureAdminCardOrdering() {
     const c = document.getElementById('admin-content');
     if (!c) return;
@@ -110,11 +110,11 @@ function configureAdminCardOrdering() {
 function startAdminCardDrag(e, card, container) {
     e.preventDefault();
     adminDraggedCard = card;
-    adminPointerDrag = { card, container, startY: e.clientY };
+    adminPointerDrag = { card, container, startX: e.clientX, startY: e.clientY };
     card.classList.add('admin-card-dragging');
-    card.style.position = 'relative';
     card.style.zIndex = '10';
     card.style.transition = 'none';
+    card.style.pointerEvents = 'none'; // para que elementFromPoint() detecte lo que hay DEBAJO de la tarjeta arrastrada, no a ella misma
     document.addEventListener('pointermove', onAdminCardDragMove);
     document.addEventListener('pointerup', onAdminCardDragEnd, { once: true });
 }
@@ -123,23 +123,17 @@ function onAdminCardDragMove(e) {
     const drag = adminPointerDrag;
     if (!drag) return;
     const { card, container } = drag;
+    const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
-    card.style.transform = 'translateY(' + dy + 'px)';
-    const cardMidY = card.getBoundingClientRect().top + card.offsetHeight / 2;
+    card.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    const targetNode = document.elementFromPoint(e.clientX, e.clientY);
+    const target = targetNode && targetNode.closest ? targetNode.closest('.admin-card[data-admin-card]') : null;
+    if (!target || target === card || target.parentNode !== container) return;
     const siblings = [...container.querySelectorAll('.admin-card[data-admin-card]')];
     const idx = siblings.indexOf(card);
-    for (let i = 0; i < siblings.length; i++) {
-        const other = siblings[i];
-        if (other === card) continue;
-        const rect = other.getBoundingClientRect();
-        if (cardMidY > rect.top && cardMidY < rect.bottom) {
-            if (i < idx) container.insertBefore(card, other);
-            else container.insertBefore(card, other.nextSibling);
-            drag.startY = e.clientY;
-            card.style.transform = 'translateY(0px)';
-            break;
-        }
-    }
+    const targetIdx = siblings.indexOf(target);
+    if (targetIdx < idx) container.insertBefore(card, target);
+    else container.insertBefore(card, target.nextSibling);
 }
 
 function onAdminCardDragEnd() {
@@ -148,9 +142,9 @@ function onAdminCardDragEnd() {
     const { card, container } = drag;
     document.removeEventListener('pointermove', onAdminCardDragMove);
     card.style.transform = '';
-    card.style.position = '';
     card.style.zIndex = '';
     card.style.transition = '';
+    card.style.pointerEvents = '';
     card.classList.remove('admin-card-dragging');
     const order = [...container.querySelectorAll('.admin-card[data-admin-card]')].map(el => el.dataset.adminCard);
     saveAdminCardOrder(order);
