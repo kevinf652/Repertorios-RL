@@ -5964,7 +5964,17 @@ if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
         navigator.serviceWorker.register('./sw.js').then(function(registration) {
             console.log('[PWA] Service Worker registered, scope:', registration.scope);
+
+            // Forzar chequeo de actualizaciones periódicamente
             setInterval(function() { registration.update() }, 10000);
+
+            // Caso: ya hay un SW esperando (instalado en una visita anterior)
+            if (registration.waiting && navigator.serviceWorker.controller) {
+                if (confirm('Hay una nueva versión disponible. ¿Actualizar ahora?')) {
+                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+            }
+
             registration.addEventListener('updatefound', function() {
                 var newWorker = registration.installing;
                 if (newWorker) {
@@ -5972,7 +5982,7 @@ if ('serviceWorker' in navigator) {
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                             if (confirm('Hay una nueva versión disponible. ¿Actualizar ahora?')) {
                                 newWorker.postMessage({ type: 'SKIP_WAITING' });
-                                window.location.reload();
+                                // ❌ NO recargar aquí. El listener controllerchange lo hará.
                             }
                         }
                     });
@@ -5982,9 +5992,15 @@ if ('serviceWorker' in navigator) {
             console.log('[PWA] Service Worker registration failed:', err);
         });
     });
+
+    // ✅ Esto se dispara DESPUÉS de que el SW nuevo tomó el control.
+    // Aquí sí recargamos, con la certeza de que la próxima carga
+    // vendrá servida por el SW nuevo.
     var refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', function() {
-        if (!refreshing) { refreshing = true;
-            window.location.reload() }
+        if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+        }
     });
 }
