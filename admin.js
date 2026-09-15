@@ -54,7 +54,7 @@ function renderAdminPanel() {
         { page: 'admin-repertorios', title: 'Repertorios', subtitle: 'Ver todos, activos y archivados', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>' },
         { page: 'admin-mantenimiento', title: 'Mantenimiento', subtitle: 'Datos y limpieza pendiente', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.77z"/></svg>' },
         ...(isAdmin() ? [{ page: 'admin-storage', title: 'Almacenamiento R2', subtitle: 'Ver archivos y espacio usado', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>' }] : []),
-        ...(isAdmin() ? [{ page: 'admin-invitados', title: 'Invitados', subtitle: 'Uso sin cuenta: última conexión', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }] : []),
+        ...((isAdmin() || isSubAdmin()) ? [{ page: 'admin-invitados', title: 'Invitados', subtitle: 'Uso sin cuenta: última conexión', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }] : []),
         ...(isAdmin() ? [{ page: 'admin-notificaciones', title: 'Notificaciones', subtitle: 'Ver, editar y eliminar activas', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' }] : []),
         { page: 'admin-logs', title: 'Registro de actividades', subtitle: 'Ver acciones de usuarios', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>' }
     ];
@@ -87,124 +87,75 @@ function toggleAdminCardEditMode() {
     renderAdminPanel();
 }
 
+// Mismo patrón que el drag & drop de canciones dentro de un repertorio (que
+// ya funciona bien en táctil): un handle dedicado con touch-action:none,
+// pointerdown sobre el handle arranca el arrastre al toque (sin pulsación
+// larga ni umbral de distancia que lo pueda cancelar), y listeners de
+// pointermove/pointerup puestos en document (no en cada tarjeta) para que el
+// arrastre siga aunque el dedo/cursor se salga del área de la tarjeta.
 function configureAdminCardOrdering() {
     const c = document.getElementById('admin-content');
     if (!c) return;
     c.classList.toggle('admin-cards-editing', adminCardEditMode);
     const cards = [...c.querySelectorAll('.admin-card[data-admin-card]')];
     cards.forEach(card => {
-        card.draggable = adminCardEditMode;
         card.classList.toggle('admin-card-sortable', adminCardEditMode);
         if (!adminCardEditMode) return;
-        card.addEventListener('dragstart', adminCardDragStart);
-        card.addEventListener('dragover', adminCardDragOver);
-        card.addEventListener('drop', adminCardDrop);
-        card.addEventListener('dragend', adminCardDragEnd);
-        card.addEventListener('pointerdown', adminCardPointerDown);
-        card.addEventListener('pointermove', adminCardPointerMove);
-        card.addEventListener('pointerup', adminCardPointerUp);
-        card.addEventListener('pointercancel', adminCardPointerUp);
+        const handle = card.querySelector('.admin-card-drag-handle');
+        if (!handle) return;
+        handle.onpointerdown = (e) => startAdminCardDrag(e, card, c.querySelector('.admin-cards-grid') || c);
     });
 }
 
-function adminCardDragStart(event) {
-    if (!adminCardEditMode) return;
-    adminDraggedCard = event.currentTarget;
-    adminDraggedCard.classList.add('admin-card-dragging');
-    if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', adminDraggedCard.dataset.adminCard || '');
+function startAdminCardDrag(e, card, container) {
+    e.preventDefault();
+    adminDraggedCard = card;
+    adminPointerDrag = { card, container, startY: e.clientY };
+    card.classList.add('admin-card-dragging');
+    card.style.position = 'relative';
+    card.style.zIndex = '10';
+    card.style.transition = 'none';
+    document.addEventListener('pointermove', onAdminCardDragMove);
+    document.addEventListener('pointerup', onAdminCardDragEnd, { once: true });
+}
+
+function onAdminCardDragMove(e) {
+    const drag = adminPointerDrag;
+    if (!drag) return;
+    const { card, container } = drag;
+    const dy = e.clientY - drag.startY;
+    card.style.transform = 'translateY(' + dy + 'px)';
+    const cardMidY = card.getBoundingClientRect().top + card.offsetHeight / 2;
+    const siblings = [...container.querySelectorAll('.admin-card[data-admin-card]')];
+    const idx = siblings.indexOf(card);
+    for (let i = 0; i < siblings.length; i++) {
+        const other = siblings[i];
+        if (other === card) continue;
+        const rect = other.getBoundingClientRect();
+        if (cardMidY > rect.top && cardMidY < rect.bottom) {
+            if (i < idx) container.insertBefore(card, other);
+            else container.insertBefore(card, other.nextSibling);
+            drag.startY = e.clientY;
+            card.style.transform = 'translateY(0px)';
+            break;
+        }
     }
 }
 
-function adminCardDragOver(event) {
-    if (!adminCardEditMode || !adminDraggedCard || event.currentTarget === adminDraggedCard) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-}
-
-function adminCardDrop(event) {
-    if (!adminCardEditMode || !adminDraggedCard || event.currentTarget === adminDraggedCard) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const target = event.currentTarget;
-    const rect = target.getBoundingClientRect();
-    const insertAfter = event.clientY > rect.top + rect.height / 2;
-    if (insertAfter) target.parentNode.insertBefore(adminDraggedCard, target.nextSibling);
-    else target.parentNode.insertBefore(adminDraggedCard, target);
-    const order = [...target.parentNode.querySelectorAll('.admin-card[data-admin-card]')].map(card => card.dataset.adminCard);
+function onAdminCardDragEnd() {
+    const drag = adminPointerDrag;
+    if (!drag) return;
+    const { card, container } = drag;
+    document.removeEventListener('pointermove', onAdminCardDragMove);
+    card.style.transform = '';
+    card.style.position = '';
+    card.style.zIndex = '';
+    card.style.transition = '';
+    card.classList.remove('admin-card-dragging');
+    const order = [...container.querySelectorAll('.admin-card[data-admin-card]')].map(el => el.dataset.adminCard);
     saveAdminCardOrder(order);
     showNotification('Orden de tarjetas guardado', 'success');
-}
-
-function adminCardDragEnd() {
-    if (adminDraggedCard) adminDraggedCard.classList.remove('admin-card-dragging');
     adminDraggedCard = null;
-}
-
-// Fallback para pantallas táctiles: mantiene pulsada una tarjeta para iniciar
-// el arrastre y permite reordenarla sin depender del drag & drop HTML5.
-function adminCardPointerDown(event) {
-    if (!adminCardEditMode || event.pointerType === 'mouse') return;
-    const card = event.currentTarget;
-    if (adminPointerDrag && adminPointerDrag.timer) clearTimeout(adminPointerDrag.timer);
-    adminPointerDrag = {
-        card: card,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        active: false,
-        moved: false,
-        timer: setTimeout(function() {
-            if (!adminPointerDrag || adminPointerDrag.card !== card) return;
-            adminPointerDrag.active = true;
-            adminDraggedCard = card;
-            card.classList.add('admin-card-dragging');
-            try { card.setPointerCapture(event.pointerId); } catch (e) {}
-        }, 280)
-    };
-}
-
-function adminCardPointerMove(event) {
-    const drag = adminPointerDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (!drag.active) {
-        const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
-        if (distance > 10) {
-            clearTimeout(drag.timer);
-            adminPointerDrag = null;
-        }
-        return;
-    }
-    event.preventDefault();
-    const targetNode = document.elementFromPoint(event.clientX, event.clientY);
-    const target = targetNode && targetNode.closest ? targetNode.closest('.admin-card[data-admin-card]') : null;
-    if (!target || target === drag.card || target.parentNode !== drag.card.parentNode) return;
-    const rect = target.getBoundingClientRect();
-    const insertAfter = event.clientY > rect.top + rect.height / 2;
-    if (insertAfter && target.nextSibling !== drag.card) {
-        target.parentNode.insertBefore(drag.card, target.nextSibling);
-        drag.moved = true;
-    } else if (!insertAfter && target.previousSibling !== drag.card) {
-        target.parentNode.insertBefore(drag.card, target);
-        drag.moved = true;
-    }
-}
-
-function adminCardPointerUp(event) {
-    const drag = adminPointerDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    clearTimeout(drag.timer);
-    if (drag.active) {
-        try { drag.card.releasePointerCapture(event.pointerId); } catch (e) {}
-        drag.card.classList.remove('admin-card-dragging');
-        if (drag.moved) {
-            const order = [...drag.card.parentNode.querySelectorAll('.admin-card[data-admin-card]')].map(card => card.dataset.adminCard);
-            saveAdminCardOrder(order);
-            showNotification('Orden de tarjetas guardado', 'success');
-        }
-        adminDraggedCard = null;
-    }
     adminPointerDrag = null;
 }
 
@@ -275,7 +226,13 @@ async function renderAdminSummary() {
 }
 
 function adminCardHtml(page, title, subtitle, icon) {
-    return '<div class="admin-card" data-admin-card="' + esc(page) + '" onclick="handleAdminCardClick(event,\'' + page + '\')"><div class="admin-card-icon">' + icon + '</div><div class="admin-card-title">' + title + '</div><div class="admin-card-subtitle">' + subtitle + '</div></div>';
+    // El handle (⋮⋮) solo se pinta cuando el modo edición está activo; se usa
+    // como punto de arrastre dedicado (igual que en las canciones de un
+    // repertorio) en vez de depender de pulsación larga sobre toda la tarjeta.
+    const handle = adminCardEditMode
+        ? '<div class="admin-card-drag-handle" onclick="event.stopPropagation()" title="Arrastrar para reordenar"><svg width="14" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></div>'
+        : '';
+    return '<div class="admin-card" data-admin-card="' + esc(page) + '" onclick="handleAdminCardClick(event,\'' + page + '\')">' + handle + '<div class="admin-card-icon">' + icon + '</div><div class="admin-card-title">' + title + '</div><div class="admin-card-subtitle">' + subtitle + '</div></div>';
 }
 
 function roleBadgeHtml(role) {
@@ -1710,15 +1667,19 @@ async function cleanOldGuestSessions() {
 async function renderAdminInvitados() {
     const c = document.getElementById('admin-invitados-content');
     if (!c) return;
-    if (!isAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
+    if (!isAdmin() && !isSubAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
     if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
+    // SubAdmin ve esta sección en solo lectura: sin botón de borrar por fila
+    // ni "Limpiar antiguos" (esas acciones siguen siendo exclusivas de Admin,
+    // ya protegidas también del lado de deleteGuestSession/cleanOldGuestSessions).
+    const readOnly = !isAdmin();
     c.innerHTML = '<div class="admin-empty">Cargando...</div>';
     try {
         const { data: rows, error } = await supabaseClient.from('guest_sessions').select('*').order('first_seen', { ascending: true });
         if (error) throw error;
         if (!rows || rows.length === 0) { c.innerHTML = '<div class="admin-empty">Sin invitados registrados por ahora.</div>'; return }
-        c.innerHTML = '<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-zinc" style="font-size:.72rem" onclick="cleanOldGuestSessions()">🧹 Limpiar antiguos (30+ días)</button></div>'
-            + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Invitado</th><th>Primera vez</th><th>Última conexión</th><th></th></tr></thead><tbody>'
+        c.innerHTML = (readOnly ? '' : '<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-zinc" style="font-size:.72rem" onclick="cleanOldGuestSessions()">🧹 Limpiar antiguos (30+ días)</button></div>')
+            + '<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Invitado</th><th>Primera vez</th><th>Última conexión</th>' + (readOnly ? '' : '<th></th>') + '</tr></thead><tbody>'
             + rows.map((g, idx) => {
                 const num = idx + 1;
                 const guestPresenceKey = (typeof hashPublicPresenceId === 'function') ? hashPublicPresenceId(g.id) : g.id;
@@ -1729,7 +1690,8 @@ async function renderAdminInvitados() {
                 return '<tr><td>👤 Invitado ' + num + convertido + '</td>'
                     + '<td style="font-size:.7rem;color:#71717a">' + fmtDate(new Date(g.first_seen).toISOString().split('T')[0]) + '</td>'
                     + '<td style="font-size:.7rem;color:#a1a1aa">' + (online ? '<span style="color:#4ade80;font-weight:600">🟢 En línea</span>' : timeAgo(g.last_seen)) + '</td>'
-                    + '<td><button class="btn-icon btn-icon-red" onclick="deleteGuestSession(\'' + g.id + '\')" title="Borrar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></td></tr>';
+                    + (readOnly ? '' : '<td><button class="btn-icon btn-icon-red" onclick="deleteGuestSession(\'' + g.id + '\')" title="Borrar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></td>')
+                    + '</tr>';
             }).join('')
             + '</tbody></table></div>';
     } catch (e) { c.innerHTML = '<div class="admin-empty">Error: ' + esc(e.message) + '</div>' }

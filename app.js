@@ -1702,16 +1702,41 @@ async function loadRepertorios() {
         // aunque esa canción no esté en su propia biblioteca personal.
         const sourceSongIds = Array.from(new Set(songsData.map(s => s.source_song_id).filter(Boolean)));
         let songsAudioById = {};
+        let audioQueryFailed = false;
         if (sourceSongIds.length > 0) {
             try {
-                const { data: audioRows } = await supabaseClient.from('songs').select('id,audio_url,audio_original_url').in('id', sourceSongIds);
+                const { data: audioRows, error: audioErr } = await supabaseClient.from('songs').select('id,audio_url,audio_original_url').in('id', sourceSongIds);
+                if (audioErr) throw audioErr;
                 (audioRows || []).forEach(sr => { songsAudioById[sr.id] = sr });
-            } catch (e) { console.log('No se pudo resolver audio de songs para repertorios:', e.message) }
+            } catch (e) {
+                audioQueryFailed = true;
+                console.log('No se pudo resolver audio de songs para repertorios, se conserva lo último cargado:', e.message);
+            }
+        }
+        // Si esta consulta falla (red inestable, conexión cortada a mitad de carga,
+        // etc.) NO se apaga el audio de golpe para todas las canciones: se conserva
+        // el último valor que ya se había cargado bien en memoria, en vez de pisarlo
+        // con null. Así una falla puntual no se nota como "canción sin audio".
+        let prevAudioBySourceId = {};
+        if (audioQueryFailed) {
+            repertorios.forEach(r => (r.canciones || []).forEach(c => {
+                if (c.source_song_id && !prevAudioBySourceId[c.source_song_id]) {
+                    prevAudioBySourceId[c.source_song_id] = { audio_url: c.audio_url || null, audio_original_url: c.audio_original_url || null };
+                }
+            }));
         }
         songsData.forEach(s => {
             const sa = s.source_song_id ? songsAudioById[s.source_song_id] : null;
-            s.audio_url = sa ? sa.audio_url : null;
-            s.audio_original_url = sa ? sa.audio_original_url : null;
+            if (sa) {
+                s.audio_url = sa.audio_url;
+                s.audio_original_url = sa.audio_original_url;
+            } else if (audioQueryFailed && s.source_song_id && prevAudioBySourceId[s.source_song_id]) {
+                s.audio_url = prevAudioBySourceId[s.source_song_id].audio_url;
+                s.audio_original_url = prevAudioBySourceId[s.source_song_id].audio_original_url;
+            } else {
+                s.audio_url = null;
+                s.audio_original_url = null;
+            }
         });
 
         let vocalAudios = [];

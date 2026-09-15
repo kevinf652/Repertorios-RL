@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v3.0';
+const CACHE_NAME = 'repertorios-rl-v3.1';
 // Caché aparte para los audios (canciones y voces) descargados de R2. Tiene su
 // propio nombre para que NUNCA se borre cuando se actualiza la app (ver "activate").
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
@@ -25,6 +25,12 @@ const urlsToCache = [
 ];
 
 // INSTALL - Cache app shell
+// OJO: ya NO se llama self.skipWaiting() aquí directo. El nuevo Service
+// Worker se queda "esperando" (waiting) hasta que el cliente confirme la
+// actualización (ver el mensaje SKIP_WAITING más abajo, disparado desde
+// app.js solo cuando el usuario acepta el confirm()). Antes se activaba
+// solo apenas terminaba de instalar, lo que disparaba un reload automático
+// en cualquier momento — incluso a mitad de una carga de datos.
 self.addEventListener('install', function(event) {    
   event.waitUntil(        
     caches.open(CACHE_NAME)
@@ -33,7 +39,14 @@ self.addEventListener('install', function(event) {
         return cache.addAll(urlsToCache);            
       })    
   );   
-  self.skipWaiting();
+});
+
+// MESSAGE - El cliente (app.js) manda esto solo cuando el usuario confirma
+// que quiere actualizar ahora. Recién ahí este SW nuevo toma el control.
+self.addEventListener('message', function(event) {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // ACTIVATE - Clean old caches (nunca la de audio) + limpiar entradas indebidas
