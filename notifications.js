@@ -640,13 +640,14 @@ async function updateNotificationExpiry(id, dateValue) {
 if (typeof submitCreateRepertorio === 'function') {
     const _notifOriginalCreateRepertorio = submitCreateRepertorio;
     submitCreateRepertorio = async function() {
-        const before = (typeof repertorios !== 'undefined') ? repertorios.length : 0;
+        const beforeIds = (typeof repertorios !== 'undefined') ? new Set(repertorios.map(r => r.id)) : new Set();
         await _notifOriginalCreateRepertorio();
-        const after = (typeof repertorios !== 'undefined') ? repertorios.length : 0;
-        if (after > before && repertorios[0]) {
-            notifyNewRepertorio(repertorios[0].titulo);
+        if (typeof repertorios !== 'undefined') {
+            const nuevo = repertorios.find(r => !beforeIds.has(r.id));
+            if (nuevo) notifyNewRepertorio(nuevo.titulo);
         }
     };
+
 }
 
 if (typeof updateUserUI === 'function') {
