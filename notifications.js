@@ -637,9 +637,9 @@ async function updateNotificationExpiry(id, dateValue) {
 }
 
 // ---------- Enganches sin tocar app.js/admin.js/social.js ----------
-if (typeof createRepertorio === 'function') {
-    const _notifOriginalCreateRepertorio = createRepertorio;
-    createRepertorio = async function() {
+if (typeof submitCreateRepertorio === 'function') {
+    const _notifOriginalCreateRepertorio = submitCreateRepertorio;
+    submitCreateRepertorio = async function() {
         const before = (typeof repertorios !== 'undefined') ? repertorios.length : 0;
         await _notifOriginalCreateRepertorio();
         const after = (typeof repertorios !== 'undefined') ? repertorios.length : 0;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v3.243'; // ⬅️ Bump en cada deploy
+const CACHE_NAME = 'repertorios-rl-v3.244'; // ⬅️ Bump en cada deploy
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
 const AUDIO_HOST = 'repertorios-r2-api.kevinf652.workers.dev';
 
