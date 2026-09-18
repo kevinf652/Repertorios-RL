@@ -196,7 +196,7 @@ async function renderAdminSummary() {
                     vocals_assigned: 'asignó vocales', audio_uploaded: 'subió un audio', audio_deleted: 'eliminó un audio',
                     rep_created: 'creó un repertorio', rep_deleted: 'eliminó un repertorio', rep_song_added: 'agregó una canción a un repertorio',
                     rep_song_removed: 'quitó una canción de un repertorio', user_role_changed: 'cambió el rol de un usuario',
-                    password_reset: 'restableció una contraseña', backfill_created_by: 'ejecutó mantenimiento',
+                    password_reset: 'restableció una contraseña',
                     activity_created: 'propuso una actividad', activity_deleted: 'eliminó una actividad', social_profile_updated: 'actualizó sus datos',
                     help_video_added: 'agregó un video de ayuda', help_video_deleted: 'eliminó un video de ayuda', help_video_updated: 'editó un video de ayuda',
                     song_shared_internal: 'compartió una canción dentro de App-RL', list_shared_internal: 'compartió una lista dentro de App-RL',
@@ -878,12 +878,6 @@ function renderAdminMantenimiento() {
         + (isAdmin() ? '<div class="admin-stat-box" onclick="showPage(\'admin-delete-users\')" style="cursor:pointer"><div class="admin-stat-value">' + totalUsers + '</div><div class="admin-stat-label">Usuarios 🗑️</div></div>' : '<div class="admin-stat-box"><div class="admin-stat-value">' + totalUsers + '</div><div class="admin-stat-label">Usuarios</div></div>')
         + '<div class="admin-stat-box"><div class="admin-stat-value">' + totalReps + '</div><div class="admin-stat-label">Repertorios</div></div>'
         + '</div>'
-        + '<div class="admin-card" style="align-items:flex-start;text-align:left;cursor:default">'
-        + '<div class="admin-card-title">Rellenar "creado por" faltante</div>'
-        + '<div class="admin-card-subtitle" style="margin-bottom:10px">Busca canciones de repertorio con created_by/modified_by en NULL y trata de completarlos usando la biblioteca de origen (source_song_id).</div>'
-        + '<button class="btn btn-amber" onclick="runAdminBackfillCreatedBy()">Ejecutar</button>'
-        + '<div id="admin-backfill-result" style="margin-top:8px;font-size:.75rem;color:#a1a1aa"></div>'
-        + '</div>'
         // === Sección: Audios huérfanos ===
         + '<div style="margin-top:26px;padding-top:18px;border-top:1px solid rgba(63,63,70,.4)">'
         + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'
@@ -896,34 +890,6 @@ function renderAdminMantenimiento() {
         + '<div id="admin-mantenimiento-orphaned-audios"></div>'
         + '</div>';
     renderAdminOrphanedAudios(false);
-}
-
-async function runAdminBackfillCreatedBy() {
-    const resultEl = document.getElementById('admin-backfill-result');
-    if (blockIfOffline()) return;
-    if (!supabaseReady) { resultEl.textContent = 'Sin conexión.'; return }
-    resultEl.textContent = 'Procesando...';
-    try {
-        const { data: repRows, error: e1 } = await supabaseClient.from('canciones_repertorio').select('id,source_song_id,created_by').is('created_by', null);
-        if (e1 || !repRows || repRows.length === 0) { resultEl.textContent = 'No hay filas pendientes de rellenar.'; return }
-        const { data: allSongs, error: e2 } = await supabaseClient.from('songs').select('id,created_by');
-        if (e2 || !allSongs) { resultEl.textContent = 'No se pudo consultar songs.'; return }
-        const byId = {};
-        allSongs.forEach(r => { if (r.id && r.created_by && !byId[r.id]) byId[r.id] = r.created_by });
-        let updated = 0;
-        for (const row of repRows) {
-            const cb = row.source_song_id ? byId[row.source_song_id] : null;
-            if (cb) {
-                await supabaseClient.from('canciones_repertorio').update({ created_by: cb }).eq('id', row.id);
-                updated++;
-            }
-        }
-        resultEl.textContent = 'Listo: ' + updated + ' de ' + repRows.length + ' filas actualizadas (las demás no tienen coincidencia conocida).';
-        logActivity('backfill_created_by', {
-            updated: updated,
-            total: repRows.length
-        }, 'system', null);
-    } catch (e) { console.error(e); resultEl.textContent = 'Error: ' + e.message }
 }
 
 // ---------- Almacenamiento R2 ----------
@@ -1951,7 +1917,6 @@ async function renderAdminLogs() {
             rep_song_removed: '➖ Eliminó de repertorio',
             user_role_changed: '👤 Cambió rol de usuario',
             password_reset: '🔑 Restableció contraseña',
-            backfill_created_by: '🛠️ Rellenó "creado por" (mantenimiento)',
             activity_created: '🎉 Creó actividad',
             activity_deleted: '🗑️ Eliminó actividad',
             social_profile_updated: '📝 Actualizó Mis Datos',

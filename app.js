@@ -1700,6 +1700,55 @@ document.addEventListener('visibilitychange', function() {
     }
 });
 // ============= REPERTORIOS FUNCTIONS =============
+// Construye el modelo que usa la interfaz para una canción dentro de un
+// repertorio. Los nombres antiguos (titulo, artista, etc.) se mantienen solo
+// como alias en memoria para no reescribir toda la UI; nunca se leen de
+// canciones_repertorio. El contenido siempre viene de songs.
+function canonicalSongToRepertorioLocal(link, canonical) {
+    const hasCanonical = !!canonical;
+    const title = hasCanonical ? (canonical.title || 'Sin título') : 'Canción no disponible';
+    const artist = hasCanonical ? (canonical.artist || 'Desconocido') : '—';
+    const lyrics = hasCanonical ? (canonical.lyrics || '') : '';
+    const originalKey = hasCanonical ? (canonical.original_key || 'C') : 'C';
+    const tempo = hasCanonical ? (canonical.tempo || 0) : 0;
+    const compas = hasCanonical ? (canonical.compas || '') : '';
+    const audioUrl = hasCanonical && canonical.audio_url ? normalizeVocalAudioUrl(canonical.audio_url) : null;
+    const audioOriginalUrl = hasCanonical && canonical.audio_original_url ? normalizeVocalAudioUrl(canonical.audio_original_url) : null;
+    const createdAt = hasCanonical ? (canonical.created_at || null) : null;
+    const updatedAt = hasCanonical ? (canonical.updated_at || null) : null;
+    const createdBy = hasCanonical ? (canonical.created_by || '') : '';
+    const createdById = hasCanonical ? (canonical.created_by_id || '') : '';
+    const modifiedBy = hasCanonical ? (canonical.modified_by || '') : '';
+
+    return {
+        ...link,
+        // Campos canónicos para código nuevo.
+        title,
+        artist,
+        lyrics,
+        original_key: originalKey,
+        tempo,
+        compas,
+        audio_url: audioUrl,
+        audio_original_url: audioOriginalUrl,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        created_by: createdBy,
+        created_by_id: createdById,
+        modified_by: modifiedBy,
+        // Alias de presentación heredados; también vienen exclusivamente de songs.
+        titulo: title,
+        artista: artist,
+        letra_acordes: lyrics,
+        tono_original: originalKey,
+        createdAt,
+        updatedAt,
+        createdBy,
+        createdById,
+        modifiedBy
+    };
+}
+
 async function loadRepertorios() {
     // En offline se conserva la copia local y no se intenta ni siquiera la
     // limpieza automática de duplicados, que sería una escritura remota.
@@ -1707,63 +1756,35 @@ async function loadRepertorios() {
     try {
         const { data: reps, error: e1 } = await supabaseClient.from('repertorios').select('*').order('fecha_domingo', { ascending: false });
         if (e1) throw e1;
-        const { data: songsData, error: e2 } = await supabaseClient.from('canciones_repertorio').select('*');
+        const REP_SONG_LINK_COLUMNS = 'id,repertorio_id,source_song_id,dia,orden,vocalista_domingo,vocalista_lunes,coros_domingo,coros_lunes,coros_domingo_b,coros_lunes_b,created_at';
+        const { data: songLinks, error: e2 } = await supabaseClient.from('canciones_repertorio').select(REP_SONG_LINK_COLUMNS);
         if (e2) throw e2;
 
-        // El audio (Secuencia y Canción original) YA NO se guarda duplicado en
-        // canciones_repertorio — vive únicamente en songs. Se resuelve aquí, al
-        // cargar, para que cualquiera que vea el repertorio lo tenga disponible
-        // aunque esa canción no esté en su propia biblioteca personal.
-        const sourceSongIds = Array.from(new Set(songsData.map(s => s.source_song_id).filter(Boolean)));
-        let songsAudioById = {};
-        let audioQueryFailed = false;
+        // songs es la única fuente de contenido de la canción. canciones_repertorio
+        // solo aporta la relación con el repertorio, el día/orden y las vocales.
+        const sourceSongIds = Array.from(new Set((songLinks || []).map(s => s.source_song_id).filter(Boolean)));
+        let canonicalSongById = new Map();
         if (sourceSongIds.length > 0) {
-            // Reintenta una vez si falla: cubre sobre todo la primera carga de la
-            // sesión (pestaña recién abierta), donde todavía no hay nada en
-            // memoria para usar de respaldo si esta consulta se corta.
-            for (let attempt = 1; attempt <= 2; attempt++) {
-                try {
-                    const { data: audioRows, error: audioErr } = await supabaseClient.from('songs').select('id,audio_url,audio_original_url').in('id', sourceSongIds);
-                    if (audioErr) throw audioErr;
-                    (audioRows || []).forEach(sr => { songsAudioById[sr.id] = sr });
-                    audioQueryFailed = false;
-                    break;
-                } catch (e) {
-                    audioQueryFailed = true;
-                    console.log('No se pudo resolver audio de songs para repertorios (intento ' + attempt + '):', e.message);
-                    if (attempt === 1) await new Promise(r => setTimeout(r, 700));
-                }
-            }
+            const { data: canonicalRows, error: canonicalErr } = await supabaseClient
+                .from('songs')
+                .select('*')
+                .in('id', sourceSongIds);
+            if (canonicalErr) throw canonicalErr;
+            canonicalSongById = new Map((canonicalRows || []).map(row => [row.id, row]));
         }
-        // Si esta consulta falla (red inestable, conexión cortada a mitad de carga,
-        // etc.) NO se apaga el audio de golpe para todas las canciones: se conserva
-        // el último valor que ya se había cargado bien en memoria, en vez de pisarlo
-        // con null. Así una falla puntual no se nota como "canción sin audio".
-        let prevAudioBySourceId = {};
-        if (audioQueryFailed) {
-            repertorios.forEach(r => (r.canciones || []).forEach(c => {
-                if (c.source_song_id && !prevAudioBySourceId[c.source_song_id]) {
-                    prevAudioBySourceId[c.source_song_id] = { audio_url: c.audio_url || null, audio_original_url: c.audio_original_url || null };
-                }
-            }));
-        }
-        songsData.forEach(s => {
-            const sa = s.source_song_id ? songsAudioById[s.source_song_id] : null;
-            if (sa) {
-                s.audio_url = sa.audio_url;
-                s.audio_original_url = sa.audio_original_url;
-            } else if (audioQueryFailed && s.source_song_id && prevAudioBySourceId[s.source_song_id]) {
-                s.audio_url = prevAudioBySourceId[s.source_song_id].audio_url;
-                s.audio_original_url = prevAudioBySourceId[s.source_song_id].audio_original_url;
-            } else {
-                s.audio_url = null;
-                s.audio_original_url = null;
+
+        const songsData = (songLinks || []).map(link => {
+            const canonical = canonicalSongById.get(link.source_song_id);
+            if (!canonical) {
+                console.warn('[Songs master] No existe songs.id para canciones_repertorio.source_song_id:', link.source_song_id);
             }
+            return canonicalSongToRepertorioLocal(link, canonical);
         });
 
         let vocalAudios = [];
         try {
-            const { data: vaData, error: vaErr } = await supabaseClient.from('vocal_audios').select('*');
+            const VOCAL_AUDIO_COLUMNS = 'id,cancion_repertorio_id,repertorio_id,source_song_id,coro_number,dia,part,audio_url,audio_path,updated_at';
+            const { data: vaData, error: vaErr } = await supabaseClient.from('vocal_audios').select(VOCAL_AUDIO_COLUMNS);
             if (!vaErr && vaData) vocalAudios = vaData.map(va => ({ ...va, audio_url: va.audio_url ? normalizeVocalAudioUrl(va.audio_url) : va.audio_url }));
         } catch (e) { console.log('vocal_audios table may not exist yet') }
 
@@ -2801,40 +2822,8 @@ async function removeSongAudio(songId, tipo) {
 }
 
 // ============= SYNC REPERTORIO FUNCTIONS =============
-// syncRepertorioToAllUsers() ya no existe: con songs compartida, actualizar
-// UNA fila en songs (lo hace syncSongsToCloud, llamado justo después de esta
-// función en saveSong()) ya refleja el cambio para todos los que la tengan en
-// su biblioteca. No hay copias individuales que recorrer.
-async function syncRepertorioFromLibrary(libSong) {
-    if (!supabaseReady || !isOnline) return;
-    try {
-        // El audio (Secuencia/Canción) ya no se duplica aquí — vive solo en
-        // songs y loadRepertorios() lo resuelve al cargar. Solo se sincronizan
-        // los datos de texto/tono que sí siguen denormalizados por ahora.
-        let repSongs = [];
-        try {
-            const { data: byId, error: e1 } = await supabaseClient.from('canciones_repertorio').select('id').eq('source_song_id', libSong.id);
-            if (!e1 && byId && byId.length > 0) repSongs = byId;
-        } catch (e) {}
-        if (repSongs.length === 0) return;
-        const updates = {
-            titulo: libSong.title,
-            artista: libSong.artist,
-            tono_original: libSong.originalKey,
-            tempo: libSong.tempo || 0,
-            compas: libSong.compas || '',
-            letra_acordes: libSong.lyrics,
-            fecha_modificacion: Date.now(),
-            modificado_por: libSong.modifiedBy || '',
-            modified_by: libSong.modifiedBy || ''
-        };
-        for (const rs of repSongs) {
-            await supabaseClient.from('canciones_repertorio').update(updates).eq('id', rs.id);
-        }
-        console.log('Synced', repSongs.length, 'repertorio copies for:', libSong.title);
-    } catch (e) { console.error('Sync repertorio error:', e) }
-}
-
+// No existe sincronización de copias: songs es el único origen del contenido.
+// canciones_repertorio solo conserva datos propios del vínculo y del repertorio.
 async function renumberRepSongs(repId) {
     const r = repertorios.find(x => x.id === repId);
     if (!r || !r.canciones.length) return;
@@ -2935,7 +2924,6 @@ function saveSong() {
             if (!canEditSong(songs[i])) { alert('Solo el creador de la canción o Admin, SubAdmin y D. Músicos pueden editarla.'); return }
             var userName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
             songs[i] = { ...songs[i], title: t, artist: a, lyrics: l, originalKey: formKey, tags: [...formTags], tempo: bpm || songs[i].tempo || 0, compas: cmp || songs[i].compas || '', audio_url: songs[i].audio_url || null, updatedAt: Date.now(), modifiedBy: userName || songs[i].modifiedBy || '', createdById: songs[i].createdById || (currentUser ? currentUser.id : ''), needsCloudSync: true };
-            syncRepertorioFromLibrary(songs[i]);
     logActivity('song_updated', { 
         title: t, 
         artist: a, 
@@ -3044,16 +3032,39 @@ async function deleteCurrentSong() {
     }, 'song', songId);
 }
 
-function saveRepSongToLibrary() {
+async function saveRepSongToLibrary() {
     if (blockIfOffline()) return;
     const r = repertorios.find(x => x.id === viewingRepId);
     if (!r) return;
-    const s = r.canciones.find(x => x.id === viewingRepSongId);
-    if (!s) return;
-    const existing = songs.find(x => x.title === s.titulo && x.artist === s.artista);
-    if (existing) { alert('Esta canción ya está en tu biblioteca'); return }
-    const dk = s.tono_original || 'C';
-    songs.unshift({ id: s.source_song_id || genId(), sourceId: s.source_song_id || s.id, repSongId: s.id, sourceType: 'repertorio', title: s.titulo || 'Sin título', artist: s.artista || 'Desconocido', lyrics: s.letra_acordes || '', originalKey: dk, currentKey: dk, tags: s.tags || ['Repertorio'], tempo: s.tempo || 0, compas: s.compas || '', audio_url: s.audio_url ? normalizeVocalAudioUrl(s.audio_url) : null, audio_original_url: s.audio_original_url ? normalizeVocalAudioUrl(s.audio_original_url) : null, repSongId: s.id, repId: r.id, createdAt: s.created_at || Date.now(), updatedAt: Date.now(), createdBy: s.created_by || '', createdById: s.created_by_id || '', modifiedBy: s.modified_by || s.modificado_por || '' });
+    const repSong = r.canciones.find(x => x.id === viewingRepSongId);
+    if (!repSong || !repSong.source_song_id) return;
+
+    const sourceSongId = repSong.source_song_id;
+    if (songs.some(x => (x.sourceId || x.id) === sourceSongId)) {
+        alert('Esta canción ya está en tu biblioteca');
+        return;
+    }
+
+    // Aunque el repertorio ya tenga un modelo de presentación, al guardar la
+    // canción en la biblioteca se vuelve a leer el registro maestro de songs.
+    if (!supabaseReady || !supabaseClient) {
+        alert('No se pudo consultar songs. Intenta de nuevo con conexión.');
+        return;
+    }
+    const { data: canonicalRow, error } = await supabaseClient
+        .from('songs')
+        .select('*')
+        .eq('id', sourceSongId)
+        .maybeSingle();
+    if (error || !canonicalRow) {
+        alert('No se encontró la canción maestra en songs.');
+        return;
+    }
+
+    const localSong = canonicalSongToLocal(canonicalRow, 'repertorio');
+    localSong.repSongId = repSong.id;
+    localSong.repId = r.id;
+    songs.unshift(localSong);
     save('cb_songs', songs);
     const btn = document.getElementById('save-rep-btn');
     if (btn) { btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';
@@ -4171,31 +4182,24 @@ async function showDuplicateRepertorioModal(repId) {
         });
         if (error) throw error;
 
-        const creatorName = currentUser ? (currentUser.nombre ? currentUser.nombre + ' ' + (currentUser.apellido || '') : currentUser.id) : '';
+        // Solo se copian los datos propios del nuevo vínculo. El contenido de
+        // cada canción se resolverá desde songs mediante source_song_id.
         const cancionesRows = (original.canciones || []).map((c, i) => ({
             id: genId(),
             repertorio_id: newId,
-            titulo: c.titulo,
-            artista: c.artista,
+            source_song_id: c.source_song_id,
             dia: c.dia || 'ambos',
             orden: i + 1,
-            tono_original: c.tono_original,
-            tempo: c.tempo || 0,
-            compas: c.compas || '',
-            duracion: c.duracion || '0:00',
             vocalista_domingo: '',
             vocalista_lunes: '',
             coros_domingo: [],
             coros_lunes: [],
             coros_domingo_b: [],
             coros_lunes_b: [],
-            letra_acordes: c.letra_acordes,
-            audio_url: c.audio_url || null,
-            source_song_id: c.source_song_id,
-            created_by: creatorName,
             created_at: Date.now()
         }));
 
+        console.log('[Songs master] Payload de duplicación (solo vínculo):', cancionesRows);
         if (cancionesRows.length > 0) {
             const { error: err2 } = await supabaseClient.from('canciones_repertorio').insert(cancionesRows);
             if (err2) throw err2;
@@ -4246,31 +4250,20 @@ async function confirmAddSongToRep(repId, songId) {
     if (addSongDirectMode) {
         const orden = r.canciones.length + 1;
         const id = 'rs' + Date.now().toString(36);
-        const localSong = songs.find(x => x.id === songId);
-        const vocalDom = localSong ? (localSong.vocalista_domingo || '') : '';
-        const vocalLun = localSong ? (localSong.vocalista_lunes || '') : '';
-        const corosDom = localSong ? (localSong.coros_domingo || []) : [];
-        const corosLun = localSong ? (localSong.coros_lunes || []) : [];
+        const sourceSongId = s.sourceId || s.id;
         try {
             const { error } = await supabaseClient.from('canciones_repertorio').insert({
                 id,
                 repertorio_id: repId,
-                titulo: s.title,
-                artista: s.artist,
+                source_song_id: sourceSongId,
                 dia: 'ambos',
                 orden,
-                tono_original: s.originalKey,
-                tempo: s.tempo || 0,
-                compas: s.compas || '',
-                duracion: '0:00',
-                vocalista_domingo: vocalDom,
-                vocalista_lunes: vocalLun,
-                coros_domingo: corosDom,
-                coros_lunes: corosLun,
-                letra_acordes: s.lyrics,
-                audio_url: s.audio_url || null,
-                source_song_id: s.id,
-                created_by: s.createdBy || '',
+                vocalista_domingo: '',
+                vocalista_lunes: '',
+                coros_domingo: [],
+                coros_lunes: [],
+                coros_domingo_b: [],
+                coros_lunes_b: [],
                 created_at: Date.now()
             });
             if (error) throw error;
@@ -4332,7 +4325,7 @@ function renderRepertorios() {
             const songsDom = r.canciones.filter(sng => sng.dia !== 'lunes');
             const songsLun = r.canciones.filter(sng => sng.dia !== 'domingo');
             const domVoices = songsDom.filter(sng => sng.vocalista_domingo).length;
-            const lunVoices = songsLun.filter(sng => (sng.vocalista_lunes || sng.vocalista_domingo)).length;
+            const lunVoices = songsLun.filter(sng => sng.vocalista_lunes).length;
             const isNext = idx === 0;
             const vocesMeta = sc === 0 ? '' : (esEspecial
                 ? '<span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Voces: ' + (r.grupo_usado === 'lunes' ? lunVoices : domVoices) + '</span>'
@@ -4349,8 +4342,8 @@ function renderRepertorios() {
                 const namesForDay = (daySongs, day) => {
                     const names = new Set();
                     daySongs.forEach(sng => {
-                        const lead = day === 'domingo' ? sng.vocalista_domingo : (sng.vocalista_lunes || sng.vocalista_domingo);
-                        const coros = day === 'domingo' ? (sng.coros_domingo || []) : (sng.coros_lunes || sng.coros_domingo || []);
+                        const lead = day === 'domingo' ? sng.vocalista_domingo : sng.vocalista_lunes;
+                        const coros = day === 'domingo' ? (sng.coros_domingo || []) : (sng.coros_lunes || []);
                         [lead, ...(Array.isArray(coros) ? coros : [])].forEach(n => { const clean = cleanSingerName(n); if (clean) names.add(clean) });
                     });
                     return Array.from(names);
@@ -4489,14 +4482,14 @@ function renderRepertorioView() {
     }
 
     c.innerHTML = dirigeHtml + songsForDay.map(s => {
-        var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || s.coros_domingo || []));
+        var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || []));
         if (typeof corosForDay === 'string') corosForDay = corosForDay ? corosForDay.split(',').map(function(x) { return x.trim() }).filter(Boolean) : [];
         if (!Array.isArray(corosForDay)) corosForDay = [];
         const corosDisplay = corosForDay.length > 0 ? corosForDay.map(function(c, i) {
             return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">' + (i + 1) + '</span><span style="color:#a1a1aa;font-size:.7rem">' + esc(c) + '</span></span>'
         }).join('') : '';
 
-        return '<div class="rep-song-card" data-song-id="' + s.id + '" onclick="viewRepSong(\'' + r.id + '\',\'' + s.id + '\')">' + (canManageReps() ? '<div class="rep-drag-handle" onclick="event.stopPropagation()" style="cursor:grab;color:#52525b;display:flex;align-items:center;justify-content:center;padding:0 6px;touch-action:none;align-self:stretch;flex-shrink:0"><svg width="14" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></div>' : '') + '<div class="rep-song-order">' + s.orden + '</div><div class="rep-song-info"><div class="rep-song-title">' + esc(s.titulo) + '</div><div class="rep-song-artist">' + esc(s.artista) + '</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: ' + esc((repDay === 'domingo' ? (s.vocalista_domingo || 'Por asignar') : (s.vocalista_lunes || s.vocalista_domingo || 'Por asignar'))) + '</span>' + (corosForDay.length > 0 ? '<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">' + corosDisplay + '</span>' : '') + '</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> ' + dn(s.tono_original) + '</span>' + (s.compas ? '<span class="rep-meta-item">' + s.compas + '</span>' : '') + (s.tempo ? '<span class="rep-meta-item">' + s.tempo + ' BPM</span>' : '') + '</div>' + (s.dia !== 'ambos' ? '<span class="rep-day-badge ' + (s.dia === 'domingo' ? 'dom' : 'lun') + '">Solo ' + (s.dia === 'domingo' ? 'Domingo' : 'Lunes') + '</span>' : '') + '</div>' + (canEditVocals() ? '<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\'' + r.id + '\',\'' + s.id + '\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' : '') + (canManageReps() ? '<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\'' + r.id + '\',\'' + s.id + '\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
+        return '<div class="rep-song-card" data-song-id="' + s.id + '" onclick="viewRepSong(\'' + r.id + '\',\'' + s.id + '\')">' + (canManageReps() ? '<div class="rep-drag-handle" onclick="event.stopPropagation()" style="cursor:grab;color:#52525b;display:flex;align-items:center;justify-content:center;padding:0 6px;touch-action:none;align-self:stretch;flex-shrink:0"><svg width="14" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></div>' : '') + '<div class="rep-song-order">' + s.orden + '</div><div class="rep-song-info"><div class="rep-song-title">' + esc(s.titulo) + '</div><div class="rep-song-artist">' + esc(s.artista) + '</div><div class="rep-song-vocals"><span class="rep-vocal-main"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: ' + esc((repDay === 'domingo' ? (s.vocalista_domingo || 'Sin asignar') : (s.vocalista_lunes || 'Sin asignar'))) + '</span>' + (corosForDay.length > 0 ? '<span class="rep-vocal-chorus" style="display:inline-flex;flex-wrap:wrap;align-items:center">' + corosDisplay + '</span>' : '') + '</div><div class="rep-song-meta"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg> ' + dn(s.tono_original) + '</span>' + (s.compas ? '<span class="rep-meta-item">' + s.compas + '</span>' : '') + (s.tempo ? '<span class="rep-meta-item">' + s.tempo + ' BPM</span>' : '') + '</div>' + (s.dia !== 'ambos' ? '<span class="rep-day-badge ' + (s.dia === 'domingo' ? 'dom' : 'lun') + '">Solo ' + (s.dia === 'domingo' ? 'Domingo' : 'Lunes') + '</span>' : '') + '</div>' + (canEditVocals() ? '<button class="btn-icon" onclick="event.stopPropagation();editRepVocals(\'' + r.id + '\',\'' + s.id + '\')" title="Editar vocales" style="color:#f59e0b;flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' : '') + (canManageReps() ? '<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();deleteRepSong(\'' + r.id + '\',\'' + s.id + '\')" title="Eliminar canción" style="flex-shrink:0;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') + '</div>';
     }).join('') + (canManageReps() ? '<div style="text-align:center;padding:16px 0"><button class="btn btn-amber" onclick="addSongToRepertorio(\'' + r.id + '\',\'' + repDay + '\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Agregar canción</button></div>' : '');
     initRepDragHandles();
 }
@@ -4675,13 +4668,13 @@ function renderRepSongView() {
     } else { nav.classList.add('hidden') }
 
     repCurrentKey = s.tono_original;
-    var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || s.coros_domingo || []));
+    var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || []));
     if (typeof corosForDay === 'string') corosForDay = corosForDay ? corosForDay.split(',').map(function(x) { return x.trim() }).filter(Boolean) : [];
     if (!Array.isArray(corosForDay)) corosForDay = [];
 
     const saveBtn = document.getElementById('save-rep-btn');
     if (saveBtn) {
-        const already = songs.find(x => x.title === s.titulo && x.artist === s.artista);
+        const already = songs.find(x => (x.sourceId || x.id) === s.source_song_id);
         if (already) {
             saveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg> Guardada';
             saveBtn.style.background = 'rgba(34,197,94,.2)';
@@ -4704,7 +4697,7 @@ function renderRepSongView() {
     const dayColor = repDay === 'domingo' ? '#60a5fa' : '#c084fc';
     const dayEmoji = repDay === 'domingo' ? '🌞' : '🌙';
 
-    document.getElementById('rep-song-info').innerHTML = '<div style="text-align:center;margin-bottom:8px"><span style="font-size:.85rem;font-weight:700;color:' + dayColor + ';display:inline-flex;align-items:center;gap:4px;padding:4px 14px;background:' + (repDay === 'domingo' ? 'rgba(59,130,246,.15)' : 'rgba(168,85,247,.15)') + ';border:1px solid ' + (repDay === 'domingo' ? 'rgba(59,130,246,.3)' : 'rgba(168,85,247,.3)') + ';border-radius:8px">' + dayEmoji + ' ' + dayName + '</span></div><h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">' + esc(s.titulo) + '</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">' + esc(s.artista) + '</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: ' + esc(repDay === 'domingo' ? (s.vocalista_domingo || 'Por asignar') : (s.vocalista_lunes || s.vocalista_domingo || 'Por asignar')) + '</span>' + (corosForDay.length > 0 ? '<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">' + corosForDay.map(function(c, i) { return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">' + (i + 1) + '</span><span>' + esc(c) + '</span></span>' }).join('') + '</span>' : '') + '</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> ' + dn(s.tono_original) + '</span>' + (s.compas ? '<span class="rep-meta-item">' + s.compas + '</span>' : '') + (s.tempo ? '<span class="rep-meta-item">' + s.tempo + ' BPM</span>' : '') + '</div>';
+    document.getElementById('rep-song-info').innerHTML = '<div style="text-align:center;margin-bottom:8px"><span style="font-size:.85rem;font-weight:700;color:' + dayColor + ';display:inline-flex;align-items:center;gap:4px;padding:4px 14px;background:' + (repDay === 'domingo' ? 'rgba(59,130,246,.15)' : 'rgba(168,85,247,.15)') + ';border:1px solid ' + (repDay === 'domingo' ? 'rgba(59,130,246,.3)' : 'rgba(168,85,247,.3)') + ';border-radius:8px">' + dayEmoji + ' ' + dayName + '</span></div><h1 style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:2px">' + esc(s.titulo) + '</h1><p style="font-size:.8rem;color:#a1a1aa;margin-bottom:6px">' + esc(s.artista) + '</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:.75rem;color:#fbbf24;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Principal: ' + esc(repDay === 'domingo' ? (s.vocalista_domingo || 'Sin asignar') : (s.vocalista_lunes || 'Sin asignar')) + '</span>' + (corosForDay.length > 0 ? '<span style="font-size:.7rem;color:#a1a1aa;display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px">' + corosForDay.map(function(c, i) { return '<span style="display:inline-flex;align-items:center;gap:2px"><span style="width:14px;height:14px;background:rgba(245,158,11,.2);color:#fbbf24;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700">' + (i + 1) + '</span><span>' + esc(c) + '</span></span>' }).join('') + '</span>' : '') + '</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="rep-meta-item"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg> ' + dn(s.tono_original) + '</span>' + (s.compas ? '<span class="rep-meta-item">' + s.compas + '</span>' : '') + (s.tempo ? '<span class="rep-meta-item">' + s.tempo + ' BPM</span>' : '') + '</div>';
 
     document.getElementById('rep-song-key').innerHTML = '<button class="key-btn" onclick="changeRepKey(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg></button><button id="notation-toggle" onclick="toggleNotation()" class="key-btn" style="font-size:.85rem;font-family:monospace;color:#fbbf24" title="Alternar entre \u266D y #">' + (useFlats ? '\u266D' : '#') + '</button><div class="key-display"><div class="key-note">' + dn(repCurrentKey) + '</div>' + (repCurrentKey !== s.tono_original ? '<button class="key-original" onclick="resetRepKey()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Original: ' + dn(s.tono_original) + '</button>' : '') + '</div><button class="key-btn" onclick="changeRepKey(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg></button>';
 
@@ -5017,22 +5010,16 @@ function showVocalEditor(repId, songId, mode, songData, contextDay) {
     const corosSvg = document.querySelector('#vocal-section-coros svg');
     if (corosSvg) corosSvg.setAttribute('stroke', dayColor);
 
-    const localSong = songs.find(x => x.id === songId);
-    const savedVocals = localSong ? {
-        vocalista_domingo: localSong.vocalista_domingo || '',
-        vocalista_lunes: localSong.vocalista_lunes || '',
-        coros_domingo: localSong.coros_domingo || [],
-        coros_lunes: localSong.coros_lunes || []
-    } : null;
-
+    // Las vocales pertenecen al vínculo con el repertorio. Nunca se leen ni
+    // se guardan como propiedades de la canción global en songs.
     let mainName = '';
     let corosRaw = [];
     if (isDom) {
-        mainName = songData ? (songData.vocalista_domingo || '') : (savedVocals ? savedVocals.vocalista_domingo : '');
-        corosRaw = songData ? (songData.coros_domingo || []) : (savedVocals ? savedVocals.coros_domingo : []);
+        mainName = songData ? (songData.vocalista_domingo || '') : '';
+        corosRaw = songData ? (songData.coros_domingo || []) : [];
     } else {
-        mainName = songData ? (songData.vocalista_lunes || '') : (savedVocals ? savedVocals.vocalista_lunes : '');
-        corosRaw = songData ? (songData.coros_lunes || []) : (savedVocals ? savedVocals.coros_lunes : []);
+        mainName = songData ? (songData.vocalista_lunes || '') : '';
+        corosRaw = songData ? (songData.coros_lunes || []) : [];
     }
     if (typeof corosRaw === 'string') corosRaw = corosRaw ? corosRaw.split(',').map(function(x) { return x.trim() }).filter(Boolean) : [];
     if (!Array.isArray(corosRaw)) corosRaw = [];
@@ -5042,13 +5029,13 @@ function showVocalEditor(repId, songId, mode, songData, contextDay) {
         const el = document.getElementById('vocal-coro-' + i);
         if (el) el.value = corosRaw[i - 1] || '';
     }
-    // Load part B names
+    // Load part B names from the repertorio relationship row.
     let corosRawB = [];
     if (isDom) {
-        const rawB = songData ? (songData.coros_domingo_b || []) : (savedVocals ? (savedVocals.coros_domingo_b || []) : []);
+        const rawB = songData ? (songData.coros_domingo_b || []) : [];
         corosRawB = typeof rawB === 'string' ? (rawB ? JSON.parse(rawB) : []) : (Array.isArray(rawB) ? rawB : []);
     } else {
-        const rawB = songData ? (songData.coros_lunes_b || []) : (savedVocals ? (savedVocals.coros_lunes_b || []) : []);
+        const rawB = songData ? (songData.coros_lunes_b || []) : [];
         corosRawB = typeof rawB === 'string' ? (rawB ? JSON.parse(rawB) : []) : (Array.isArray(rawB) ? rawB : []);
     }
     for (let i = 1; i <= 4; i++) {
@@ -5106,7 +5093,7 @@ function renderVocalAudioList(day) {
         if (audioA && audioA.audio_url) {
             html += '<div style="display:flex;align-items:center;gap:6px">';
             html += '<button class="btn-icon" data-vocal-key="' + audioKey + '_a" onclick="playVocalAudio(\'' + audioKey + '_a\',\'' + audioA.audio_url + '\')" style="color:#4ade80" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-            html += '<div style="flex:1;min-width:0;font-size:.65rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(audioA.vocalista_name || coroNameA || 'Audio') + '</div>';
+            html += '<div style="flex:1;min-width:0;font-size:.65rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(coroNameA || 'Audio') + '</div>';
             if (canEditVocals()) {
                 html += '<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\',\'a\')" style="flex-shrink:0" title="Eliminar"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
             }
@@ -5124,7 +5111,7 @@ function renderVocalAudioList(day) {
         if (audioB && audioB.audio_url) {
             html += '<div style="display:flex;align-items:center;gap:6px">';
             html += '<button class="btn-icon" data-vocal-key="' + audioKey + '_b" onclick="playVocalAudio(\'' + audioKey + '_b\',\'' + audioB.audio_url + '\')" style="color:#4ade80" title="Reproducir"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>';
-            html += '<div style="flex:1;min-width:0;font-size:.65rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(audioB.vocalista_name || coroNameB || 'Audio') + '</div>';
+            html += '<div style="flex:1;min-width:0;font-size:.65rem;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(coroNameB || 'Audio') + '</div>';
             if (canEditVocals()) {
                 html += '<button class="btn-icon btn-icon-red" onclick="deleteVocalAudio(\'' + vocalEditorRepId + '\',\'' + vocalEditorSongId + '\',' + coro + ',\'' + sourceSongId + '\',\'' + day + '\',\'b\')" style="flex-shrink:0" title="Eliminar"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
             }
@@ -5176,7 +5163,7 @@ function hideVocalEditor() {
 
 async function saveVocalEditor() {
     if (!canEditVocals()) { if (!isOnline) blockIfOffline(); return; }
-    const mainName = document.getElementById('vocal-input-main').value.trim() || 'Por asignar';
+    const mainName = document.getElementById('vocal-input-main').value.trim();
     const isDom = vocalEditorContextDay === 'domingo';
 
     const coros = [];
@@ -5191,20 +5178,6 @@ async function saveVocalEditor() {
         if (el && el.value.trim()) corosB.push(el.value.trim());
     }
 
-    const localSong = songs.find(x => x.id === vocalEditorSongId);
-    if (localSong) {
-        if (isDom) {
-            localSong.vocalista_domingo = mainName;
-            localSong.coros_domingo = coros;
-            localSong.coros_domingo_b = corosB;
-        } else {
-            localSong.vocalista_lunes = mainName;
-            localSong.coros_lunes = coros;
-            localSong.coros_lunes_b = corosB;
-        }
-        save('cb_songs', songs);
-    }
-
     if (vocalEditorMode === 'add') {
         const s = songs.find(x => x.id === vocalEditorSongId);
         const r = repertorios.find(x => x.id === vocalEditorRepId);
@@ -5215,18 +5188,9 @@ async function saveVocalEditor() {
         const insertData = {
             id,
             repertorio_id: vocalEditorRepId,
-            titulo: s.title,
-            artista: s.artist,
+            source_song_id: s.sourceId || s.id,
             dia,
             orden,
-            tono_original: s.originalKey,
-            tempo: s.tempo || 0,
-            compas: s.compas || '',
-            duracion: '0:00',
-            letra_acordes: s.lyrics,
-            audio_url: s.audio_url || null,
-            source_song_id: s.id,
-            created_by: s.createdBy || '',
             created_at: Date.now()
         };
         if (isDom) {
@@ -5327,7 +5291,7 @@ async function handleVocalAudioUpload(e) {
     try {
         const { data: existingRows } = await supabaseClient
             .from('vocal_audios')
-            .select('*')
+            .select('id,audio_url,audio_path')
             .eq('source_song_id', sourceSongId)
             .eq('coro_number', vocalAudioUploadCoro)
             .eq('dia', vocalAudioUploadDia)
@@ -5420,7 +5384,6 @@ async function handleVocalAudioUpload(e) {
                     coro_number: vocalAudioUploadCoro,
                     dia: vocalAudioUploadDia,
                     part: vocalAudioUploadPart || 'a',
-                    vocalista_name: '',
                     audio_url: audioUrl,
                     audio_path: actualStoragePath,
                     updated_at: Date.now()
@@ -5962,7 +5925,9 @@ if (isIOS() && !isStandalone()) {
 // ============= SERVICE WORKER =============
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js').then(function(registration) {
+        // updateViaCache:none evita que el propio sw.js o sus imports se
+        // resuelvan desde la caché HTTP del navegador durante el update.
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function(registration) {
             console.log('[PWA] Service Worker registered, scope:', registration.scope);
 
             // Forzar chequeo de actualizaciones periódicamente

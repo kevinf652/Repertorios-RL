@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repertorios-rl-v3.245'; // ⬅️ Bump en cada deploy
+const CACHE_NAME = 'repertorios-rl-v3.2471'; // ⬅️ Bump en cada deploy
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
 const AUDIO_HOST = 'repertorios-r2-api.kevinf652.workers.dev';
 
@@ -22,6 +22,19 @@ const urlsToCache = [
   './notifications.css'
 ];
 
+// Los archivos propios de la app no deben reutilizar la caché HTTP del
+// navegador durante una actualización. La Cache Storage del SW sigue siendo
+// el respaldo offline; aquí solo se fuerza que la copia de red sea realmente
+// nueva.
+function isAppShellRequest(url, request) {
+  if (request && request.mode === 'navigate') return true;
+  return /\.(?:html?|css|js)$/i.test(url.pathname);
+}
+
+function freshNetworkRequest(request) {
+  return new Request(request, { cache: 'no-store' });
+}
+
 // ============================================================
 // INSTALL
 // - Precachea el app shell.
@@ -33,10 +46,15 @@ self.addEventListener('install', event => {
     caches.open(CACHE_NAME).then(cache => {
       return Promise.all(
         urlsToCache.map(url =>
-          cache.add(url).catch(err => {
-            // Un 404 no debe tumbar todo el install
-            console.warn('[SW] No se pudo cachear:', url, err);
-          })
+          fetch(new Request(url, { cache: 'reload' }))
+            .then(response => {
+              if (!response.ok) throw new Error('HTTP ' + response.status);
+              return cache.put(url, response);
+            })
+            .catch(err => {
+              // Un 404 no debe tumbar todo el install
+              console.warn('[SW] No se pudo cachear:', url, err);
+            })
         )
       );
     })
@@ -119,8 +137,12 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
 
+  const networkRequest = isAppShellRequest(url, event.request)
+    ? freshNetworkRequest(event.request)
+    : event.request;
+
   event.respondWith(
-    fetch(event.request)
+    fetch(networkRequest)
       .then(res => {
         // Guarda/actualiza copia en caché
         if (res && res.ok) {
