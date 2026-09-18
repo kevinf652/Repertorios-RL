@@ -3458,17 +3458,53 @@ function buildPlainSongLyrics(song) {
     return '🎵 ' + song.title + '\n' + (song.artist ? 'Artista: ' + song.artist + '\n' : '') + 'Tono original: ' + (song.originalKey || '—') + '\n\n' + (plain || '(Sin letra)');
 }
 
-function externalAudioFilename(song, contentType) {
+function buildChordSongLyrics(song) {
+    const semitones = getS(song.originalKey, song.currentKey);
+    const chorded = String(song.lyrics || '').split(/\r?\n/).map(line => {
+        const transposed = transposeLine(line, semitones);
+        return transposed.replace(/\s*\{\d+\}/g, '').trim();
+    }).filter(line => line.length > 0).join('\n');
+    return '🎵 ' + song.title + '\n' + (song.artist ? 'Artista: ' + song.artist + '\n' : '') + 'Tono: ' + (song.currentKey || song.originalKey || '—') + '\n\n' + (chorded || '(Sin letra)');
+}
+
+function externalShareTypeLabel(type) {
+    if (type === 'lyrics_plain') return 'Letra sin acordes';
+    if (type === 'lyrics_chords') return 'Letra con acordes';
+    if (type === 'audio_song') return 'Audio de canción';
+    if (type === 'audio_sequence') return 'Audio de secuencia';
+    return 'Contenido';
+}
+
+function externalShareTypeIsAudio(type) {
+    return type === 'audio_song' || type === 'audio_sequence';
+}
+
+function externalShareTypeAudioColumn(type) {
+    if (type === 'audio_song') return 'audio_original_url';
+    if (type === 'audio_sequence') return 'audio_url';
+    return null;
+}
+
+function externalShareOptionHtml(type, label, available, checked) {
+    const color = available ? '#e4e4e7' : '#71717a';
+    return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(63,63,70,.35);color:' + color + ';font-size:.82rem">'
+        + '<input type="radio" name="external-share-type" value="' + type + '" onchange="selectExternalShareType(this.value)"' + (checked ? ' checked' : '') + (available ? '' : ' disabled') + ' style="width:17px;height:17px;accent-color:#f59e0b">'
+        + label + '</label>';
+}
+
+function externalAudioFilename(song, contentType, audioType) {
     const match = String(contentType || '').match(/audio\/([a-z0-9.+-]+)/i);
     let ext = match ? match[1].toLowerCase().replace('mpeg', 'mp3').replace('x-m4a', 'm4a') : '';
     if (ext === 'mp4') ext = 'm4a';
     if (!['mp3', 'm4a', 'wav', 'aac', 'ogg', 'webm', 'flac'].includes(ext)) ext = 'mp3';
-    return safeShareFilename(song.title, '') + '-cancion.' + ext;
+    const suffix = audioType === 'audio_sequence' ? '-secuencia' : '-cancion';
+    return safeShareFilename(song.title, '') + suffix + '.' + ext;
 }
 
-async function fetchSongAudioFile(song) {
-    const url = normalizeVocalAudioUrl(song.audio_original_url);
-    if (!url) throw new Error('La canción no tiene audio vinculado.');
+async function fetchSongAudioFile(song, audioType) {
+    const col = externalShareTypeAudioColumn(audioType);
+    const url = col ? normalizeVocalAudioUrl(song[col]) : null;
+    if (!url) throw new Error('La canción no tiene ' + externalShareTypeLabel(audioType).toLowerCase() + ' vinculado.');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 20000);
     try {
@@ -3482,7 +3518,7 @@ async function fetchSongAudioFile(song) {
         if (!response.ok) throw new Error('El servidor no permitió descargar el audio (' + response.status + ').');
         const blob = await response.blob();
         if (!blob || blob.size === 0) throw new Error('El servidor devolvió un audio vacío.');
-        return new File([blob], externalAudioFilename(song, blob.type), { type: blob.type || 'audio/mpeg' });
+        return new File([blob], externalAudioFilename(song, blob.type, audioType), { type: blob.type || 'audio/mpeg' });
     } catch (e) {
         if (e && e.name === 'AbortError') throw new Error('La descarga del audio tardó demasiado.');
         throw e;
@@ -3491,57 +3527,89 @@ async function fetchSongAudioFile(song) {
     }
 }
 
+function selectedExternalShareType() {
+    const selected = document.querySelector('input[name="external-share-type"]:checked');
+    return selected ? selected.value : '';
+}
+
 function updateExternalShareUi() {
     const state = externalShareState;
-    const audioCheck = document.getElementById('external-share-audio');
     const submitBtn = document.getElementById('external-share-submit');
     const statusEl = document.getElementById('external-share-status');
-    if (!state || !audioCheck || !submitBtn) return;
-    const includeAudio = !!audioCheck.checked;
-    const audioReady = !!state.audioFile;
-    // La letra siempre debe poder compartirse aunque el audio esté tardando
-    // o no pueda descargarse. El botón solo se bloquea por validación del
-    // contenido, no por una petición remota que podría quedarse pendiente.
+    if (!state || !submitBtn) return;
+    const selectedType = state.selectedType || selectedExternalShareType();
+    const isAudio = externalShareTypeIsAudio(selectedType);
+    const audioReady = isAudio && state.audioType === selectedType && !!state.audioFile;
+
     submitBtn.disabled = false;
     submitBtn.style.opacity = '1';
-    submitBtn.title = includeAudio && !audioReady ? 'El audio todavía se está preparando; puedes compartir solo la letra' : '';
+    submitBtn.title = isAudio && !audioReady ? 'El audio todavía se está preparando.' : '';
     if (!statusEl) return;
-    if (!includeAudio) {
-        statusEl.textContent = 'La letra se enviará como texto al selector de aplicaciones.';
+
+    if (!isAudio) {
+        statusEl.textContent = externalShareTypeLabel(selectedType) + ' se enviará como texto al selector de aplicaciones.';
         statusEl.style.color = '#71717a';
-    } else if (state.audioLoading) {
-        statusEl.textContent = 'Preparando el audio para adjuntarlo... Puedes desmarcarlo para compartir solo la letra.';
+    } else if (state.audioLoading && state.audioLoadingType === selectedType) {
+        statusEl.textContent = 'Preparando ' + externalShareTypeLabel(selectedType).toLowerCase() + '...';
         statusEl.style.color = '#fbbf24';
-    } else if (state.audioError) {
-        statusEl.textContent = 'No se pudo preparar el audio. Puedes compartir solo la letra.';
+    } else if (state.audioError && state.audioErrorType === selectedType) {
+        statusEl.textContent = 'No se pudo preparar ' + externalShareTypeLabel(selectedType).toLowerCase() + '. Puedes elegir otra opción.';
         statusEl.style.color = '#f87171';
     } else if (audioReady) {
-        statusEl.textContent = 'Audio listo. Se adjuntará junto con la letra si eliges ambas opciones.';
+        statusEl.textContent = externalShareTypeLabel(selectedType) + ' listo. Se compartirá un solo archivo.';
         statusEl.style.color = '#4ade80';
     }
 }
 
-async function prepareExternalSongAudio(id) {
+function selectExternalShareType(type) {
+    const state = externalShareState;
+    if (!state || !type) return;
+    state.selectedType = type;
+    state.audioFile = null;
+    state.audioType = null;
+    state.audioError = null;
+    state.audioErrorType = null;
+    state.audioLoading = false;
+    state.audioLoadingType = null;
+    state.prepareToken = (state.prepareToken || 0) + 1;
+    if (externalShareTypeIsAudio(type)) {
+        prepareExternalSongAudio(state.songId, type);
+    } else {
+        updateExternalShareUi();
+    }
+}
+
+async function prepareExternalSongAudio(id, audioType) {
     const state = externalShareState;
     const song = songs.find(x => x.id === id);
-    if (!state || state.songId !== id || !song || !song.audio_original_url) return;
+    const col = externalShareTypeAudioColumn(audioType);
+    if (!state || state.songId !== id || !song || !col || !song[col]) return;
+    const token = (state.prepareToken || 0) + 1;
+    state.prepareToken = token;
+    state.audioFile = null;
+    state.audioType = null;
     state.audioLoading = true;
+    state.audioLoadingType = audioType;
+    state.audioError = null;
+    state.audioErrorType = null;
     updateExternalShareUi();
     try {
-        const file = await fetchSongAudioFile(song);
-        if (!externalShareState || externalShareState.songId !== id) return;
+        const file = await fetchSongAudioFile(song, audioType);
+        if (!externalShareState || externalShareState.songId !== id || externalShareState.prepareToken !== token || externalShareState.selectedType !== audioType) return;
         state.audioFile = file;
+        state.audioType = audioType;
         state.audioLoading = false;
+        state.audioLoadingType = null;
         state.audioError = null;
+        state.audioErrorType = null;
     } catch (e) {
-        if (!externalShareState || externalShareState.songId !== id) return;
+        if (!externalShareState || externalShareState.songId !== id || externalShareState.prepareToken !== token || externalShareState.selectedType !== audioType) return;
         state.audioLoading = false;
+        state.audioLoadingType = null;
         state.audioError = e;
-        const audioCheck = document.getElementById('external-share-audio');
-        if (audioCheck) {
-            audioCheck.checked = false;
-            audioCheck.disabled = true;
-        }
+        state.audioErrorType = audioType;
+        const audioInput = document.querySelector('input[name="external-share-type"][value="' + audioType + '"]');
+        if (audioInput) audioInput.disabled = true;
     }
     updateExternalShareUi();
 }
@@ -3554,46 +3622,47 @@ function showExternalSongShareModal(id) {
     }
     const song = songs.find(x => x.id === id);
     if (!song) return;
-    const audioNote = song.audio_original_url
-        ? '<div id="external-share-status" style="font-size:.7rem;color:#fbbf24;margin-top:10px">Preparando el audio para adjuntarlo...</div>'
-        : '<div id="external-share-status" style="font-size:.7rem;color:#fbbf24;margin-top:10px">Esta canción no tiene audio original vinculado.</div>';
     const body = '<div style="font-size:.78rem;color:#a1a1aa;margin-bottom:12px">Comparte <strong style="color:#fff">' + esc(song.title) + '</strong> con personas que no tienen cuenta en App-RL.</div>'
-        + '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(63,63,70,.35);color:#e4e4e7;font-size:.82rem"><input type="checkbox" id="external-share-lyrics" checked style="width:17px;height:17px;accent-color:#f59e0b"> Letra sin acordes</label>'
-        + '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;color:' + (song.audio_original_url ? '#e4e4e7' : '#71717a') + ';font-size:.82rem"><input type="checkbox" id="external-share-audio" onchange="updateExternalShareUi()" ' + (song.audio_original_url ? 'checked' : 'disabled') + ' style="width:17px;height:17px;accent-color:#f59e0b"> Audio original</label>'
-        + audioNote
+        + '<div style="font-size:.76rem;color:#a1a1aa;margin-bottom:4px">Elige un solo tipo de contenido:</div>'
+        + externalShareOptionHtml('lyrics_plain', 'Letra sin acordes', true, true)
+        + externalShareOptionHtml('lyrics_chords', 'Letra con acordes', true, false)
+        + externalShareOptionHtml('audio_song', 'Audio de canción', !!song.audio_original_url, false)
+        + externalShareOptionHtml('audio_sequence', 'Audio de secuencia', !!song.audio_url, false)
+        + '<div id="external-share-status" style="font-size:.7rem;color:#71717a;margin-top:10px"></div>'
         + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn btn-zinc" onclick="closeShareModals()">Cancelar</button><button id="external-share-submit" class="btn btn-amber" onclick="submitExternalSongShare(\'' + String(id).replace(/'/g, "\\'") + '\')">Compartir</button></div>';
     shareModalShell('external-song-share-modal', 'Compartir fuera de App-RL', body);
     externalShareState = {
         songId: id,
+        selectedType: 'lyrics_plain',
         audioFile: null,
-        audioLoading: !!song.audio_original_url,
-        audioError: null
+        audioType: null,
+        audioLoading: false,
+        audioLoadingType: null,
+        audioError: null,
+        audioErrorType: null,
+        prepareToken: 0
     };
     updateExternalShareUi();
-    if (song.audio_original_url) prepareExternalSongAudio(id);
 }
 
 async function submitExternalSongShare(id) {
     const song = songs.find(x => x.id === id);
     const state = externalShareState && externalShareState.songId === id ? externalShareState : null;
     if (!song || !state) return;
-    const includeLyrics = !!document.getElementById('external-share-lyrics')?.checked;
-    let includeAudio = !!document.getElementById('external-share-audio')?.checked;
-    if (!includeLyrics && !includeAudio) { showNotification('Selecciona la letra, el audio o ambos.', 'error'); return; }
-    if (includeAudio && !state.audioFile) {
-        if (includeLyrics) {
-            const proceed = confirm('El audio todavía no está disponible. ¿Quieres compartir solo la letra?');
-            if (!proceed) return;
-            includeAudio = false;
-        } else {
-            showNotification(state.audioLoading ? 'El audio todavía se está preparando.' : 'No se pudo preparar el audio.', 'error');
-            return;
-        }
+    const selectedType = state.selectedType || selectedExternalShareType();
+    if (!selectedType) { showNotification('Selecciona un tipo de contenido.', 'error'); return; }
+    const isAudio = externalShareTypeIsAudio(selectedType);
+    if (isAudio && (!state.audioFile || state.audioType !== selectedType)) {
+        showNotification(state.audioLoading ? 'El audio todavía se está preparando.' : 'No se pudo preparar el audio seleccionado.', 'error');
+        return;
     }
 
-    const audioFile = includeAudio ? state.audioFile : null;
-    const content = includeLyrics && includeAudio ? 'lyrics_audio' : (includeLyrics ? 'lyrics' : 'audio');
-    const text = includeLyrics ? buildPlainSongLyrics(song) : '🎵 ' + song.title + (song.artist ? ' - ' + song.artist : '');
+    const audioFile = isAudio ? state.audioFile : null;
+    const text = selectedType === 'lyrics_plain'
+        ? buildPlainSongLyrics(song)
+        : selectedType === 'lyrics_chords'
+            ? buildChordSongLyrics(song)
+            : '🎵 ' + song.title + (song.artist ? ' - ' + song.artist : '');
     const shareData = { title: song.title + ' - App-RL-song', text: text };
     let attached = false;
     if (audioFile && typeof navigator.canShare === 'function') {
@@ -3611,26 +3680,22 @@ async function submitExternalSongShare(id) {
         // la activación de usuario necesaria para abrir el selector Android.
         if (typeof navigator.share === 'function') {
             await navigator.share(shareData);
-            status = attached ? 'shared' : (audioFile ? 'shared_text_audio_fallback' : 'shared');
+            status = attached ? 'shared' : (audioFile ? 'shared_audio_fallback' : 'shared');
             if (audioFile && !attached) {
                 downloadBlob(audioFile, audioFile.name);
-                showNotification('La letra se compartió; el navegador descargó el audio para adjuntarlo manualmente.', 'success');
+                showNotification('El audio se descargó porque este navegador no permite adjuntarlo al compartir.', 'success');
             }
         } else {
-            if (includeLyrics && navigator.clipboard) {
+            if (!audioFile && navigator.clipboard) {
                 try { await navigator.clipboard.writeText(text); } catch (clipboardError) {}
             }
             if (audioFile) downloadBlob(audioFile, audioFile.name);
-            if (includeLyrics) {
-                showNotification(audioFile ? 'Letra copiada y audio descargado.' : 'Letra copiada.', 'success');
-            } else if (audioFile) {
-                showNotification('El audio se descargó porque este navegador no ofrece selector de compartir.', 'success');
-            }
+            showNotification(audioFile ? 'El audio se descargó.' : 'Texto copiado.', 'success');
         }
-        if (typeof logActivity === 'function') logActivity('song_shared_external', { title: song.title, content: content, status: status, origin: 'library', attached: attached }, 'song', song.sourceId || song.id);
+        if (typeof logActivity === 'function') logActivity('song_shared_external', { title: song.title, content: selectedType, status: status, origin: 'library', attached: attached }, 'song', song.sourceId || song.id);
     } catch (e) {
         const cancelled = e && e.name === 'AbortError';
-        if (typeof logActivity === 'function') logActivity('song_shared_external', { title: song.title, content: content, status: cancelled ? 'cancelled' : 'error', origin: 'library', attached: attached }, 'song', song.sourceId || song.id);
+        if (typeof logActivity === 'function') logActivity('song_shared_external', { title: song.title, content: selectedType, status: cancelled ? 'cancelled' : 'error', origin: 'library', attached: attached }, 'song', song.sourceId || song.id);
         if (!cancelled) showNotification('No se pudo completar el compartir: ' + (e.message || e), 'error');
     }
 }
