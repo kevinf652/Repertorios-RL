@@ -55,8 +55,9 @@ async function loadSocialUsersData(force) {
     if (socialUsersCache && !force) return socialUsersCache;
     if (!supabaseReady) return [];
     try {
-        const { data: users, error } = await supabaseClient.from('admin_users').select('id,nombre,apellido').order('nombre', { ascending: true });
+        const { data: users, error } = await supabaseClient.from('profiles').select('username,nombre,apellido').order('nombre', { ascending: true });
         if (error || !users) return [];
+        users.forEach(u => { u.id = u.username; });
         const { data: profiles } = await supabaseClient.from('social_profiles').select('*');
         const profileMap = {};
         (profiles || []).forEach(p => { profileMap[p.user_id] = p });

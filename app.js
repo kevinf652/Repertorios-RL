@@ -1431,7 +1431,7 @@ async function handleLogin(e) {
 
         // ✅ Actualizar last_login (sin await para no bloquear)
         try {
-            await supabaseClient.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', data.id);
+            await supabaseClient.from('profiles').update({ last_login: new Date().toISOString() }).eq('username', data.id);
             localStorage.setItem('cb_last_access_' + data.id, String(Date.now()));
         } catch (updateErr) {
             console.warn('⚠️ No se pudo actualizar last_login:', updateErr.message);
@@ -1493,7 +1493,7 @@ async function handleRegister(e) {
     if (password.length < minLen) { showAuthError('La contraseña debe tener al menos ' + minLen + ' caracteres'); return }
     if (!isOnline || !supabaseReady) { showAuthError('Sin conexión a internet. No se puede registrar.'); return }
     try {
-        const { data: existingAdmin } = await supabaseClient.from('admin_users').select('id').eq('id', username).maybeSingle();
+        const { data: existingAdmin } = await supabaseClient.from('profiles').select('username').eq('username', username).maybeSingle();
         if (existingAdmin) { showAuthError('Este usuario ya está registrado'); return }
 
         if (USE_SUPABASE_AUTH) {
@@ -1680,9 +1680,9 @@ async function updateLastAccess() {
         console.log('📝 Actualizando último acceso para:', currentUser.id);
         
         const { error } = await supabaseClient
-            .from('admin_users')
+            .from('profiles')
             .update({ last_login: new Date().toISOString() })
-            .eq('id', currentUser.id);
+            .eq('username', currentUser.id);
         
         if (error) {
             console.warn('⚠️ Error al actualizar last_login:', error.message);
@@ -3347,8 +3347,9 @@ let externalShareState = null;
 
 async function loadShareUsers() {
     if (shareUsersCache && shareUsersCacheUserId === (currentUser && currentUser.id)) return shareUsersCache;
-    const { data, error } = await supabaseClient.from('admin_users').select('id,nombre,apellido').order('nombre', { ascending: true });
+    const { data, error } = await supabaseClient.from('profiles').select('username,nombre,apellido').order('nombre', { ascending: true });
     if (error) throw error;
+    (data || []).forEach(u => { u.id = u.username; });
     shareUsersCache = (data || []).filter(u => currentUser && u.id !== currentUser.id);
     shareUsersCacheUserId = currentUser ? currentUser.id : null;
     return shareUsersCache;

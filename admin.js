@@ -245,10 +245,14 @@ async function loadAdminUsersData(force) {
     if (!supabaseReady) return [];
     try {
         const { data: users, error } = await supabaseClient
-            .from('admin_users')
-            .select('id,nombre,apellido,role,created_at,last_login,puede_notificar')
+            .from('profiles')
+            .select('username,nombre,apellido,role,created_at,last_login,puede_notificar')
             .order('created_at', { ascending: false });
         if (error || !users) return [];
+        // Compatibilidad: el resto del panel identifica usuarios por "u.id"
+        // (antes era admin_users.id = username). Se mantiene igual para no
+        // tener que tocar cada referencia de la interfaz.
+        users.forEach(u => { u.id = u.username; });
         const { data: allSongs } = await supabaseClient.from('Biblioteca_general').select('user_id');
         const counts = {};
         (allSongs || []).forEach(r => { counts[r.user_id] = (counts[r.user_id] || 0) + 1 });
@@ -410,7 +414,7 @@ async function deleteAdminUser(userId) {
         // Luego eliminar de las tablas de la base de datos
         await supabaseClient.from('Biblioteca_general').delete().eq('user_id', userId);
         await supabaseClient.from('social_profiles').delete().eq('user_id', userId);
-        await supabaseClient.from('admin_users').delete().eq('id', userId);
+        await supabaseClient.from('profiles').delete().eq('username', userId);
         
         showNotification('Usuario eliminado completamente', 'success');
         logActivity('user_deleted', { targetUser: userId }, 'user', userId);
@@ -433,16 +437,8 @@ async function updateUserRole(userId, newRole) {
     if (!confirm('¿Cambiar el rol de este usuario a "' + newRole + '"?')) return;
     const oldRole = userRef ? userRef.role : '';
     try {
-        const { error } = await supabaseClient.from('admin_users').update({ role: newRole }).eq('id', userId);
+        const { error } = await supabaseClient.from('profiles').update({ role: newRole }).eq('username', userId);
         if (error) throw error;
-        // Mantener sincronizada la tabla profiles (de donde lee el rol el login
-        // nuevo de Supabase Auth). Se hace siempre, sin condicionar al interruptor:
-        // así, cuando se active para todos, los roles ya están al día.
-        try {
-            await supabaseClient.from('profiles').update({ role: newRole }).eq('username', userId);
-        } catch (syncErr) {
-            console.warn('No se pudo sincronizar el rol en profiles:', syncErr.message);
-        }
         if (userRef) userRef.role = newRole;
         showNotification('Rol actualizado a ' + newRole, 'success');
         renderAdminUsuarios(true);
@@ -501,7 +497,7 @@ async function toggleUserCanNotify(userId, checked) {
         if (userRef && userRef.role === 'admin') { alert('Un Subadmin no puede cambiar esto para un Admin.'); renderAdminUsuarios(true); return }
     }
     try {
-        const { error } = await supabaseClient.from('admin_users').update({ puede_notificar: checked }).eq('id', userId);
+        const { error } = await supabaseClient.from('profiles').update({ puede_notificar: checked }).eq('username', userId);
         if (error) throw error;
         const userRef = adminUsersCache ? adminUsersCache.find(u => u.id === userId) : null;
         if (userRef) userRef.puede_notificar = checked;
