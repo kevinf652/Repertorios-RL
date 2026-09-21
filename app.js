@@ -7,11 +7,20 @@ const R2_WORKER_URL = 'https://repertorios-r2-api.kevinf652.workers.dev';
 // el acceso directo de curiosos/bots que encuentren la URL del worker sin pasar por la app.
 const R2_APP_SECRET = 'P86)]]yX_15r}}m>9S~1F-@QBYZwx)TLe#bJc+I}';
 
-// Envoltorio de fetch: agrega el header secreto a toda llamada al Worker de R2.
-// Usar SIEMPRE r2Fetch() en vez de fetch() directo para hablar con R2_WORKER_URL.
-function r2Fetch(url, options) {
+// Envoltorio de fetch: agrega el JWT de la sesión actual a toda llamada al
+// Worker de R2. Usar SIEMPRE r2Fetch() en vez de fetch() directo.
+async function r2Fetch(url, options) {
     options = options || {};
-    options.headers = Object.assign({}, options.headers, { 'X-App-Secret': R2_APP_SECRET });
+    options.headers = Object.assign({}, options.headers);
+    try {
+        const { data } = await supabaseClient.auth.getSession();
+        if (data && data.session && data.session.access_token) {
+            options.headers['Authorization'] = 'Bearer ' + data.session.access_token;
+        }
+    } catch (e) {}
+    // Colchón temporal mientras se confirma la Fase 6 - borrar junto con
+    // R2_APP_SECRET cuando ya no haga falta (ver PASO FINAL en el Worker).
+    options.headers['X-App-Secret'] = R2_APP_SECRET;
     return fetch(url, options);
 }
 
