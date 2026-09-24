@@ -53,6 +53,13 @@ input,textarea,button{font-family:inherit}
 .key-original:hover{color:#fbbf24}
 .lyrics-container{background:rgba(39,39,42,.3);border:1px solid rgba(63,63,70,.3);border-radius:12px;padding:12px}
 .lyrics-line{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;line-height:1.5;color:#e4e4e7;white-space:pre-wrap}
+.word-mark.marked{text-decoration:underline;text-decoration-color:#f59e0b;text-decoration-thickness:1.5px;text-underline-offset:3px;background:rgba(245,158,11,.18);border-radius:3px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+body.mark-mode-active .word-mark{cursor:pointer;-webkit-user-select:none;user-select:none}
+body.mark-mode-active .word-mark:active{background:rgba(245,158,11,.32)}
+.personal-mark-mode-btn[aria-pressed="true"]{color:#fbbf24;background:rgba(245,158,11,.12)}
+.personal-mark-mode-btn .mark-mode-done-icon{display:none}
+.personal-mark-mode-btn[aria-pressed="true"] .mark-mode-pencil-icon{display:none}
+.personal-mark-mode-btn[aria-pressed="true"] .mark-mode-done-icon{display:block}
 .chord{color:#fbbf24;font-weight:700;background:rgba(251,191,36,.1);margin:0 1ch;padding:0 2px;border-radius:3px}
 .lyrics-section{color:#c084fc;font-weight:700;font-style:italic;font-size:.75rem;display:inline-block;margin-top:4px;padding: 0 1ch}
 .list-picker{background:rgba(39,39,42,.5);border:1px solid rgba(63,63,70,.5);border-radius:10px;padding:10px;margin-bottom:12px}

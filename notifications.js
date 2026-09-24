@@ -18,7 +18,7 @@ async function refreshCanSendNotifications() {
     if ((typeof isAdmin === 'function' && isAdmin()) || (typeof isSubAdmin === 'function' && isSubAdmin())) return;
     if (!currentUser || !supabaseReady) return;
     try {
-        const { data } = await supabaseClient.from('profiles').select('puede_notificar').eq('username', currentUser.id).maybeSingle();
+        const { data } = await supabaseClient.from('admin_users').select('puede_notificar').eq('id', currentUser.id).maybeSingle();
         notifCanSendCache = !!(data && data.puede_notificar);
     } catch (e) { console.error('refreshCanSendNotifications error:', e) }
 }
@@ -280,8 +280,8 @@ async function loadReactionDetailsForNotif(notifId) {
         const userIds = [...new Set((reactions || []).map(r => r.user_id))];
         let usersMap = {};
         if (userIds.length > 0) {
-            const { data: users } = await supabaseClient.from('profiles').select('username,nombre,apellido').in('username', userIds);
-            (users || []).forEach(u => { usersMap[u.username] = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.username; });
+            const { data: users } = await supabaseClient.from('admin_users').select('id,nombre,apellido').in('id', userIds);
+            (users || []).forEach(u => { usersMap[u.id] = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || u.id; });
         }
         (reactions || []).forEach(r => {
             if (result[r.reaction]) result[r.reaction].push(usersMap[r.user_id] || r.user_id);

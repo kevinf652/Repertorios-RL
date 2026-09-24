@@ -1,6 +1,65 @@
-const CACHE_NAME = 'repertorios-rl-v3.2483'; // ⬅️ Bump en cada deploy
+const CACHE_NAME = 'repertorios-rl-v3.249'; // ⬅️ Bump en cada deploy
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
 const AUDIO_HOST = 'repertorios-r2-api.kevinf652.workers.dev';
+const AUDIO_FILE_EXT = /\.(?:mp3|m4a|wav|ogg|oga|aac|webm|flac)$/i;
+
+function isOfflineAudioUrl(url) {
+  const isR2Audio = url.hostname === AUDIO_HOST && url.pathname.startsWith('/file/');
+  const isLegacySupabaseAudio = url.hostname.endsWith('.supabase.co') &&
+    url.pathname.startsWith('/storage/v1/object/public/') && AUDIO_FILE_EXT.test(url.pathname);
+  return isR2Audio || isLegacySupabaseAudio;
+}
+
+// Cachea siempre la representación completa, nunca la solicitud Range parcial.
+function fullAudioRequest(request) {
+  const headers = new Headers(request.headers);
+  headers.delete('range');
+  headers.delete('if-range');
+  headers.delete('if-none-match');
+  headers.delete('if-modified-since');
+  return new Request(request, { headers });
+}
+
+async function audioResponseForRange(response, rangeHeader) {
+  if (!rangeHeader || response.status !== 200) return response;
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  // Si el reproductor pide varios rangos o un formato no estándar, el 200
+  // completo sigue siendo una respuesta HTTP válida y conserva toda la copia.
+  if (!match) return response;
+
+  const blob = await response.blob();
+  const total = blob.size;
+  let start;
+  let end;
+  if (match[1] === '') {
+    const suffixLength = Number(match[2]);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return response;
+    start = Math.max(0, total - suffixLength);
+    end = total - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? total - 1 : Math.min(Number(match[2]), total - 1);
+  }
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= total || end < start) {
+    return new Response(null, {
+      status: 416,
+      headers: { 'Content-Range': 'bytes */' + total, 'Accept-Ranges': 'bytes' }
+    });
+  }
+
+  const headers = new Headers(response.headers);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Content-Range', 'bytes ' + start + '-' + end + '/' + total);
+  headers.set('Content-Length', String(end - start + 1));
+  headers.delete('Content-Encoding');
+  headers.delete('Content-MD5');
+  return new Response(blob.slice(start, end + 1), {
+    status: 206,
+    statusText: 'Partial Content',
+    headers
+  });
+}
 
 const urlsToCache = [
   './',
@@ -92,7 +151,7 @@ self.addEventListener('activate', event => {
           Promise.all(
             requests.map(req => {
               const reqUrl = new URL(req.url);
-              if (!reqUrl.pathname.startsWith('/file/')) {
+              if (!isOfflineAudioUrl(reqUrl)) {
                 return cache.delete(req);
               }
             })
@@ -113,23 +172,34 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Audios R2 → cache-first (para offline)
-  if (
-    url.hostname === AUDIO_HOST &&
-    url.pathname.startsWith('/file/') &&
-    event.request.method === 'GET'
-  ) {
-    event.respondWith(
-      caches.open(AUDIO_CACHE_NAME).then(cache =>
-        cache.match(event.request).then(cached => {
-          if (cached) return cached;
-          return fetch(event.request).then(res => {
-            if (res && res.ok) cache.put(event.request, res.clone());
-            return res;
-          });
-        })
-      )
-    );
+  // Audios → cache-first con copia completa.
+  // En la primera reproducción se ignora Range, descarga el archivo entero,
+  // espera a que quede guardado y luego responde con el segmento solicitado.
+  if (isOfflineAudioUrl(url) && event.request.method === 'GET') {
+    event.respondWith((async () => {
+      const cache = await caches.open(AUDIO_CACHE_NAME);
+      const cacheKey = fullAudioRequest(event.request);
+      const rangeHeader = event.request.headers.get('range');
+      const cached = await cache.match(cacheKey);
+      if (cached) return audioResponseForRange(cached, rangeHeader);
+
+      const networkRequest = new Request(cacheKey, { cache: 'no-store' });
+      const response = await fetch(networkRequest);
+      if (response && response.ok && response.status === 200) {
+        try {
+          // Await: al empezar a reproducirse, la copia completa ya está lista.
+          await cache.put(cacheKey, response.clone());
+        } catch (cacheError) {
+          // No bloquear la reproducción por cuota/almacenamiento; sí registrar
+          // que en este dispositivo no se pudo garantizar el uso offline.
+          console.warn('[SW] No se pudo guardar el audio offline:', cacheError);
+        }
+        return audioResponseForRange(response, rangeHeader);
+      }
+      // Si el servidor no acepta una descarga completa, se devuelve su respuesta
+      // para no ocultar errores HTTP ni guardar un 206 como si fuera el archivo.
+      return response;
+    })());
     return;
   }
 

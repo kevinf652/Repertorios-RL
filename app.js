@@ -181,6 +181,10 @@ let viewingRepSongId = null;
 let repDay = 'domingo';
 let libVocalMode = null;
 let repShowChords = true;
+let markModeActive = false;
+let markModeSongId = null;
+let markModeDay = null;
+let markModeSurface = null;
 let repCurrentKey = '';
 let repTab = 'active';
 let repHistoryMonth = '';
@@ -300,6 +304,9 @@ function showNotification(message, type) {
 
     if (type === 'success') {
         div.style.background = 'rgba(34,197,94,.9)';
+        div.style.color = '#fff';
+    } else if (type === 'info') {
+        div.style.background = 'rgba(59,130,246,.94)';
         div.style.color = '#fff';
     } else {
         div.style.background = 'rgba(248,113,113,.9)';
@@ -669,13 +676,18 @@ function normalizeVocalAudioUrl(url) {
 }
 
 // ============= SUPABASE INIT =============
-try {
-    if (window.supabase && window.supabase.createClient) {
-        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        supabaseReady = true;
-        console.log('Supabase connected');
-    }
-} catch (e) { console.error('Supabase init error:', e) }
+function initializeSupabaseClient() {
+    if (supabaseReady && supabaseClient) return true;
+    try {
+        if (window.supabase && window.supabase.createClient) {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            supabaseReady = true;
+            console.log('Supabase connected');
+        }
+    } catch (e) { console.error('Supabase init error:', e) }
+    return supabaseReady;
+}
+initializeSupabaseClient();
 
 // ============= CONEXIÓN REAL (online/offline) =============
 // Mensaje único reutilizado por todos los módulos (social.js, help.js, notifications.js)
@@ -1952,6 +1964,7 @@ function onSectionNoteInput(sourceSongId, dia, sectionName, input) {
 }
 
 function toggleVocalNotesLib(sourceSongId, dia, btnEl) {
+    if (markModeSurface === 'library') closeMarkMode();
     if (libVocalMode === dia) { libVocalMode = null } else { libVocalMode = dia }
     vocalNotesCache = {};
     renderView();
@@ -1988,6 +2001,13 @@ function stopAllAudio() {
 }
 
 // ============= VIEW AUDIO FUNCTIONS =============
+let audioOfflineHintShown = false;
+function notifyAudioOfflinePreparation() {
+    if (!isOnline || audioOfflineHintShown) return;
+    audioOfflineHintShown = true;
+    showNotification('Si aún no está guardado, el audio completo se descargará antes de empezar para poder usarlo sin conexión.', 'info');
+}
+
 function toggleViewAudio() {
     const s = songs.find(x => x.id === viewingSongId);
     if (!s || !s.audio_url) return;
@@ -2028,6 +2048,7 @@ function toggleViewAudio() {
         viewAudioEl.pause();
         viewAudioPlaying = false;
     } else {
+        notifyAudioOfflinePreparation();
         viewAudioEl.play().catch(function(e) {
             console.error('Play error:', e);
             showNotification('Error al reproducir', 'error');
@@ -2148,6 +2169,7 @@ function toggleViewAudioOriginal() {
         viewAudioOrigEl.pause();
         viewAudioOrigPlaying = false;
     } else {
+        notifyAudioOfflinePreparation();
         viewAudioOrigEl.play().catch(function(e) {
             console.error('Play error:', e);
             showNotification('Error al reproducir', 'error');
@@ -2263,6 +2285,7 @@ function toggleRepAudio() {
         repAudioEl.pause();
         repAudioPlaying = false;
     } else {
+        notifyAudioOfflinePreparation();
         repAudioEl.play().catch(function(e) {
             console.error('Play error:', e);
             showNotification('Error al reproducir', 'error');
@@ -2383,6 +2406,7 @@ function toggleRepAudioOriginal() {
         repAudioOrigEl.pause();
         repAudioOrigPlaying = false;
     } else {
+        notifyAudioOfflinePreparation();
         repAudioOrigEl.play().catch(function(e) {
             console.error('Play error:', e);
             showNotification('Error al reproducir', 'error');
@@ -2586,6 +2610,7 @@ function playVocalAudio(key, url) {
             updateVocalAudioButtons();
             return true;
         } else {
+            notifyAudioOfflinePreparation();
             vocalAudioPlayers[key].play().catch(function(e) { console.error('Resume error:', e) });
             updateVocalAudioButtons();
             return true;
@@ -2632,6 +2657,7 @@ function playVocalAudio(key, url) {
     vocalAudioPlayers[key] = audio;
     vocalAudioCurrentKey = key;
     
+    notifyAudioOfflinePreparation();
     audio.play().then(function() {
         console.log('Playing vocal audio');
         updateVocalAudioButtons();
@@ -2960,9 +2986,13 @@ logActivity('song_created', {
     if (currentUser && supabaseReady) { syncSongsToCloud() }
 }
 
-function viewSong(id) { viewingSongId = id;
+function viewSong(id) {
+    closeMarkMode();
+    libVocalMode = null;
+    viewingSongId = id;
     viewReturnTo = null;
-    showPage('view') }
+    showPage('view')
+}
 
 function editSong() {
     if (blockIfOffline()) return;
@@ -3195,7 +3225,8 @@ audioSection.innerHTML = '<div style="background:rgba(27,27,30,.4);border:1px so
                 _libLines.push(h3 + '</div>')
             } else { _libLines.push('<div class="lyrics-line">' + (t || '&nbsp;') + '</div>') }
         });
-        document.getElementById('view-lyrics').innerHTML = _libLines.join('')
+        document.getElementById('view-lyrics').innerHTML = _libLines.join('');
+        applyWordMarking('view-lyrics', _vnSrc2, libVocalMode)
     } else {
         document.getElementById('view-lyrics').innerHTML = s.lyrics.split('\n').map(line => {
             const t = semi !== 0 ? transposeLine(line, semi) : line;
@@ -3210,13 +3241,276 @@ audioSection.innerHTML = '<div style="background:rgba(27,27,30,.4);border:1px so
                 return '<div class="lyrics-line">' + _dl.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>') + '</div>'
             }
             return '<div class="lyrics-line">' + (line || '&nbsp;') + '</div>'
-        }).join('')
+        }).join('');
     }
 
     document.getElementById('view-tags').innerHTML = s.tags.map(t => '<span class="tag tag-zinc">' + esc(t) + '</span>').join('') + getSongNoteHtml(s);
 
     const editBtn = document.querySelector('#page-view .btn-icon[title="Editar"]');
     if (editBtn) editBtn.style.display = canEditSong(s) ? '' : 'none';
+    renderMarkModeUI();
+}
+
+// ============= MARCAS PERSONALES =============
+// Marcas privadas en este dispositivo, separadas por canción y día vocal.
+// El formato anterior era songId -> [índices]; se migra de forma perezosa
+// copiando esas marcas a Domingo y Lunes para que el usuario no pierda nada.
+function getPersonalMarks(songId, day) {
+    if (!songId || (day !== 'domingo' && day !== 'lunes')) return [];
+    try {
+        const all = JSON.parse(localStorage.getItem('marcas_personales') || '{}');
+        if (Array.isArray(all[songId])) {
+            const legacy = all[songId].map(String);
+            all[songId] = { domingo: legacy.slice(), lunes: legacy.slice() };
+            localStorage.setItem('marcas_personales', JSON.stringify(all));
+        }
+        const dayMarks = all[songId] && all[songId][day];
+        return Array.isArray(dayMarks) ? dayMarks : [];
+    } catch (e) { return [] }
+}
+
+function savePersonalMarks(songId, day, indices) {
+    if (!songId || (day !== 'domingo' && day !== 'lunes')) return;
+    try {
+        const all = JSON.parse(localStorage.getItem('marcas_personales') || '{}');
+        if (Array.isArray(all[songId])) {
+            const legacy = all[songId].map(String);
+            all[songId] = { domingo: legacy.slice(), lunes: legacy.slice() };
+        }
+        const current = all[songId] && typeof all[songId] === 'object' ? { ...all[songId] } : {};
+        const cleanIndices = Array.from(new Set((indices || []).map(String)));
+        if (cleanIndices.length) current[day] = cleanIndices;
+        else delete current[day];
+        const hasMarks = ['domingo', 'lunes'].some(d => Array.isArray(current[d]) && current[d].length > 0);
+        if (hasMarks) all[songId] = current;
+        else delete all[songId];
+        localStorage.setItem('marcas_personales', JSON.stringify(all));
+    } catch (e) {}
+}
+
+// Convierte palabras de la letra en objetivos táctiles. Un toque rápido cambia
+// una palabra; mantener pulsado y deslizar pinta varias sin confundir el gesto
+// normal de desplazamiento con una selección accidental.
+function applyWordMarking(containerId, songId, day) {
+    const container = document.getElementById(containerId);
+    if (!container || !songId || (day !== 'domingo' && day !== 'lunes')) return;
+    const normalizedSongId = String(songId);
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) { textNodes.push(node) }
+    let wordIdx = 0;
+    textNodes.forEach(tn => {
+        if (!tn.nodeValue || !tn.nodeValue.trim()) return;
+        const frag = document.createDocumentFragment();
+        tn.nodeValue.split(/(\s+)/).forEach(part => {
+            if (!part) return;
+            if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); return }
+            const span = document.createElement('span');
+            span.className = 'word-mark';
+            span.dataset.w = wordIdx++;
+            span.textContent = part;
+            frag.appendChild(span);
+        });
+        tn.parentNode.replaceChild(frag, tn);
+    });
+
+    const marks = new Set(getPersonalMarks(normalizedSongId, day).map(String));
+    container.querySelectorAll('.word-mark').forEach(sp => {
+        if (marks.has(sp.dataset.w)) sp.classList.add('marked');
+    });
+
+    let gesture = null;
+    function canMark() {
+        return markModeActive && markModeSongId === normalizedSongId && markModeDay === day;
+    }
+    function wordFromTarget(target) {
+        const sp = target && target.closest ? target.closest('.word-mark') : null;
+        return sp && container.contains(sp) ? sp : null;
+    }
+    function wordAtPoint(x, y) {
+        return wordFromTarget(document.elementFromPoint(x, y));
+    }
+    function paintWord(sp) {
+        if (!gesture || !canMark() || !sp) return;
+        const idx = String(sp.dataset.w);
+        if (gesture.visited.has(idx)) return;
+        gesture.visited.add(idx);
+        if (gesture.action === 'add') marks.add(idx);
+        else marks.delete(idx);
+        sp.classList.toggle('marked', marks.has(idx));
+        savePersonalMarks(normalizedSongId, day, Array.from(marks));
+    }
+    function startGesture(sp, pointerId) {
+        if (!canMark() || !sp) return;
+        const idx = String(sp.dataset.w);
+        gesture = { pointerId: pointerId, action: marks.has(idx) ? 'remove' : 'add', visited: new Set() };
+        paintWord(sp);
+    }
+    function finishGesture(pointerId) {
+        if (!gesture || (pointerId !== undefined && gesture.pointerId !== pointerId)) return;
+        gesture = null;
+    }
+
+    container.onclick = function(e) {
+        // Los clics generados por ratón/táctil ya fueron tratados por pointer/touch.
+        if (e.detail !== 0 || !canMark()) return;
+        const sp = wordFromTarget(e.target);
+        if (!sp) return;
+        startGesture(sp, 'keyboard');
+        finishGesture('keyboard');
+    };
+    container.onpointerdown = function(e) {
+        if (e.pointerType === 'touch' || e.button !== 0 || !canMark()) return;
+        const sp = wordFromTarget(e.target);
+        if (!sp) return;
+        e.preventDefault();
+        startGesture(sp, e.pointerId);
+        try { container.setPointerCapture(e.pointerId) } catch (err) {}
+    };
+    container.onpointermove = function(e) {
+        if (!gesture || gesture.pointerId !== e.pointerId || e.pointerType === 'touch') return;
+        e.preventDefault();
+        paintWord(wordAtPoint(e.clientX, e.clientY));
+    };
+    container.onpointerup = function(e) {
+        if (!gesture || gesture.pointerId !== e.pointerId || e.pointerType === 'touch') return;
+        finishGesture(e.pointerId);
+        try { if (container.hasPointerCapture(e.pointerId)) container.releasePointerCapture(e.pointerId) } catch (err) {}
+    };
+    container.onpointercancel = function(e) { finishGesture(e.pointerId) };
+
+    const oldTouchHandlers = container._personalMarkTouchHandlers;
+    if (oldTouchHandlers) {
+        container.removeEventListener('touchstart', oldTouchHandlers.start);
+        container.removeEventListener('touchmove', oldTouchHandlers.move);
+        container.removeEventListener('touchend', oldTouchHandlers.end);
+        container.removeEventListener('touchcancel', oldTouchHandlers.end);
+    }
+    let touchState = null;
+    let touchTimer = null;
+    function clearTouchTimer() {
+        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null }
+    }
+    function findTouch(touchList, identifier) {
+        for (let i = 0; i < touchList.length; i++) if (touchList[i].identifier === identifier) return touchList[i];
+        return null;
+    }
+    const touchHandlers = {
+        start: function(e) {
+            if (!canMark() || !e.changedTouches.length) return;
+            const touch = e.changedTouches[0];
+            const sp = wordFromTarget(e.target);
+            if (!sp) return;
+            clearTouchTimer();
+            touchState = { id: touch.identifier, x: touch.clientX, y: touch.clientY, word: sp, moved: false, painting: false };
+            touchTimer = setTimeout(function() {
+                if (!touchState || touchState.moved || !canMark()) return;
+                touchState.painting = true;
+                startGesture(touchState.word, 'touch-' + touchState.id);
+            }, 320);
+        },
+        move: function(e) {
+            if (!touchState) return;
+            const touch = findTouch(e.touches, touchState.id);
+            if (!touch) return;
+            const distance = Math.hypot(touch.clientX - touchState.x, touch.clientY - touchState.y);
+            if (!touchState.painting && distance > 9) {
+                touchState.moved = true;
+                clearTouchTimer();
+                return; // Un gesto rápido sigue siendo desplazamiento de la letra.
+            }
+            if (touchState.painting) {
+                if (e.cancelable) e.preventDefault();
+                paintWord(wordAtPoint(touch.clientX, touch.clientY));
+            }
+        },
+        end: function(e) {
+            if (!touchState) return;
+            const pointerId = 'touch-' + touchState.id;
+            clearTouchTimer();
+            if (touchState.painting) finishGesture(pointerId);
+            else if (!touchState.moved && canMark()) {
+                startGesture(touchState.word, pointerId);
+                finishGesture(pointerId);
+            }
+            touchState = null;
+        }
+    };
+    container.addEventListener('touchstart', touchHandlers.start, { passive: true });
+    container.addEventListener('touchmove', touchHandlers.move, { passive: false });
+    container.addEventListener('touchend', touchHandlers.end, { passive: true });
+    container.addEventListener('touchcancel', touchHandlers.end, { passive: true });
+    container._personalMarkTouchHandlers = touchHandlers;
+}
+
+function updateMarkModeButton(button, visible, active, day) {
+    if (!button) return;
+    button.style.display = visible ? '' : 'none';
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    const dayLabel = day === 'lunes' ? 'Lunes' : 'Domingo';
+    const action = active ? 'Listo' : 'Marcar';
+    const label = button.querySelector('.hide-mobile');
+    if (label) label.textContent = action;
+    const accessibleLabel = active ? 'Terminar marcado · ' + dayLabel : 'Marcar palabras · ' + dayLabel;
+    button.setAttribute('aria-label', accessibleLabel);
+    button.title = accessibleLabel;
+}
+
+function renderMarkModeUI() {
+    document.body.classList.toggle('mark-mode-active', markModeActive);
+
+    const libSong = songs.find(x => x.id === viewingSongId);
+    const libSongId = libSong ? String(libSong.sourceId || libSong.id) : '';
+    const libButton = document.getElementById('lib-mark-mode-btn');
+    const libVisible = !!(libSongId && libVocalMode);
+    const libActive = markModeActive && markModeSurface === 'library' && markModeSongId === libSongId && markModeDay === libVocalMode;
+    updateMarkModeButton(libButton, libVisible, libActive, libVocalMode);
+
+    const rep = repertorios.find(x => x.id === viewingRepId);
+    const repSong = rep ? rep.canciones.find(x => x.id === viewingRepSongId) : null;
+    const repSongId = repSong ? String(repSong.source_song_id || viewingRepSongId) : '';
+    const repButton = document.getElementById('rep-mark-mode-btn');
+    const validRepDay = repDay === 'domingo' || repDay === 'lunes';
+    const repVisible = !!(repSongId && validRepDay && !repShowChords);
+    const repActive = markModeActive && markModeSurface === 'repertorio' && markModeSongId === repSongId && markModeDay === repDay;
+    updateMarkModeButton(repButton, repVisible, repActive, repDay);
+}
+
+function closeMarkMode() {
+    markModeActive = false;
+    markModeSongId = null;
+    markModeDay = null;
+    markModeSurface = null;
+    renderMarkModeUI();
+}
+
+function togglePersonalMarkMode(songId, day, surface) {
+    if (!songId || (day !== 'domingo' && day !== 'lunes')) return;
+    const normalizedSongId = String(songId);
+    if (markModeActive && markModeSongId === normalizedSongId && markModeDay === day && markModeSurface === surface) {
+        closeMarkMode();
+        return;
+    }
+    markModeActive = true;
+    markModeSongId = normalizedSongId;
+    markModeDay = day;
+    markModeSurface = surface;
+    renderMarkModeUI();
+}
+
+function toggleMarkModeLib() {
+    const s = songs.find(x => x.id === viewingSongId);
+    if (!s || !libVocalMode) return;
+    togglePersonalMarkMode(s.sourceId || s.id, libVocalMode, 'library');
+}
+
+function toggleMarkModeRep() {
+    const r = repertorios.find(x => x.id === viewingRepId);
+    const s = r ? r.canciones.find(x => x.id === viewingRepSongId) : null;
+    if (!s) return;
+    const srcId = s.source_song_id || viewingRepSongId;
+    togglePersonalMarkMode(srcId, repDay, 'repertorio');
 }
 
 function changeKey(delta) {
@@ -3845,10 +4139,14 @@ function listNav(dir) {
     if (!l) return;
     const listSongs = l.songIds.map(sid => songs.find(s => s.id === sid)).filter(Boolean);
     const newIdx = listNavIndex + dir;
-    if (newIdx >= 0 && newIdx < listSongs.length) { listNavIndex = newIdx;
+    if (newIdx >= 0 && newIdx < listSongs.length) {
+        closeMarkMode();
+        libVocalMode = null;
+        listNavIndex = newIdx;
         viewingSongId = listSongs[newIdx].id;
         viewReturnTo = 'listview';
-        showPage('view') }
+        showPage('view')
+    }
 }
 
 function viewNav(dir) { listNav(dir) }
@@ -3856,6 +4154,8 @@ function viewNav(dir) { listNav(dir) }
 function viewSongFromList(id) {
     const l = lists.find(x => x.id === viewingListId);
     if (l) { listNavIndex = l.songIds.indexOf(id); if (listNavIndex === -1) listNavIndex = 0 }
+    closeMarkMode();
+    libVocalMode = null;
     viewingSongId = id;
     viewReturnTo = 'listview';
     showPage('view')
@@ -4482,6 +4782,7 @@ function viewRepertorio(id) {
 }
 
 function switchRepDay(day) {
+    if (repDay !== day && markModeSurface === 'repertorio') closeMarkMode();
     repDay = day;
     save('cb_rep_day_' + viewingRepId, day);
     renderRepertorioView()
@@ -4666,6 +4967,7 @@ async function commitRepDragOrder(draggedId, afterNeighborId) {
 
 function viewRepSong(rid, sid) {
     stopAllAudio();
+    closeMarkMode();
     viewingRepId = rid;
     viewingRepSongId = sid;
     repShowChords = true;
@@ -4713,6 +5015,7 @@ function collapseHintHtml(collapsed) {
 
 function setRepSongView(showChords) {
     repShowChords = showChords;
+    if (showChords && markModeActive && markModeSurface === 'repertorio') closeMarkMode();
     document.getElementById('toggle-lyrics').className = showChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = showChords ? 'active' : 'inactive';
     document.getElementById('rep-song-key').style.display = showChords ? '' : 'none';
@@ -5003,6 +5306,8 @@ async function renderRepSongLyrics() {
                     if (srcId && canEditVocals()) {
                         h2 += '<span class="section-note-wrap"><input class="section-note-input" value="' + noteVal + '" placeholder="nota..." oninput="onSectionNoteInput(\'' + srcId + '\',\'' + repDay + '\',\'' + noteKey.replace(/'/g, "\\'") + '\',this)"><span class="section-note-status"></span></span>'
                     } else if (sectionNotes[noteKey]) { h2 += '<span class="section-note-display">' + esc(sectionNotes[noteKey]) + '</span>' }
+                } else {
+                    h2 += stripped.replace(/\s*\{\d+\}/g, '');
                 }
                 lyricsHtml += h2 + '</div>'
             } else if (/\(([^)]+)\)/.test(t2)) {
@@ -5023,8 +5328,10 @@ async function renderRepSongLyrics() {
             }
         });
         lyricsHtml += getSongNoteHtml(s);
-        c.innerHTML = lyricsHtml
+        c.innerHTML = lyricsHtml;
+        applyWordMarking('rep-song-lyrics', srcId, repDay);
     }
+    renderMarkModeUI();
 }
 
 function repSongNav(dir) {
@@ -5033,6 +5340,7 @@ function repSongNav(dir) {
     const songsForDay = r.canciones.filter(s => s.dia === 'ambos' || s.dia === repDay).sort((a, b) => a.orden - b.orden);
     const newIdx = repSongNavIndex + dir;
     if (newIdx >= 0 && newIdx < songsForDay.length) {
+        closeMarkMode();
         stopAllAudio();
         repSongNavIndex = newIdx;
         viewingRepSongId = songsForDay[newIdx].id;
@@ -5604,6 +5912,12 @@ function attachNotifBellToActiveHeader() {
 
 function showPage(name) {
     if (name === 'add' && blockIfOffline()) return;
+    const previousPage = document.querySelector('.page.active');
+    if (previousPage && previousPage.id === 'page-view' && name !== 'view') {
+        if (markModeSurface === 'library') closeMarkMode();
+        libVocalMode = null;
+    }
+    if (previousPage && previousPage.id === 'page-rep-song' && name !== 'rep-song' && markModeSurface === 'repertorio') closeMarkMode();
     stopAllAudio();
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -5622,6 +5936,7 @@ function showPage(name) {
     if (name === 'view') renderView();
     if (name === 'listview') renderListView();
     attachNotifBellToActiveHeader();
+    renderMarkModeUI();
 }
 
 // ============= SEARCH =============
@@ -5648,15 +5963,22 @@ document.getElementById('vocal-audio-upload-input').addEventListener('change', h
 showConnectionStatus();
 attachNotifBellToActiveHeader();
 
-// ✅ Inicializar auth después de que Supabase esté listo
-if (supabaseReady) {
-    initAuth();
-} else {
-    // Esperar a que Supabase esté listo
+// ✅ Restaurar siempre la identidad local primero. El SDK de Supabase se carga
+// desde una CDN y puede no estar disponible al abrir la PWA sin conexión.
+// La sesión local permite consultar la copia almacenada; las operaciones remotas
+// siguen dependiendo de conexión y autenticación válidas.
+initAuth();
+if (!supabaseReady) {
+    let supabaseInitAttempts = 0;
     const checkSupabase = setInterval(() => {
-        if (supabaseReady) {
+        supabaseInitAttempts++;
+        if (initializeSupabaseClient()) {
             clearInterval(checkSupabase);
+            // Reintenta la inicialización ahora que el SDK está disponible;
+            // initAuth conserva la identidad local si no se puede validar en nube.
             initAuth();
+        } else if (supabaseInitAttempts >= 120) {
+            clearInterval(checkSupabase);
         }
     }, 500);
 }
