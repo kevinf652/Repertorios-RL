@@ -67,7 +67,7 @@ function checkGuestLock() {
 // ============= REGISTRO DE INVITADOS (panel Admin > Invitados) =============
 // Identificador anónimo por navegador/dispositivo — NO es una cuenta, es solo
 // "alguien está usando la app sin cuenta desde este navegador". Se guarda en
-// guest_sessions (tabla aparte, nunca se mezcla con admin_users/profiles).
+// guest_sessions (tabla aparte, nunca se mezcla con los perfiles).
 const GUEST_UUID_KEY = 'cb_guest_uuid';
 const GUEST_LAST_SYNC_KEY = 'cb_guest_last_sync';
 

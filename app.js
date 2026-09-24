@@ -24,11 +24,9 @@ async function r2Fetch(url, options) {
     return fetch(url, options);
 }
 
-// ============= FASE 4 (EN PRUEBA) — interruptor de Supabase Auth =============
-// Mientras esto sea false, TODO funciona exactamente igual que hoy (login
-// contra admin_users, sin cambios). Ponlo en true SOLO en tu copia local para
-// probarlo primero con tus cuentas Admin y Pruebas, antes de subirlo así a
-// producción para los 26 usuarios.
+// ============= AUTENTICACIÓN =============
+// Supabase Auth es el único método de acceso. Los datos del perfil se leen de
+// profiles; no hay fallback a tablas de usuarios heredadas.
 const USE_SUPABASE_AUTH = true;
 const AUTH_EMAIL_DOMAIN = 'repertoriosrl.invalid';
 
@@ -1136,36 +1134,34 @@ function setupRealtimeSubscriptions() {
     }
 
     // Para que un cambio de rol hecho por Admin se aplique sin que el usuario
-    // tenga que cerrar sesión: se escucha en vivo su propia fila.
-    // OJO: antes esto escuchaba 'admin_users', pero esa tabla tiene RLS activo
-    // desde antes de la migración a Auth (con políticas viejas que no conocen
-    // auth.uid()) — Postgres Realtime respeta RLS, así que el evento nunca
-    // llegaba aunque el UPDATE sí se guardara. 'profiles' ya funciona bien con
-    // el modelo de Auth (se usa para login y para verifyCurrentUserRole), así
-    // que escuchamos ahí en su lugar quedando filtrado por el UUID de Auth.
+    // tenga que cerrar sesión, se escucha su propia fila en profiles. Si no se
+    // puede recuperar el UUID de Auth, se conserva el rol local.
     if (currentUser && currentUser.id && !_userRoleChannelActive) {
-        _userRoleChannelActive = true;
-        const roleTable = (USE_SUPABASE_AUTH && currentUser._authUid) ? 'profiles' : 'admin_users';
-        const roleFilterId = (USE_SUPABASE_AUTH && currentUser._authUid) ? currentUser._authUid : currentUser.id;
-        supabaseClient.channel('user-role-changes')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: roleTable, filter: 'id=eq.' + roleFilterId }, function(payload) {
-                const newRole = payload.new && payload.new.role;
-                if (!newRole || newRole === userRole) return;
-                console.log('Realtime role change:', userRole, '->', newRole);
-                userRole = newRole;
-                currentUser.role = newRole;
-                repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
-                localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
-                updateUserUI();
-                showNotification('Tu rol fue actualizado', 'success');
-                // Refresca la página visible por si cambian los botones/permisos en ella
-                const activeId = (document.querySelector('.page.active') || {}).id;
-                if (activeId === 'page-library') renderLibrary();
-                else if (activeId === 'page-repertorios') renderRepertorios();
-                else if (activeId === 'page-repertorio') renderRepertorioView();
-                else if (activeId === 'page-rep-song') renderRepSongView();
-            })
-            .subscribe();
+        const roleUserId = currentUser.id;
+        const subscribeToRoleChanges = function(roleTable, roleFilterId) {
+            if (!roleFilterId || !currentUser || currentUser.id !== roleUserId || _userRoleChannelActive) return;
+            _userRoleChannelActive = true;
+            supabaseClient.channel('user-role-changes')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: roleTable, filter: 'id=eq.' + roleFilterId }, function(payload) {
+                    const newRole = payload.new && payload.new.role;
+                    if (!newRole || newRole === userRole) return;
+                    console.log('Realtime role change:', userRole, '->', newRole);
+                    userRole = newRole;
+                    currentUser.role = newRole;
+                    repAdmin = (userRole === 'admin' || userRole === 'SubAdmin');
+                    localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
+                    updateUserUI();
+                    showNotification('Tu rol fue actualizado', 'success');
+                    const activeId = (document.querySelector('.page.active') || {}).id;
+                    if (activeId === 'page-library') renderLibrary();
+                    else if (activeId === 'page-repertorios') renderRepertorios();
+                    else if (activeId === 'page-repertorio') renderRepertorioView();
+                    else if (activeId === 'page-rep-song') renderRepSongView();
+                })
+                .subscribe();
+        };
+
+        getCurrentAuthUid().then(authUid => subscribeToRoleChanges('profiles', authUid));
     }
 
     console.log('Realtime subscriptions active');
@@ -1183,21 +1179,45 @@ function canEditVocals() { return isOnline && (isAdmin() || isDVoces() || isSubA
 function canUploadAudio() { return isOnline && (isAdmin() || isSubAdmin()) }
 function canManageReps() { return isOnline && (isAdmin() || isSubAdmin()) }
 
-// Verificación puntual (una sola vez por carga) del rol real en la base de datos,
-// para que un cambio de rol se refleje al recargar la app sin tener que cerrar sesión.
+async function getCurrentAuthUid() {
+    if (!USE_SUPABASE_AUTH || !supabaseClient || !currentUser) return null;
+    if (currentUser._authUid) return currentUser._authUid;
+
+    const localUsername = String(currentUser.id || '').toLowerCase();
+    if (!localUsername) return null;
+    try {
+        const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+        const authUid = sessionData && sessionData.session && sessionData.session.user
+            ? sessionData.session.user.id
+            : null;
+        if (sessionError || !authUid) return null;
+
+        // No asociar por accidente una sesión de Auth con otra cuenta local.
+        const { data: profile, error: profileError } = await supabaseClient
+            .from('profiles').select('username').eq('id', authUid).single();
+        if (profileError || !profile || String(profile.username || '').toLowerCase() !== localUsername) return null;
+        if (!currentUser || String(currentUser.id || '').toLowerCase() !== localUsername) return null;
+
+        currentUser._authUid = authUid;
+        localStorage.setItem('rl_current_user', JSON.stringify(currentUser));
+        return authUid;
+    } catch (e) {
+        console.warn('No se pudo recuperar el UUID de Auth; se conserva el perfil local:', e.message);
+        return null;
+    }
+}
+
+// Verificación puntual del rol real en profiles. Si falta el UUID de Auth,
+// se conserva el rol local sin consultar otra fuente.
 async function verifyCurrentUserRole() {
     if (!currentUser || !currentUser.id || !supabaseReady) return;
     try {
         let freshRole;
-        if (USE_SUPABASE_AUTH && currentUser._authUid) {
-            const { data, error } = await supabaseClient.from('profiles').select('role').eq('id', currentUser._authUid).single();
-            if (error || !data) return;
-            freshRole = data.role || 'usuario';
-        } else {
-            const { data, error } = await supabaseClient.from('admin_users').select('role').eq('id', currentUser.id).single();
-            if (error || !data) return;
-            freshRole = data.role || 'usuario';
-        }
+        const authUid = await getCurrentAuthUid();
+        if (!authUid) return;
+        const { data, error } = await supabaseClient.from('profiles').select('role').eq('id', authUid).single();
+        if (error || !data) return;
+        freshRole = data.role || 'usuario';
         if (freshRole === userRole) return;
         console.log('Rol actualizado al cargar la app:', userRole, '->', freshRole);
         userRole = freshRole;
@@ -1397,22 +1417,13 @@ async function handleLogin(e) {
     if (!username || !password) { showAuthError('Por favor completa todos los campos'); return }
     if (!isOnline || !supabaseReady) { showAuthError('Sin conexión a internet. No se puede iniciar sesión.'); return }
     try {
-        let data;
-        let authUid = null;
-
-        if (USE_SUPABASE_AUTH) {
-            const email = usernameToAuthEmail(username);
-            const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({ email: email, password: password });
-            if (authError || !authData || !authData.user) { showAuthError('Usuario o contraseña incorrectos'); return }
-            const profile = await loadProfileByAuthUid(authData.user.id);
-            if (!profile) { showAuthError('No se encontró tu perfil. Contacta al administrador.'); return }
-            authUid = authData.user.id;
-            data = { id: profile.username, nombre: profile.nombre, apellido: profile.apellido, role: profile.role };
-        } else {
-            const { data: rowData, error } = await supabaseClient.from('admin_users').select('*').eq('id', username.toLowerCase()).eq('password_hash', password).single();
-            if (error || !rowData) { showAuthError('Usuario o contraseña incorrectos'); return }
-            data = rowData;
-        }
+        const email = usernameToAuthEmail(username);
+        const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({ email: email, password: password });
+        if (authError || !authData || !authData.user) { showAuthError('Usuario o contraseña incorrectos'); return }
+        const profile = await loadProfileByAuthUid(authData.user.id);
+        if (!profile) { showAuthError('No se encontró tu perfil. Contacta al administrador.'); return }
+        const authUid = authData.user.id;
+        const data = { id: profile.username, nombre: profile.nombre, apellido: profile.apellido, role: profile.role };
 
         // Guardar el estado anterior solo para permitir la migración inicial de
         // una biblioteca local antigua. Si ya conocemos su propietario, nunca
@@ -1508,67 +1519,40 @@ async function handleRegister(e) {
         const { data: existingAdmin } = await supabaseClient.from('profiles').select('username').eq('username', username).maybeSingle();
         if (existingAdmin) { showAuthError('Este usuario ya está registrado'); return }
 
-        if (USE_SUPABASE_AUTH) {
-            const email = usernameToAuthEmail(username);
-            const { data: authData, error: authError } = await supabaseClient.auth.signUp({
-                email: email,
-                password: password,
-                options: {
-                    data: { username: username, nombre: nombre, apellido: apellido }
-                }
-            });
-            if (authError) {
-                const msg = (authError.message || '').toLowerCase();
-                if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
-                    showAuthError('Este usuario ya está registrado');
-                    return;
-                }
-                throw authError;
+        const email = usernameToAuthEmail(username);
+        const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+                data: { username: username, nombre: nombre, apellido: apellido }
             }
-            const authUser = authData && authData.user;
-            if (!authUser) { showAuthError('No se pudo crear la cuenta. Intenta de nuevo.'); return }
+        });
+        if (authError) {
+            const msg = (authError.message || '').toLowerCase();
+            if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+                showAuthError('Este usuario ya está registrado');
+                return;
+            }
+            throw authError;
+        }
+        const authUser = authData && authData.user;
+        if (!authUser) { showAuthError('No se pudo crear la cuenta. Intenta de nuevo.'); return }
 
-            // El trigger handle_new_user suele crear el perfil. Esto completa o
-            // cubre el caso si el SQL aún no se corrió (hace falta la política de INSERT).
-            const { error: profileError } = await supabaseClient.from('profiles').upsert({
-                id: authUser.id,
-                username: username,
-                role: 'usuario',
-                nombre: nombre,
-                apellido: apellido,
-                admin_users_id: username
-            }, { onConflict: 'id' });
-            if (profileError) {
-                console.warn('Perfil no se pudo guardar desde la app:', profileError.message);
-            }
+        // El trigger puede crear el perfil; el upsert completa sus datos usando
+        // solo la tabla canónica de perfiles.
+        const { error: profileError } = await supabaseClient.from('profiles').upsert({
+            id: authUser.id,
+            username: username,
+            role: 'usuario',
+            nombre: nombre,
+            apellido: apellido
+        }, { onConflict: 'id' });
+        if (profileError) {
+            console.warn('Perfil no se pudo completar en profiles:', profileError.message);
+        }
 
-            // Tabla vieja: el panel admin / social / last_login todavía la usan.
-            // La contraseña ya no se guarda aquí; Auth es la fuente de verdad.
-            const { error: adminError } = await supabaseClient.from('admin_users').insert({
-                id: username,
-                nombre: nombre,
-                apellido: apellido,
-                password_hash: '',
-                role: 'usuario',
-                created_at: Date.now()
-            });
-            if (adminError && adminError.code !== '23505') {
-                console.warn('admin_users no se pudo crear:', adminError.message);
-            }
-
-            if (authData.session) {
-                await supabaseClient.auth.signOut().catch(function() {});
-            }
-        } else {
-            const { error } = await supabaseClient.from('admin_users').insert({
-                id: username,
-                nombre: nombre,
-                apellido: apellido,
-                password_hash: password,
-                role: 'usuario',
-                created_at: Date.now()
-            });
-            if (error) throw error;
+        if (authData.session) {
+            await supabaseClient.auth.signOut().catch(function() {});
         }
 
         showAuthSuccess('¡Cuenta creada! Ahora puedes iniciar sesión.');
@@ -1636,26 +1620,15 @@ async function handleChangePassword(e) {
         return;
     }
     try {
-        if (USE_SUPABASE_AUTH) {
-            const email = usernameToAuthEmail(currentUser.id);
-            const { error: verifyError } = await supabaseClient.auth.signInWithPassword({ email: email, password: oldPass });
-            if (verifyError) {
-                document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
-                document.getElementById('cp-error').classList.add('show');
-                return;
-            }
-            const { error: updateError } = await supabaseClient.auth.updateUser({ password: newPass });
-            if (updateError) throw updateError;
-        } else {
-            const { data, error } = await supabaseClient.from('admin_users').select('id').eq('id', currentUser.id).eq('password_hash', oldPass).single();
-            if (error || !data) {
-                document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
-                document.getElementById('cp-error').classList.add('show');
-                return;
-            }
-            const { error: updateError } = await supabaseClient.from('admin_users').update({ password_hash: newPass }).eq('id', currentUser.id);
-            if (updateError) throw updateError;
+        const email = usernameToAuthEmail(currentUser.id);
+        const { error: verifyError } = await supabaseClient.auth.signInWithPassword({ email: email, password: oldPass });
+        if (verifyError) {
+            document.getElementById('cp-error').textContent = 'La contraseña actual es incorrecta';
+            document.getElementById('cp-error').classList.add('show');
+            return;
         }
+        const { error: updateError } = await supabaseClient.auth.updateUser({ password: newPass });
+        if (updateError) throw updateError;
         document.getElementById('cp-success').textContent = '¡Contraseña actualizada!';
         document.getElementById('cp-success').classList.add('show');
         document.getElementById('cp-error').classList.remove('show');

@@ -55,12 +55,16 @@ async function loadSocialUsersData(force) {
     if (socialUsersCache && !force) return socialUsersCache;
     if (!supabaseReady) return [];
     try {
-        const { data: users, error } = await supabaseClient.from('admin_users').select('id,nombre,apellido').order('nombre', { ascending: true });
-        if (error || !users) return [];
+        const { data: profileRows, error } = await supabaseClient.from('profiles')
+            .select('username,nombre,apellido')
+            .order('nombre', { ascending: true });
+        if (error || !profileRows) return [];
         const { data: profiles } = await supabaseClient.from('social_profiles').select('*');
         const profileMap = {};
         (profiles || []).forEach(p => { profileMap[p.user_id] = p });
-        socialUsersCache = users.map(u => Object.assign({}, u, { profile: profileMap[u.id] || {} }));
+        socialUsersCache = profileRows
+            .filter(profile => profile.username)
+            .map(profile => Object.assign({}, profile, { id: profile.username, profile: profileMap[profile.username] || {} }));
         return socialUsersCache;
     } catch (e) {
         console.error('loadSocialUsersData error:', e);
