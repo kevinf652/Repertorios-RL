@@ -397,18 +397,16 @@ async function deleteAdminUser(userId) {
     if (!confirm('Confírmalo una vez más: no hay forma de recuperar esto después. ¿Continuar?')) return;
     try {
         // Primero eliminar de Supabase Auth usando la Edge Function
-        if (USE_SUPABASE_AUTH) {
-            const { data: sessionData } = await supabaseClient.auth.getSession();
-            const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
-            if (!token) throw new Error('No hay sesión activa');
-            const res = await fetch(SUPABASE_URL + '/functions/v1/delete-user-from-auth', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ targetUsername: userId })
-            });
-            const result = await res.json();
-            if (!res.ok || result.error) throw new Error(result.error || 'Error al eliminar de Auth');
-        }
+        const { data: sessionData } = await supabaseClient.auth.getSession();
+        const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+        if (!token) throw new Error('No hay sesión activa');
+        const res = await fetch(SUPABASE_URL + '/functions/v1/delete-user-from-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ targetUsername: userId })
+        });
+        const result = await res.json();
+        if (!res.ok || result.error) throw new Error(result.error || 'Error al eliminar de Auth');
 
         // Luego eliminar de las tablas de la base de datos
         await supabaseClient.from('Biblioteca_general').delete().eq('user_id', userId);
@@ -687,19 +685,6 @@ async function adminDeleteDuplicateCopy(songId, title) {
 }
 
 // ---------- Duplicados en Almacenamiento R2 (solo storage, no toca tablas) ----------
-
-// Helper: Normalizar key de R2 quitando el timestamp del nombre de archivo
-// Ej: "vocal-audios/1787610144649-msvv4vx9bre1d0n1b_coro3_lunes.mp3" → "msvv4vx9bre1d0n1b_coro3_lunes.mp3"
-function normalizeVocalKey(key) {
-    if (!key) return '';
-    const parts = key.split('/');
-    const filename = parts[parts.length - 1] || '';
-    // Quitar timestamp tipo "1787610144649-" del inicio del nombre
-    const normalized = filename.replace(/^\d{13}-/, '');
-    // Reconstruir con la carpeta
-    parts[parts.length - 1] = normalized;
-    return parts.join('/');
-}
 
 function extractDuplicateGroupKey(key) {
     const isVocal = key.includes('vocal-audios');
@@ -1402,10 +1387,6 @@ function parseSongKeyInfo(key) {
         return { songId: base.slice(0, -'_cancion'.length), tipo: 'cancion' };
     }
     return { songId: base, tipo: 'secuencia' };
-}
-
-function parseSongIdFromKey(key) {
-    return parseSongKeyInfo(key).songId;
 }
 
 async function adminDeleteStorageAudio(key) {

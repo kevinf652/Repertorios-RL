@@ -123,33 +123,62 @@ function setupGuestPresenceChannel() {
     if (typeof setupPresenceChannel === 'function') setupPresenceChannel();
 }
 
-// Cuando ese mismo navegador termina logueándose (registro nuevo o cuenta
-// existente), se marca su fila de guest_sessions como "convertida" — no se
-// borra sola, el Admin decide cuándo borrarla desde el panel.
+// Cuando ese mismo navegador termina logueándose, se marca la fila de guest_sessions
+// mediante una RPC autenticada. La RPC obtiene auth.uid() y el nombre del perfil
+// en el servidor; el navegador solo entrega el UUID anónimo guardado localmente.
 let _guestConversionChecked = false;
 async function checkGuestConversion() {
     if (_guestConversionChecked || !currentUser || !supabaseReady || !supabaseClient) return;
-    const id = localStorage.getItem(GUEST_UUID_KEY);
-    if (!id) { _guestConversionChecked = true; return; }
-    _guestConversionChecked = true;
-    const nombre = currentUser.nombre ? (currentUser.nombre + ' ' + (currentUser.apellido || '')).trim() : (currentUser.id || '');
-    try {
-        const { error } = await supabaseClient
-            .from('guest_sessions')
-            .update({ registered_user_id: currentUser.id, registered_name: nombre, registered_at: Date.now() })
-            .eq('id', id);
-        if (error) console.warn('[Guest] No se pudo marcar la conversión:', error.message);
-    } catch (e) { console.warn('[Guest] Error marcando conversión:', e.message); }
-}
 
+    const id = localStorage.getItem(GUEST_UUID_KEY); // 'cb_guest_uuid'
+    if (!id) {
+        _guestConversionChecked = true;
+        return;
+    }
+
+    _guestConversionChecked = true;
+
+    try {
+        const { data: converted, error } = await supabaseClient.rpc(
+            'mark_guest_session_registered',
+            { p_id: id }
+        );
+
+        if (error) {
+            console.warn('[Guest] No se pudo marcar la conversión en BD:', error.message);
+            _guestConversionChecked = false; // Permitir reintento
+            return;
+        }
+
+        if (converted !== true) {
+            console.warn('[Guest] La RPC no encontró una sesión elegible para convertir:', id);
+            _guestConversionChecked = false; // Permitir reintento
+            return;
+        }
+
+        console.log('[Guest] Conversión exitosa en la base de datos.');
+        // Refrescar el panel de administración si está abierto
+        if (typeof renderAdminInvitados === 'function') renderAdminInvitados();
+    } catch (e) {
+        console.warn('[Guest] Error marcando la conversión:', e.message);
+        _guestConversionChecked = false;
+    }
+}
 // ---------- Enganches sin tocar los demás archivos ----------
 if (typeof updateUserUI === 'function') {
     const _guestLockOriginalUpdateUserUI = updateUserUI;
     updateUserUI = function() {
         _guestLockOriginalUpdateUserUI();
         checkGuestLock();
-        if (!currentUser) { upsertGuestSession(); setupGuestPresenceChannel() }
-        else { checkGuestConversion() }
+        
+        if (!currentUser) { 
+            _guestConversionChecked = false; // Resetear bandera al quedar en modo invitado o hacer logout
+            upsertGuestSession(); 
+            setupGuestPresenceChannel();
+        } else { 
+            checkGuestConversion();
+            if (typeof setupPresenceChannel === 'function') setupPresenceChannel(); // Conectar presencia como usuario
+        }
     };
 }
 
@@ -161,5 +190,10 @@ setInterval(function() { if (!currentUser) upsertGuestSession() }, 300000);
 // Revisión al cargar la app (currentUser ya está restaurado por app.js en este punto)
 checkGuestLock();
 setTimeout(function() {
-    if (!currentUser) { upsertGuestSession(); setupGuestPresenceChannel() }
+    if (!currentUser) { 
+        upsertGuestSession(); 
+        setupGuestPresenceChannel();
+    } else {
+        checkGuestConversion();
+    }
 }, 2000);

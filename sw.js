@@ -1,5 +1,8 @@
-const CACHE_NAME = 'repertorios-rl-v3.250'; // ⬅️ Bump en cada deploy
+const CACHE_NAME = 'repertorios-rl-v3.2513'; // ⬅️ Bump en cada deploy
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
+// Si hay copia en caché y la red no responde en este tiempo, se sirve la copia
+// (señal débil / "lie-fi": hay barras pero la petición queda colgada).
+const NETWORK_TIMEOUT_MS = 2000;
 const AUDIO_HOST = 'repertorios-r2-api.kevinf652.workers.dev';
 const AUDIO_FILE_EXT = /\.(?:mp3|m4a|wav|ogg|oga|aac|webm|flac)$/i;
 
@@ -203,33 +206,38 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Solo GET del mismo origen → network-first con fallback a caché
+  // Solo GET del mismo origen → network-first con timeout y fallback a caché
   if (event.request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
 
+  const isNav = event.request.mode === 'navigate';
   const networkRequest = isAppShellRequest(url, event.request)
     ? freshNetworkRequest(event.request)
     : event.request;
 
-  event.respondWith(
-    fetch(networkRequest)
-      .then(res => {
-        // Guarda/actualiza copia en caché
-        if (res && res.ok) {
-          const resClone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, resClone));
-        }
-        return res;
-      })
-      .catch(() =>
-        // Sin red → tira del caché
-        caches.match(event.request).then(cached => {
-          if (cached) return cached;
-          // Fallback final: index.html para navegaciones
-          if (event.request.mode === 'navigate') {
-            return caches.match('./index.html');
-          }
-        })
-      )
-  );
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // En navegaciones se ignora el query string (?v=..., utm, etc.) para que
+    // siempre coincida con la copia guardada.
+    let cached = await cache.match(event.request, { ignoreSearch: isNav });
+    if (!cached && isNav) cached = await cache.match('./index.html', { ignoreSearch: true });
+
+    // La petición a red sigue su curso aunque se gane el timeout, así la
+    // caché se actualiza para la próxima vez.
+    const networkPromise = fetch(networkRequest).then(res => {
+      if (res && res.ok) cache.put(event.request, res.clone());
+      return res;
+    });
+
+    // Sin copia local (primera carga): no hay alternativa, se espera a la red.
+    if (!cached) return networkPromise;
+
+    event.waitUntil(networkPromise.catch(() => {}));
+    const timeout = new Promise(resolve => setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS));
+    try {
+      const res = await Promise.race([networkPromise, timeout]);
+      if (res) return res;      // la red respondió a tiempo → versión más nueva
+    } catch (e) { /* sin red → cae a caché */ }
+    return cached;              // offline o red colgada → copia guardada
+  })());
 });

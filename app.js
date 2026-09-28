@@ -2,13 +2,6 @@ const SUPABASE_URL = 'https://vkafuvslrpwfevkfzxyg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrYWZ1dnNscnB3ZmV2a2Z6eHlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MzkzOTAsImV4cCI6MjEwMjQxNTM5MH0.jTKSLHb5RaYbXlBEQgWpEntfzzvIBI6esSdNzm58nek';
 const R2_WORKER_URL = 'https://repertorios-r2-api.kevinf652.workers.dev';
 
-// ⚠️ Debe ser IDÉNTICO al valor configurado en el Worker (variable APP_SECRET).
-// No es una protección absoluta (sigue siendo código de cliente), pero bloquea
-// el acceso directo de curiosos/bots que encuentren la URL del worker sin pasar por la app.
-const R2_APP_SECRET = 'P86)]]yX_15r}}m>9S~1F-@QBYZwx)TLe#bJc+I}';
-
-// Envoltorio de fetch: agrega el JWT de la sesión actual a toda llamada al
-// Worker de R2. Usar SIEMPRE r2Fetch() en vez de fetch() directo.
 async function r2Fetch(url, options) {
     options = options || {};
     options.headers = Object.assign({}, options.headers);
@@ -18,16 +11,10 @@ async function r2Fetch(url, options) {
             options.headers['Authorization'] = 'Bearer ' + data.session.access_token;
         }
     } catch (e) {}
-    // Colchón temporal mientras se confirma la Fase 6 - borrar junto con
-    // R2_APP_SECRET cuando ya no haga falta (ver PASO FINAL en el Worker).
-    options.headers['X-App-Secret'] = R2_APP_SECRET;
     return fetch(url, options);
 }
 
 // ============= AUTENTICACIÓN =============
-// Supabase Auth es el único método de acceso. Los datos del perfil se leen de
-// profiles; no hay fallback a tablas de usuarios heredadas.
-const USE_SUPABASE_AUTH = true;
 const AUTH_EMAIL_DOMAIN = 'repertoriosrl.invalid';
 
 // Convierte un username a la dirección interna que usa Supabase Auth por debajo.
@@ -43,7 +30,7 @@ async function loadProfileByAuthUid(authUid) {
     return data;
 }
 
-// Helper: Extract a clean R2 key from any URL or path string
+//Extract a clean R2 key from any URL or path string
 function extractR2Key(urlOrPath) {
     if (!urlOrPath) return '';
     try {
@@ -99,8 +86,6 @@ function load(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d } ca
 function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch { } }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 9) }
 
-// Detecta la extensión real de un audio subido por el usuario (no forzar siempre .mp3,
-// porque el contenido real puede ser .m4a/.wav/etc y Safari es estricto con eso).
 function getAudioExtension(file) {
     const nameMatch = (file.name || '').match(/\.([a-zA-Z0-9]+)$/);
     if (nameMatch) {
@@ -125,8 +110,6 @@ function getAudioExtension(file) {
 let useFlats = load('cb_use_flats', false);
 
 function dn(note) { if (!note) return ''; const idx = NOTE_MAP[note]; if (idx === undefined) return note; return useFlats ? FLATS[idx] : SHARPS[idx] }
-function nn(n) { return NOTE_MAP[n] !== undefined ? dn(n) : n }
-function displayNote(n) { return dn(n) }
 function displayChord(c) { return c.replace(/([A-G][#b]?)/g, (match) => { const idx = NOTE_MAP[match]; if (idx === undefined) return match; return useFlats ? FLATS[idx] : SHARPS[idx] }) }
 function toggleNotation() { useFlats = !useFlats; if (isOnline) save('cb_use_flats', useFlats); const btns = document.querySelectorAll('#notation-toggle,#lib-notation-toggle'); btns.forEach(b => b.innerHTML = useFlats ? '♭' : '#'); if (viewingRepId) { const r = repertorios.find(x => x.id === viewingRepId); const s = r?.canciones.find(x => x.id === viewingRepSongId); if (s) { repCurrentKey = dn(s.tono_original) } } if (viewingSongId) { const s = songs.find(x => x.id === viewingSongId); if (s && NOTE_MAP[s.currentKey] !== undefined) { s.currentKey = dn(s.currentKey); if (isOnline) save('cb_songs', songs) } } if (viewingRepId) renderRepSongLyrics(); if (viewingSongId) renderView(); renderLibrary() }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
@@ -154,19 +137,6 @@ function parseSongFilename(name) {
         return { title: parts[0], artist: parts[1], key: '', bpm: 0 };
     }
     return { title: base || 'Sin título', artist: 'Desconocido', key: '', bpm: 0 };
-}
-
-// Parse coros from DB - handles JSON object {d:[],l:[]}, array, comma-separated string, or null
-function parseCoros(c, day) {
-    if (!c) return [];
-    if (typeof c === 'string') {
-        try { c = JSON.parse(c) } catch (e) { return c.split(',').map(function(x) { return x.trim() }).filter(Boolean) }
-    }
-    if (typeof c === 'object' && !Array.isArray(c)) {
-        return c[day === 'domingo' ? 'd' : 'l'] || c.d || c.l || [];
-    }
-    if (Array.isArray(c)) return c;
-    return [];
 }
 
 let songs = load('cb_songs', []);
@@ -223,12 +193,10 @@ let viewAudioEl = null;
 let viewAudioPlaying = false;
 let viewAudioOrigEl = null;
 let viewAudioOrigPlaying = false;
-let viewAudioInterval = null;
 let repAudioEl = null;
 let repAudioPlaying = false;
 let repAudioOrigEl = null;
 let repAudioOrigPlaying = false;
-let repAudioInterval = null;
 let vocalAudioPlayers = {};
 let vocalAudioCurrentKey = null;
 let vocalAudioInterval = null;
@@ -238,16 +206,6 @@ let vocalAudioUploadSongId = null;
 let vocalAudioUploadSourceSongId = null;
 let vocalAudioUploadDia = 'domingo';
 let vocalAudioUploadPart = 'a';
-
-// ============= AUTH SYSTEM =============
-function isAdmin() { return userRole === 'admin' }
-function isDMusicos() { return userRole === 'D_Musicos' }
-function isDVoces() { return userRole === 'D_Voces' }
-function isSubAdmin() { return userRole === 'SubAdmin' }
-function canEditRepSongs() { return isOnline && (isAdmin() || isDMusicos() || isSubAdmin()) }
-function canEditVocals() { return isOnline && (isAdmin() || isDVoces() || isSubAdmin()) }
-function canUploadAudio() { return isOnline && (isAdmin() || isSubAdmin()) }
-function canManageReps() { return isOnline && (isAdmin() || isSubAdmin()) }
 
 function isSongInAnyRepertorio(songId) {
     if (!songId || !Array.isArray(repertorios)) return false;
@@ -328,203 +286,6 @@ function showNotif(id, msg, type) {
 }
 
 // ============= IMPORT CONFIRM MODAL =============
-function showImportConfirmModal(newSongs, listData, fileSongs) {
-    const modal = document.createElement('div');
-    modal.id = 'import-confirm-modal';
-    modal.style.cssText = `
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,.75);
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-        animation: fadeIn .25s ease;
-    `;
-
-    const existingCount = fileSongs.length - newSongs.length;
-
-    modal.innerHTML = `
-        <div style="
-            background: #27272a;
-            border-radius: 16px;
-            max-width: 500px;
-            width: 100%;
-            max-height: 80vh;
-            overflow-y: auto;
-            padding: 24px;
-            box-shadow: 0 20px 60px rgba(0,0,0,.5);
-            border: 1px solid rgba(63,63,70,.3);
-        ">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-                <div style="
-                    width:44px;
-                    height:44px;
-                    background:rgba(245,158,11,.15);
-                    border-radius:12px;
-                    display:flex;
-                    align-items:center;
-                    justify-content:center;
-                    font-size:24px
-                ">📥</div>
-                <div>
-                    <h3 style="font-size:1rem;font-weight:700;color:#fff">Importar lista</h3>
-                    <p style="font-size:.8rem;color:#a1a1aa">${esc(listData.name || 'Lista importada')}</p>
-                </div>
-            </div>
-            
-            <div style="
-                background:rgba(39,39,42,.4);
-                border:1px solid rgba(63,63,70,.3);
-                border-radius:10px;
-                padding:14px;
-                margin-bottom:16px
-            ">
-                <div style="display:flex;justify-content:space-between;font-size:.8rem;color:#a1a1aa">
-                    <span>Total de canciones</span>
-                    <span style="color:#fff;font-weight:600">${fileSongs.length}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:.8rem;color:#a1a1aa;margin-top:4px">
-                    <span>Ya en tu biblioteca</span>
-                    <span style="color:#4ade80;font-weight:600">${existingCount}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:.8rem;color:#a1a1aa;margin-top:4px">
-                    <span>Nuevas canciones</span>
-                    <span style="color:#fbbf24;font-weight:600">${newSongs.length}</span>
-                </div>
-            </div>
-            
-            ${newSongs.length > 0 ? `
-                <div style="
-                    background:rgba(245,158,11,.08);
-                    border:1px solid rgba(245,158,11,.2);
-                    border-radius:8px;
-                    padding:12px;
-                    margin-bottom:16px;
-                    max-height:150px;
-                    overflow-y:auto
-                ">
-                    <p style="font-size:.7rem;color:#fbbf24;font-weight:600;margin-bottom:6px">📋 Canciones nuevas:</p>
-                    ${newSongs.slice(0,5).map(s => `
-                        <div style="font-size:.75rem;color:#d4d4d8;padding:2px 0">
-                            • ${esc(s.title || 'Sin título')} — ${esc(s.artist || 'Desconocido')}
-                        </div>
-                    `).join('')}
-                    ${newSongs.length > 5 ? `<div style="font-size:.7rem;color:#71717a;margin-top:4px">Y ${newSongs.length - 5} más...</div>` : ''}
-                </div>
-                
-                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
-                    <button class="btn btn-amber" onclick="confirmImportAll('${listData.id || 'new'}')" style="width:100%;padding:12px;font-weight:600">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:middle;margin-right:6px">
-                            <polyline points="20,6 9,17 4,12"/>
-                        </svg>
-                        Añadir todas (${newSongs.length})
-                    </button>
-                    <button class="btn btn-zinc" onclick="confirmImportLater()" style="width:100%;padding:12px;font-weight:600;background:rgba(39,39,46,.8);border:1px solid rgba(63,63,70,.5)">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:middle;margin-right:6px">
-                            <circle cx="12" cy="12" r="10"/>
-                            <polyline points="12,6 12,12 16,14"/>
-                        </svg>
-                        Elegir después (una por una)
-                    </button>
-                </div>
-            ` : `
-                <div style="
-                    background:rgba(34,197,94,.08);
-                    border:1px solid rgba(34,197,94,.2);
-                    border-radius:8px;
-                    padding:12px;
-                    margin-bottom:16px;
-                    text-align:center
-                ">
-                    <p style="font-size:.85rem;color:#4ade80">✅ ¡Todas las canciones ya están en tu biblioteca!</p>
-                    <p style="font-size:.7rem;color:#71717a">La lista se creará sin duplicados</p>
-                </div>
-                <button class="btn btn-amber" onclick="confirmImportAll('${listData.id || 'new'}')" style="width:100%;padding:12px;font-weight:600">
-                    Crear lista
-                </button>
-            `}
-            
-            <button onclick="closeImportConfirmModal()" style="
-                width:100%;
-                padding:10px;
-                background:transparent;
-                border:1px solid rgba(63,63,70,.3);
-                border-radius:8px;
-                color:#71717a;
-                font-size:.8rem;
-                cursor:pointer;
-                margin-top:8px;
-                transition:background .2s
-            " onmouseover="this.style.background='rgba(63,63,70,.1)'" onmouseout="this.style.background='transparent'">
-                Cancelar
-            </button>
-        </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    window._importPendingList = {
-        listData: listData,
-        newSongs: newSongs,
-        fileSongs: fileSongs
-    };
-}
-
-function closeImportConfirmModal() {
-    const modal = document.getElementById('import-confirm-modal');
-    if (modal) modal.remove();
-    window._importPendingList = null;
-}
-
-async function confirmImportAll(listId) {
-    if (blockIfOffline()) return;
-    const pending = window._importPendingList;
-    if (!pending) return;
-
-    // Aunque quedara un modal antiguo abierto, solo se aceptan IDs y el
-    // contenido se vuelve a leer desde songs. Nunca se usa la información que
-    // pudiera venir embebida en el archivo.
-    const ids = [...new Set(pending.newSongs.map(s => s && s.id).filter(Boolean))];
-    let rows = [];
-    try {
-        rows = await fetchCanonicalSongsByIds(ids);
-    } catch (e) {
-        showNotification('No se pudo consultar songs: ' + e.message, 'error');
-        return;
-    }
-    rows.forEach(row => {
-        const existing = songs.find(x => x.id === row.id);
-        if (!existing) songs.push(canonicalSongToLocal(row));
-        else mergeSongAudioFields(existing, row.audio_url, row.audio_original_url);
-    });
-
-    save('cb_songs', songs);
-    createOrMergeList(pending.listData, ids.map(id => ({ id })));
-
-    if (currentUser && supabaseReady) syncSongsToCloud();
-
-    closeImportConfirmModal();
-    renderLists();
-    showNotification('✅ ' + rows.length + ' canciones añadidas a tu biblioteca', 'success');
-}
-
-function confirmImportLater() {
-    if (blockIfOffline()) return;
-    const pending = window._importPendingList;
-    if (!pending) return;
-
-    createOrMergeList(pending.listData, pending.fileSongs, true);
-
-    closeImportConfirmModal();
-    renderLists();
-    showNotification('📋 Lista importada. Puedes añadir canciones desde la lista.', 'success');
-}
-
-// Ventana de solo lectura para ver el contenido real de una canción que aún NO
-// está en tu biblioteca (viene de una lista importada en modo "guardar después").
-// No permite editar nada — solo ver, y opcionalmente añadir desde aquí mismo.
 function showCloudSongPreviewModal(songId, sharedItemId) {
     const preview = cloudSongPreviewCache[songId];
     if (!preview) { alert('Aún no se pudo obtener el contenido de esta canción.'); return }
@@ -993,52 +754,109 @@ function hashPublicPresenceId(value) {
 
 function getCurrentPresenceIdentity() {
     if (currentUser && currentUser.id) {
-        return { key: 'user:' + hashPublicPresenceId(currentUser.id), kind: 'user' };
+        // Recuperar el UUID de invitado previo si existía en el dispositivo
+        const previousGuestUuid = localStorage.getItem('guest_uuid') || null;
+        
+        return { 
+            key: 'user:' + hashPublicPresenceId(currentUser.id), 
+            kind: 'user',
+            username: currentUser.username || currentUser.email || null,
+            name: currentUser.name || currentUser.full_name || null,
+            previousGuestHash: previousGuestUuid ? hashPublicPresenceId(previousGuestUuid) : null
+        };
     }
+    
     if (typeof getOrCreateGuestUuid !== 'function') return null;
+    
     const guestId = getOrCreateGuestUuid();
-    return { key: 'guest:' + hashPublicPresenceId(guestId), kind: 'guest' };
+    return { 
+        key: 'guest:' + hashPublicPresenceId(guestId), 
+        kind: 'guest',
+        guestIdHash: hashPublicPresenceId(guestId)
+    };
 }
 
 function updatePresenceSets(state) {
     const users = new Set();
     const guests = new Set();
+    
     Object.keys(state || {}).forEach(function(key) {
-        if (key.indexOf('user:') === 0) users.add(key.substring(5));
-        else if (key.indexOf('guest:') === 0) guests.add(key.substring(6));
-        // No aceptar claves antiguas/desconocidas: podrían contener usernames.
+        const presences = state[key]; // Arreglo con los objetos enviados en track()
+        
+        if (key.indexOf('user:') === 0) {
+            const userHash = key.substring(5);
+            users.add(userHash);
+            
+            // Si el usuario registrado tiene un hash de invitado previo
+            if (Array.isArray(presences) && presences.length > 0) {
+                const data = presences[0];
+                if (data.previousGuestHash) {
+                    console.log(`El invitado ${data.previousGuestHash} ahora es el usuario registrado: ${data.username}`);
+                }
+            }
+        } else if (key.indexOf('guest:') === 0) {
+            guests.add(key.substring(6));
+        }
     });
+
     onlineUserIds = users;
     onlineRegisteredCount = users.size;
     if (typeof guestOnlineIds !== 'undefined') guestOnlineIds = guests;
+    
     showConnectionStatus();
     if (typeof refreshAdminOnlineIndicators === 'function') refreshAdminOnlineIndicators();
     if (typeof refreshAdminGuestOnlineIndicators === 'function') refreshAdminGuestOnlineIndicators();
 }
 
-function setupPresenceChannel() {
+async function setupPresenceChannel() {
     if (!supabaseReady || !supabaseClient) return;
+    
     const identity = getCurrentPresenceIdentity();
     if (!identity) return;
+    
+    // Si la identidad no ha cambiado y el canal está activo, no hacemos nada.
     if (_presenceChannel && _presenceIdentityKey === identity.key) return;
 
-    // Cambió la identidad (invitado -> usuario o usuario -> invitado).
-    if (_presenceChannel) supabaseClient.removeChannel(_presenceChannel);
+    // 1. LIMPIEZA CORRECTA: Desasociar el rastreo previo antes de remover el canal
+    if (_presenceChannel) {
+        try {
+            await _presenceChannel.untrack();
+        } catch (e) {
+            console.warn("Error al hacer untrack del canal previo:", e);
+        }
+        supabaseClient.removeChannel(_presenceChannel);
+        _presenceChannel = null;
+    }
+
+    // 2. Reiniciar los estados de memoria local
     _presenceIdentityKey = identity.key;
     onlineUserIds = new Set();
     onlineRegisteredCount = 0;
     if (typeof guestOnlineIds !== 'undefined') guestOnlineIds = new Set();
 
+    // 3. Crear el nuevo canal con la nueva identidad
     const channel = supabaseClient.channel(PRESENCE_CHANNEL_NAME, {
         config: { presence: { key: identity.key } }
     });
+    
     _presenceChannel = channel;
+
     channel
         .on('presence', { event: 'sync' }, function() {
             updatePresenceSets(channel.presenceState());
         })
-        .subscribe(function(status) {
-            if (status === 'SUBSCRIBED') channel.track({ kind: identity.kind, at: Date.now() });
+        .subscribe(async function(status, err) {
+            if (status === 'SUBSCRIBED') {
+    		await channel.track({
+       	   	 kind: identity.kind,
+        	 username: identity.username || null,
+        	 name: identity.name || null,
+       		 previousGuestHash: identity.previousGuestHash || null, // Relaciona el hash del invitado con el usuario
+       		 at: Date.now()
+   		});
+	} else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                console.warn("Fallo de conexión en canal de presencia. Estado:", status);
+            }
         });
 }
 
@@ -1180,7 +998,7 @@ function canUploadAudio() { return isOnline && (isAdmin() || isSubAdmin()) }
 function canManageReps() { return isOnline && (isAdmin() || isSubAdmin()) }
 
 async function getCurrentAuthUid() {
-    if (!USE_SUPABASE_AUTH || !supabaseClient || !currentUser) return null;
+    if (!supabaseClient || !currentUser) return null;
     if (currentUser._authUid) return currentUser._authUid;
 
     const localUsername = String(currentUser.id || '').toLowerCase();
@@ -1245,56 +1063,38 @@ function initAuth() {
             updateUserUI();
             
             if (currentUser && supabaseReady) {
-                if (USE_SUPABASE_AUTH) {
-                    if (!navigator.onLine) {
-                        // Sin conexión: la app está pensada para funcionar offline, así que
-                        // NO se puede (ni se debe) verificar la sesión real contra el servidor.
-                        // Se confía en la sesión local guardada, igual que se hacía antes de Auth.
-                        console.log('Sin conexión: usando sesión local sin verificar contra el servidor.');
-                    } else {
-                        // Confirmar que la sesión real de Auth siga viva, solo para decidir si se
-                        // sincroniza con la nube. NUNCA se cierra la sesión local automáticamente
-                        // desde aquí: cerrar sesión es una acción exclusiva del usuario (botón
-                        // "Cerrar sesión"). Si no se puede confirmar la sesión (señal débil, timeout
-                        // al refrescar el token, error del servidor, etc.), se sigue usando la app
-                        // con los datos locales tal cual, sin pedir login de nuevo.
-                        supabaseClient.auth.getSession().then(function(res) {
-                            if (!res || !res.data || !res.data.session) {
-                                console.warn('No se pudo confirmar la sesión con el servidor (posible señal débil); se mantiene la sesión local sin sincronizar por ahora.');
-                                return;
-                            }
-                            console.log('User logged in (Auth), loading songs from cloud...');
-                            loadSongsFromCloud().then(function(cloudSongs) {
-                                if (cloudSongs !== null) {
-                                    songs = cloudSongs;
-                                    renderLibrary();
-                                }
-                                updateLastAccess();
-                            }).catch(function() { updateLastAccess(); });
-                            verifyCurrentUserRole();
-                        }).catch(function(err) {
-                            // Fallo de red u otro error inesperado al verificar: NUNCA cerrar sesión
-                            // por esto solo — es preferible quedarse con la sesión local (offline-first)
-                            // a bloquear a alguien que sí tiene una sesión válida por un problema de red.
-                            console.warn('No se pudo verificar la sesión (se mantiene la sesión local):', err.message);
-                        });
-                    }
+                if (!navigator.onLine) {
+                    // Sin conexión: la app está pensada para funcionar offline, así que
+                    // NO se puede (ni se debe) verificar la sesión real contra el servidor.
+                    // Se confía en la sesión local guardada, igual que se hacía antes de Auth.
+                    console.log('Sin conexión: usando sesión local sin verificar contra el servidor.');
                 } else {
-                    console.log('User logged in, loading songs from cloud...');
-                    loadSongsFromCloud().then(cloudSongs => {
-                        if (cloudSongs !== null) {
-                            songs = cloudSongs;
-                            renderLibrary();
-                            console.log('Loaded', cloudSongs.length, 'songs from cloud on init');
+                    // Confirmar que la sesión real de Auth siga viva, solo para decidir si se
+                    // sincroniza con la nube. NUNCA se cierra la sesión local automáticamente
+                    // desde aquí: cerrar sesión es una acción exclusiva del usuario (botón
+                    // "Cerrar sesión"). Si no se puede confirmar la sesión (señal débil, timeout
+                    // al refrescar el token, error del servidor, etc.), se sigue usando la app
+                    // con los datos locales tal cual, sin pedir login de nuevo.
+                    supabaseClient.auth.getSession().then(function(res) {
+                        if (!res || !res.data || !res.data.session) {
+                            console.warn('No se pudo confirmar la sesión con el servidor (posible señal débil); se mantiene la sesión local sin sincronizar por ahora.');
+                            return;
                         }
-                        // Actualizar último acceso DESPUÉS de cargar canciones
-                        updateLastAccess();
-                    }).catch(() => {
-                        updateLastAccess();
+                        console.log('User logged in (Auth), loading songs from cloud...');
+                        loadSongsFromCloud().then(function(cloudSongs) {
+                            if (cloudSongs !== null) {
+                                songs = cloudSongs;
+                                renderLibrary();
+                            }
+                            updateLastAccess();
+                        }).catch(function() { updateLastAccess(); });
+                        verifyCurrentUserRole();
+                    }).catch(function(err) {
+                        // Fallo de red u otro error inesperado al verificar: NUNCA cerrar sesión
+                        // por esto solo — es preferible quedarse con la sesión local (offline-first)
+                        // a bloquear a alguien que sí tiene una sesión válida por un problema de red.
+                        console.warn('No se pudo verificar la sesión (se mantiene la sesión local):', err.message);
                     });
-                    // Una sola consulta puntual (no repetida) para saber si el rol cambió mientras
-                    // no se tenía la app abierta — así no hace falta cerrar sesión para verlo.
-                    verifyCurrentUserRole();
                 }
             }
         } catch (e) { 
@@ -1512,7 +1312,7 @@ async function handleRegister(e) {
     if (username === 'admin') { showAuthError('Este usuario está reservado'); return }
     if (!usernameSafe || usernameSafe !== username) { showAuthError('El usuario solo puede tener letras, números, punto, guion y _'); return }
     if (password !== passwordConfirm) { showAuthError('Las contraseñas no coinciden'); return }
-    const minLen = USE_SUPABASE_AUTH ? 6 : 4;
+    const minLen = 6;
     if (password.length < minLen) { showAuthError('La contraseña debe tener al menos ' + minLen + ' caracteres'); return }
     if (!isOnline || !supabaseReady) { showAuthError('Sin conexión a internet. No se puede registrar.'); return }
     try {
@@ -1565,7 +1365,7 @@ async function handleRegister(e) {
 }
 
 function handleLogout() {
-    if (USE_SUPABASE_AUTH && supabaseClient) {
+    if (supabaseClient) {
         supabaseClient.auth.signOut().catch(function(e) { console.warn('Error cerrando sesión de Auth:', e.message) });
     }
     currentUser = null;
@@ -1608,7 +1408,7 @@ async function handleChangePassword(e) {
         document.getElementById('cp-error').classList.add('show');
         return;
     }
-    const minLen = USE_SUPABASE_AUTH ? 6 : 4;
+    const minLen = 6;
     if (newPass.length < minLen) {
         document.getElementById('cp-error').textContent = 'La contraseña debe tener al menos ' + minLen + ' caracteres';
         document.getElementById('cp-error').classList.add('show');
@@ -2455,13 +2255,6 @@ function stopVocalAudioProgress() {
         vocalAudioInterval = null }
 }
 
-function startVocalAudioProgress() {
-    stopVocalAudioProgress();
-    vocalAudioInterval = setInterval(function() {
-        updateVocalAudioProgress(vocalAudioCurrentKey);
-    }, 250);
-}
-
 function setupVocalAudioProgress(audio, key) {
     audio.addEventListener('loadedmetadata', function() {
         updateVocalAudioProgress(key);
@@ -2644,7 +2437,6 @@ function playVocalAudio(key, url) {
 }
 
 // Elimina estas funciones si existen:
-// startViewAudioProgress, stopViewAudioProgress, startAudioProgress, stopAudioProgress, startVocalAudioProgress, stopVocalAudioProgress
 
 // ============= AUDIO UPLOAD FUNCTIONS =============
 // Generalizado por tipo: 'secuencia' (audio_url, obligatorio/siempre visible)
@@ -2875,7 +2667,6 @@ function renderLibrary() {
         return;
     }
     c.innerHTML = filtered.map(s => {
-       // const pv = s.lyrics.split('\n').slice(0, 3).join(' / '); //
         const il = lists.filter(l => l.songIds.includes(s.id)).length;
         return '<div class="card" onclick="viewSong(\'' + s.id + '\')" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0"><div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> ' + esc(s.title) + (!canEditRepSongs() && isSongInAnyRepertorio(s.sourceId || s.id) ? ' 🔒' : '') + '</div><div class="card-artist">' + esc(s.artist) + '</div><div class="card-meta"><span class="tag tag-key">' + dn(s.originalKey) + '</span>' + (s.tempo ? '<span class="tag tag-zinc">' + s.tempo + ' BPM</span>' : '') + (s.compas ? '<span class="tag tag-zinc">' + s.compas + '</span>' : '') + s.tags.slice(0, 2).map(t => '<span class="tag tag-zinc">' + esc(t) + '</span>').join('') + (il > 0 ? '<span class="tag-list"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg> ' + il + '</span>' : '') + (s.audio_url ? '<span class="tag" style="background:rgba(34,197,94,.2);color:#4ade80">🎵 Secuencia</span>' : '') + (s.audio_original_url ? '<span class="tag" style="background:rgba(96,165,250,.2);color:#60a5fa">🎤 Canción</span>' : '') + '</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">' + (canUploadAudio() ? '<button class="btn-icon" onclick="event.stopPropagation();triggerAudioUpload(\'' + s.id + '\',\'secuencia\')" data-audio-upload="' + s.id + '" title="' + (s.audio_url ? 'Cambiar Secuencia' : 'Subir Secuencia') + '" style="color:' + (s.audio_url ? '#4ade80' : '#71717a') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>' : '') + '<button class="btn-icon btn-icon-red" onclick="event.stopPropagation();confirmDeleteSong(\'' + s.id + '\')" title="Eliminar de biblioteca" style="flex-shrink:0;align-self:flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' + '</div></div></div>';
     }).join('');
@@ -3087,14 +2878,6 @@ async function saveRepSongToLibrary() {
     if (currentUser && supabaseReady) { syncSongsToCloud() }
 }
 
-function isRepSongInLibrary() {
-    const r = repertorios.find(x => x.id === viewingRepId);
-    if (!r) return false;
-    const s = r.canciones.find(x => x.id === viewingRepSongId);
-    if (!s) return false;
-    return !!songs.find(x => x.title === s.titulo && x.artist === s.artista)
-}
-
 // ============= VIEW FUNCTIONS =============
 async function renderView() {
     const s = songs.find(x => x.id === viewingSongId);
@@ -3179,7 +2962,6 @@ audioSection.innerHTML = '<div style="background:rgba(27,27,30,.4);border:1px so
                     var idMatch = t.match(/\)\s*\{(\d+)\}/);
                     var secId = idMatch ? idMatch[1] : '';
                     var noteKey = secId ? secName + '_' + secId : secName;
-                    var noteVal = (_vocalNotes[noteKey] || '').replace(/"/g, '&quot;');
                     var displayLine = stripped.replace(/\s*\{\d+\}/g, '');
                     h2 += displayLine.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>');
                     if (_vocalNotes[noteKey]) { h2 += '<span class="section-note-display">' + esc(_vocalNotes[noteKey]) + '</span>' }
@@ -3191,7 +2973,6 @@ audioSection.innerHTML = '<div style="background:rgba(27,27,30,.4);border:1px so
                 var idMatch2 = t.match(/\)\s*\{(\d+)\}/);
                 var secId2 = idMatch2 ? idMatch2[1] : '';
                 var noteKey2 = secId2 ? secName2 + '_' + secId2 : secName2;
-                var noteVal2 = (_vocalNotes[noteKey2] || '').replace(/"/g, '&quot;');
                 var displayLine2 = t.replace(/\s*\{\d+\}/g, '');
                 var h3 = '<div class="lyrics-line">' + displayLine2.replace(/\(([^)]+)\)/g, '<span class="lyrics-section">$1</span>');
                 if (_vocalNotes[noteKey2]) { h3 += '<span class="section-note-display">' + esc(_vocalNotes[noteKey2]) + '</span>' }
@@ -4031,7 +3812,6 @@ function exportList(id) {
     if (typeof logActivity === 'function') logActivity('list_json_downloaded', { title: l.name, type: 'list', songCount: [...new Set(l.songIds || [])].length }, 'list', l.id);
 }
 
-function exportCurrentList() { exportList(viewingListId) }
 
 function shareList(id) {
     const l = lists.find(x => x.id === id);
@@ -4419,7 +4199,6 @@ function importListData(d) {
 
 // ============= REPERTORIO FUNCTIONS =============
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const DAY_NAMES_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -5919,10 +5698,9 @@ document.getElementById('search-input').addEventListener('input', renderLibrary)
 document.addEventListener('keydown', function(e) {
     // Escape to close modals
     if (e.key === 'Escape') {
-        const modals = document.querySelectorAll('.auth-modal.active, #import-confirm-modal, #vocal-editor-modal');
+        const modals = document.querySelectorAll('.auth-modal.active, #vocal-editor-modal');
         modals.forEach(m => {
             if (m.id === 'auth-modal') closeAuthModal();
-            else if (m.id === 'import-confirm-modal') closeImportConfirmModal();
             else if (m.id === 'vocal-editor-modal') hideVocalEditor();
         });
     }
@@ -6247,8 +6025,6 @@ window.addEventListener('beforeinstallprompt', e => {
     showInstallFloat()
 });
 
-function isIOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 }
-
 function isStandalone() { return window.matchMedia('(display-mode:standalone)').matches || window.navigator.standalone === true }
 
 function showInstallFloat() {
@@ -6273,7 +6049,7 @@ function showInstallBanner() {
 async function installApp() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    const r = await deferredPrompt.userChoice;
+    await deferredPrompt.userChoice;
     deferredPrompt = null;
     document.getElementById('install-banner-container').innerHTML = '';
     document.getElementById('install-float-btn').style.display = 'none'
