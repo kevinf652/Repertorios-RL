@@ -573,6 +573,7 @@ async function syncSongsToCloud(options) {
             }, { onConflict: 'id' });
             if (error) throw error;
             publishedSongIds.add(sid);
+            registerSectionsFromLyrics(song.lyrics);
         }
 
         if (publishedSongIds.size > 0) {
@@ -3002,6 +3003,8 @@ audioSection.innerHTML = '<div style="background:rgba(27,27,30,.4);border:1px so
 
     const editBtn = document.querySelector('#page-view .btn-icon[title="Editar"]');
     if (editBtn) editBtn.style.display = canEditSong(s) ? '' : 'none';
+    updateStickyOffsets();
+    buildSongSectionsBar('view-lyrics', 'view-sections', 'view-sections-title');
     renderMarkModeUI();
 }
 
@@ -3898,6 +3901,7 @@ function listNav(dir) {
         listNavIndex = newIdx;
         viewingSongId = listSongs[newIdx].id;
         viewReturnTo = 'listview';
+        window.scrollTo(0, 0);
         showPage('view')
     }
 }
@@ -4780,6 +4784,25 @@ function setRepSongView(showChords) {
     renderRepSongLyrics()
 }
 
+// Botones anterior/siguiente con el nombre de la canción (se corta con "…" si es largo).
+function setRepNavButton(btnId, dir, song) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const arrow = dir === 'prev'
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>';
+    if (song && song.titulo) {
+        const label = '<span class="nav-arrows-label">' + esc(song.titulo) + '</span>';
+        btn.innerHTML = dir === 'prev' ? arrow + label : label + arrow;
+        btn.classList.add('has-label');
+        btn.title = song.titulo;
+    } else {
+        btn.innerHTML = arrow;
+        btn.classList.remove('has-label');
+        btn.removeAttribute('title');
+    }
+}
+
 function renderRepSongView() {
     const r = repertorios.find(x => x.id === viewingRepId);
     if (!r) return;
@@ -4795,7 +4818,10 @@ function renderRepSongView() {
         document.getElementById('rep-song-nav-info').textContent = (repSongNavIndex + 1) + ' / ' + songsForDay.length;
         document.getElementById('rep-song-prev-btn').disabled = repSongNavIndex <= 0;
         document.getElementById('rep-song-next-btn').disabled = repSongNavIndex >= songsForDay.length - 1;
+        setRepNavButton('rep-song-prev-btn', 'prev', songsForDay[repSongNavIndex - 1]);
+        setRepNavButton('rep-song-next-btn', 'next', songsForDay[repSongNavIndex + 1]);
     } else { nav.classList.add('hidden') }
+    updateStickyOffsets();
 
     repCurrentKey = s.tono_original;
     var corosForDay = (repDay === 'domingo' ? (s.coros_domingo || []) : (s.coros_lunes || []));
@@ -4954,7 +4980,7 @@ function renderRepSongView() {
     const audioCount = (s.audio_url ? 1 : 0) + (s.audio_original_url ? 1 : 0);
     const audioSectionHtml = '<div style="background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px;margin-bottom:6px"><button onclick="toggleRepAudioCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="font-size:.8rem;font-weight:600;color:#d4d4d8;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Audio (' + audioCount + ')</span>' + collapseHintHtml(audioCollapsed) + collapseChevronSvg(!audioCollapsed) + '</button><div style="display:' + (audioCollapsed ? 'none' : '') + ';margin-top:8px">' + repSecuenciaHtml + repCancionHtml + '</div></div>';
 
-    document.getElementById('rep-song-audio').innerHTML = audioSectionHtml + (vocalAudiosHtml ? ('<div id="rep-song-vocal-note" style="display:' + (repShowChords ? '' : 'none') + ';font-size:.7rem;color:#71717a;margin-top:14px;text-align:center">Audios de voces disponibles en Solo Letra</div>' + '<div id="rep-song-vocal-section" style="display:' + (repShowChords ? 'none' : '') + ';margin-top:6px;background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px"><button onclick="toggleRepVocesCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces (' + vocesCountForDay + ')</span></span>' + collapseHintHtml(vocesCollapsed) + collapseChevronSvg(!vocesCollapsed) + '</button><div style="display:' + (vocesCollapsed ? 'none' : '') + ';margin-top:8px">' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div></div>') : '');
+    document.getElementById('rep-song-audio').innerHTML = audioSectionHtml + (vocalAudiosHtml ? ('<div id="rep-song-vocal-note" style="display:' + (repShowChords ? '' : 'none') + ';font-size:.7rem;color:#71717a;margin:12px 0;text-align:center">Audios de voces disponibles en Solo Letra</div>' + '<div id="rep-song-vocal-section" style="display:' + (repShowChords ? 'none' : '') + ';margin-top:6px;background:rgba(27,27,30,.4);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px"><button onclick="toggleRepVocesCollapse()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:2px 0;cursor:pointer"><span style="display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span style="font-size:.85rem;font-weight:600;color:#fbbf24">Audios de voces (' + vocesCountForDay + ')</span></span>' + collapseHintHtml(vocesCollapsed) + collapseChevronSvg(!vocesCollapsed) + '</button><div style="display:' + (vocesCollapsed ? 'none' : '') + ';margin-top:8px">' + vocalAudiosHtml + '<div id="vocal-audio-player-bar" class="audio-player" style="display:none;margin-top:10px"><button class="audio-play-btn" onclick="toggleVocalAudioFromBar()" style="width:36px;height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg></button><div class="audio-progress"><div class="audio-bar" onclick="seekVocalAudio(event)" ontouchstart="seekVocalAudioTouch(event)" ontouchmove="seekVocalAudioTouch(event)" style="touch-action:none"><div class="audio-bar-fill" id="vocal-audio-fill" style="width:0%"></div></div><div class="audio-time"><span id="vocal-audio-current">0:00</span><span id="vocal-audio-duration">--:--</span></div></div></div></div></div>') : '');
     document.getElementById('toggle-lyrics').className = repShowChords ? 'inactive' : 'active';
     document.getElementById('toggle-chords').className = repShowChords ? 'active' : 'inactive';
     document.getElementById('rep-song-key').style.display = repShowChords ? '' : 'none';
@@ -5083,6 +5109,7 @@ async function renderRepSongLyrics() {
         c.innerHTML = lyricsHtml;
         applyWordMarking('rep-song-lyrics', srcId, repDay);
     }
+    buildSongSectionsBar('rep-song-lyrics', 'rep-song-sections', 'rep-song-sections-title');
     renderMarkModeUI();
 }
 
@@ -5097,6 +5124,7 @@ function repSongNav(dir) {
         repSongNavIndex = newIdx;
         viewingRepSongId = songsForDay[newIdx].id;
         repShowChords = true;
+        window.scrollTo(0, 0);
         showPage('rep-song')
     }
 }
@@ -5689,7 +5717,351 @@ function showPage(name) {
     if (name === 'listview') renderListView();
     attachNotifBellToActiveHeader();
     renderMarkModeUI();
+    updateStickyOffsets();
 }
+
+// ============= BARRAS FIJAS Y SECCIONES DE CANCIÓN =============
+// Alturas reales (header y barra anterior/siguiente) en variables CSS, para que
+// las barras ancladas queden exactamente una debajo de la otra en cualquier
+// dispositivo (notch, barra de estado, rotación...).
+let stickyMetrics = { top: 0, bar: 0 };
+function updateStickyOffsets() {
+    const page = document.querySelector('.page.active');
+    if (!page) return;
+    const header = page.querySelector('.header');
+    const nav = page.querySelector('.nav-arrows:not(.hidden)');
+    const bar = page.querySelector('.song-sections:not(.hidden)');
+    // Medidas con decimales (offsetHeight redondea y dejaba una rendija de ~1px) y
+    // cada barra se mete 1px bajo la de arriba; la de arriba tiene mayor z-index.
+    const hh = header ? header.getBoundingClientRect().height : 0;
+    const nh = nav ? nav.getBoundingClientRect().height : 0;
+    const navTop = Math.max(0, hh - 1);
+    const barTop = nav ? navTop + nh - 1 : navTop;
+    const root = document.documentElement.style;
+    root.setProperty('--header-h', navTop + 'px');
+    root.setProperty('--sticky-top', barTop + 'px');
+    stickyMetrics = { top: barTop, bar: bar ? bar.getBoundingClientRect().height : 0 };
+}
+
+let songSectionsState = null; // { bar, items: [{ el, btn }], lockUntil, manual, active }
+
+// ============= SECCIONES DE CANCIÓN: TABLA EN SUPABASE =============
+// Tabla secciones_cancion (clave, nombre, abreviatura, visible, revisada).
+// La clave la calcula normalizeSectionKey(), que DEBE dar el mismo resultado que
+// public.normalize_section_key() en SQL (mayúsculas, tildes, "x2", número final y
+// todo lo que va después de " - " se ignoran).
+const SECTIONS_CACHE_KEY = 'cb_secciones_tabla';
+const SECTIONS_TTL_MS = 5 * 60 * 1000;
+const SEC_ACCENT_FROM = 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ';
+const SEC_ACCENT_TO   = 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC';
+let sectionsTable = new Map();      // clave -> { clave, nombre, abreviatura, visible, revisada }
+let sectionsFetchedAt = 0;
+let sectionsRefreshPromise = null;
+const sectionsRegisterQueue = new Map();
+const sectionsRegistered = new Set();
+let sectionsFlushTimer = null;
+
+(function loadSectionsCache() {
+    try {
+        const arr = JSON.parse(localStorage.getItem(SECTIONS_CACHE_KEY) || '[]');
+        if (Array.isArray(arr)) arr.forEach(function(r) { if (r && r.clave) sectionsTable.set(r.clave, r) });
+    } catch (e) {}
+})();
+
+function saveSectionsCache() {
+    try { localStorage.setItem(SECTIONS_CACHE_KEY, JSON.stringify(Array.from(sectionsTable.values()))) } catch (e) {}
+}
+
+function normalizeSectionKey(txt) {
+    let s = String(txt == null ? '' : txt).replace(/\s+[-–—]\s+.*$/, '');
+    let t = '';
+    for (const ch of s) { const i = SEC_ACCENT_FROM.indexOf(ch); t += i >= 0 ? SEC_ACCENT_TO.charAt(i) : ch }
+    s = t.toLowerCase();
+    s = s.replace(/\s*(x\s*\d+|\d+\s*x)\s*$/, '');
+    s = s.replace(/[\s\-_.:]*\d+\s*$/, '');
+    s = s.replace(/\s*(x\s*\d+|\d+\s*x)\s*$/, '');
+    s = s.replace(/[^a-z0-9]+/g, '');
+    return s || null;
+}
+
+// Nombre limpio de la sección y su número: "Puente 2 - SUBIR INTENSIDAD x2" -> { name: "Puente", num: "2" }
+function sectionLabelParts(label) {
+    let s = String(label == null ? '' : label).replace(/\s+[-–—]\s+.*$/, '').trim();
+    s = s.replace(/\s*(x\s*\d+|\d+\s*x)\s*$/i, '');
+    let num = '';
+    const m = s.match(/^(.*?)[\s\-_.:]*(\d+)\s*$/);
+    if (m && m[1].trim()) { s = m[1]; num = m[2] }
+    s = s.replace(/\s*(x\s*\d+|\d+\s*x)\s*$/i, '').trim();
+    return { name: s, num: num };
+}
+
+// "PUENTE" -> "Puente"; lo demás se deja como lo escribieron
+function sectionDisplayName(name) {
+    const n = String(name || '').trim();
+    if (n.length > 1 && n === n.toUpperCase() && n !== n.toLowerCase()) return n.charAt(0) + n.slice(1).toLowerCase();
+    return n;
+}
+
+// Abreviatura sugerida (máx. 5 caracteres) para nombres que todavía no están en la tabla
+function suggestSectionAbbrev(name) {
+    const base = String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    const MAP = [
+        [/^intro(duccion)?$/, 'In'],
+        [/^entrada$/, 'In'],
+        [/^(pre[\s-]?verso|pre[\s-]?verse)$/, 'PV'],
+        [/^(verso|verse|estrofa)$/, 'V'],
+        [/^(pre[\s-]?coro|pre[\s-]?chorus|prechorus)$/, 'PC'],
+        [/^(post[\s-]?coro|post[\s-]?chorus)$/, 'PoC'],
+        [/^(coro|chorus|estribillo)$/, 'C'],
+        [/^refrain$/, 'Ref'],
+        [/^(puente|bridge)$/, 'P'],
+        [/^interludio$/, 'Int'],
+        [/^instrumental$/, 'Ins'],
+        [/^(final|ending|cierre)$/, 'Fin'],
+        [/^outro$/, 'Out'],
+        [/^coda$/, 'Cd'],
+        [/^tag$/, 'Tag'],
+        [/^solo$/, 'Sol'],
+        [/^(vamp|ostinato)$/, 'Vmp'],
+        [/^(repetir|repite)$/, 'Rep']
+    ];
+    for (let i = 0; i < MAP.length; i++) { if (MAP[i][0].test(base)) return MAP[i][1] }
+    const words = base.split(/[\s\-_\/]+/).filter(Boolean);
+    let key;
+    if (words.length > 1) key = words.slice(0, 3).map(function(w) { return w.charAt(0).toUpperCase() }).join('');
+    else key = (words[0] || String(name || '?')).slice(0, 3);
+    key = key.charAt(0).toUpperCase() + key.slice(1);
+    return key.slice(0, 5);
+}
+
+// Fila lista para insertar en la tabla (o null si el nombre no sirve: vacío o muy largo)
+function buildSectionRow(key, name) {
+    const nombre = sectionDisplayName(name);
+    if (!key || !nombre || nombre.length > 60) return null;
+    if (normalizeSectionKey(nombre) !== key) return null; // la RLS exige que coincidan
+    return { clave: key, nombre: nombre, abreviatura: suggestSectionAbbrev(name) };
+}
+
+// Todas las secciones (entre paréntesis) de una letra: Map clave -> nombre limpio
+function extractSectionNamesFromLyrics(lyrics) {
+    const out = new Map();
+    const re = /\(([^)\n]+)\)/g;
+    let m;
+    while ((m = re.exec(String(lyrics || '')))) {
+        const label = m[1].trim();
+        const key = normalizeSectionKey(label);
+        if (!key || key === 'bis') continue;
+        if (!out.has(key)) out.set(key, sectionLabelParts(label).name);
+    }
+    return out;
+}
+
+function sectionsSignature(map) {
+    return Array.from(map.values()).map(function(r) { return r.clave + '|' + r.abreviatura + '|' + (r.visible === false ? 0 : 1) }).sort().join(';');
+}
+
+// Lee la tabla (invitados también pueden). Devuelve true si algo cambió.
+function refreshSectionsTable(force) {
+    if (!supabaseReady || !supabaseClient || !isOnline) return Promise.resolve(false);
+    if (!force && Date.now() - sectionsFetchedAt < SECTIONS_TTL_MS) return Promise.resolve(false);
+    if (sectionsRefreshPromise) return sectionsRefreshPromise;
+    sectionsRefreshPromise = (async function() {
+        try {
+            const res = await supabaseClient.from('secciones_cancion').select('clave,nombre,abreviatura,visible,revisada');
+            if (res.error) throw res.error;
+            sectionsFetchedAt = Date.now();
+            const rows = res.data || [];
+            if (rows.length === 0 && sectionsTable.size > 0) return false; // no se pisa la copia buena con una respuesta vacía
+            const next = new Map();
+            rows.forEach(function(r) { next.set(r.clave, r) });
+            const changed = sectionsSignature(next) !== sectionsSignature(sectionsTable);
+            sectionsTable = next;
+            saveSectionsCache();
+            return changed;
+        } catch (e) {
+            console.warn('secciones_cancion:', e && e.message ? e.message : e);
+            return false;
+        } finally {
+            sectionsRefreshPromise = null;
+        }
+    })();
+    return sectionsRefreshPromise;
+}
+
+function canRegisterSections() {
+    return !!(supabaseReady && supabaseClient && isOnline && currentUser);
+}
+
+// Sección nueva: se agrega a la cola y se muestra ya con la abreviatura sugerida
+function queueSectionRegistration(name) {
+    const key = normalizeSectionKey(name);
+    if (!key || sectionsTable.has(key) || sectionsRegistered.has(key) || !canRegisterSections()) return;
+    const row = buildSectionRow(key, name);
+    if (!row) return;
+    sectionsRegistered.add(key);
+    sectionsRegisterQueue.set(key, row);
+    sectionsTable.set(key, { clave: row.clave, nombre: row.nombre, abreviatura: row.abreviatura, visible: true, revisada: false });
+    clearTimeout(sectionsFlushTimer);
+    sectionsFlushTimer = setTimeout(flushSectionRegistrations, 800);
+}
+
+async function flushSectionRegistrations() {
+    const rows = Array.from(sectionsRegisterQueue.values());
+    sectionsRegisterQueue.clear();
+    if (!rows.length) return;
+    if (!canRegisterSections()) { rows.forEach(function(r) { sectionsRegistered.delete(r.clave); sectionsTable.delete(r.clave) }); return }
+    try {
+        // ignoreDuplicates: si otra persona ya la creó, no pasa nada ni se pisa su abreviatura
+        const { error } = await supabaseClient.from('secciones_cancion').upsert(rows, { onConflict: 'clave', ignoreDuplicates: true });
+        if (error) throw error;
+        refreshSectionsTable(true).then(function(changed) { if (changed) rebuildSongSectionsBars() });
+    } catch (e) {
+        console.warn('No se pudieron registrar secciones nuevas:', e && e.message ? e.message : e);
+        rows.forEach(function(r) { sectionsRegistered.delete(r.clave); sectionsTable.delete(r.clave) });
+    }
+}
+
+function registerSectionsFromLyrics(lyrics) {
+    extractSectionNamesFromLyrics(lyrics).forEach(function(name) { queueSectionRegistration(name) });
+}
+
+function rebuildSongSectionsBars() {
+    [['rep-song-lyrics', 'rep-song-sections', 'rep-song-sections-title'], ['view-lyrics', 'view-sections', 'view-sections-title']].forEach(function(ids) {
+        const l = document.getElementById(ids[0]);
+        if (l && l.children.length) buildSongSectionsBar(ids[0], ids[1], ids[2]);
+    });
+}
+
+// Abreviaturas finales de una canción: repetidas sin número -> C1, C2, C3; si aún
+// queda alguna igual se distingue con letra (V1a, V1b).
+function sectionFinalAbbreviations(parts) {
+    const bareCount = {};
+    parts.forEach(function(p) { if (!p.num) bareCount[p.key] = (bareCount[p.key] || 0) + 1 });
+    const bareSeen = {};
+    const out = parts.map(function(p) {
+        if (p.num) return p.key + p.num;
+        if (bareCount[p.key] > 1) { bareSeen[p.key] = (bareSeen[p.key] || 0) + 1; return p.key + bareSeen[p.key] }
+        return p.key;
+    });
+    const total = {};
+    out.forEach(function(a) { total[a] = (total[a] || 0) + 1 });
+    const seen = {};
+    return out.map(function(a) {
+        if (total[a] <= 1) return a;
+        seen[a] = (seen[a] || 0) + 1;
+        return a + String.fromCharCode(96 + seen[a]);
+    });
+}
+
+function buildSongSectionsBar(lyricsId, barId, titleId) {
+    const bar = document.getElementById(barId);
+    const title = document.getElementById(titleId);
+    const lyrics = document.getElementById(lyricsId);
+    if (!bar || !title || !lyrics) return;
+    const found = [];
+    lyrics.querySelectorAll('.lyrics-section').forEach(function(el) {
+        const label = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        const key = normalizeSectionKey(label);
+        if (!key || key === 'bis') return; // "(x2)" o solo números no son secciones
+        found.push({ el: el.closest('.lyrics-line') || el, label: label, key: key });
+    });
+    refreshSectionsTable(false).then(function(changed) { if (changed) rebuildSongSectionsBars() });
+
+    const items = [];
+    const parts = [];
+    found.forEach(function(f) {
+        const lp = sectionLabelParts(f.label);
+        let row = sectionsTable.get(f.key);
+        if (!row) { queueSectionRegistration(lp.name); row = sectionsTable.get(f.key) }
+        if (row && row.visible === false) return; // el admin la marcó como "no visible"
+        parts.push({ key: row ? row.abreviatura : suggestSectionAbbrev(lp.name), num: lp.num });
+        items.push(f);
+    });
+
+    if (items.length < 2) {
+        bar.classList.add('hidden');
+        title.classList.add('hidden');
+        bar.innerHTML = '';
+        if (songSectionsState && songSectionsState.bar === bar) songSectionsState = null;
+        updateStickyOffsets();
+        return;
+    }
+    const abbrevs = sectionFinalAbbreviations(parts);
+    bar.innerHTML = '';
+    const built = items.map(function(f, i) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'song-section-chip';
+        btn.textContent = abbrevs[i];
+        btn.title = f.label;
+        btn.addEventListener('click', function() { scrollToSongSection(i) });
+        bar.appendChild(btn);
+        return { el: f.el, btn: btn };
+    });
+    bar.classList.remove('hidden');
+    title.classList.remove('hidden');
+    songSectionsState = { bar: bar, items: built, lockUntil: 0, manual: -1, active: -1 };
+    updateStickyOffsets();
+    updateActiveSection();
+}
+
+function setActiveSection(i) {
+    const st = songSectionsState;
+    if (!st || st.active === i) return;
+    st.active = i;
+    st.items.forEach(function(it, k) { it.btn.classList.toggle('active', k === i) });
+    if (i >= 0) {
+        const btn = st.items[i].btn, bar = st.bar;
+        bar.scrollTo({ left: btn.offsetLeft - (bar.clientWidth - btn.offsetWidth) / 2, behavior: 'smooth' });
+    }
+}
+
+function scrollToSongSection(i) {
+    const st = songSectionsState;
+    if (!st || !st.items[i]) return;
+    updateStickyOffsets();
+    const y = st.items[i].el.getBoundingClientRect().top + window.pageYOffset - (stickyMetrics.top + stickyMetrics.bar + 10);
+    st.lockUntil = Date.now() + 900;
+    st.manual = i;
+    setActiveSection(i);
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+}
+
+function updateActiveSection() {
+    const st = songSectionsState;
+    if (!st || !st.bar.offsetParent) return;
+    if (Date.now() < st.lockUntil) return;
+    const atBottom = window.innerHeight + window.pageYOffset >= document.documentElement.scrollHeight - 4;
+    if (atBottom && st.manual >= 0) { setActiveSection(st.manual); return }
+    st.manual = -1;
+    const line = stickyMetrics.top + st.bar.offsetHeight + 16;
+    let idx = -1;
+    for (let k = 0; k < st.items.length; k++) {
+        if (st.items[k].el.getBoundingClientRect().top <= line) idx = k; else break;
+    }
+    if (atBottom) {
+        // Al final de la página la última sección puede no llegar arriba: se resalta la última visible.
+        for (let k = st.items.length - 1; k >= 0; k--) {
+            if (st.items[k].el.getBoundingClientRect().top < window.innerHeight - 40) { idx = Math.max(idx, k); break }
+        }
+    }
+    setActiveSection(idx);
+}
+
+(function initStickyBars() {
+    let ticking = false;
+    window.addEventListener('scroll', function() {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(function() { ticking = false; updateActiveSection() });
+    }, { passive: true });
+    window.addEventListener('resize', updateStickyOffsets);
+    window.addEventListener('orientationchange', updateStickyOffsets);
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(function() { updateStickyOffsets() });
+        document.querySelectorAll('.header, .nav-arrows, .song-sections').forEach(function(el) { ro.observe(el) });
+    }
+})();
 
 // ============= SEARCH =============
 document.getElementById('search-input').addEventListener('input', renderLibrary);
@@ -5712,6 +6084,7 @@ document.getElementById('vocal-audio-upload-input').addEventListener('change', h
 
 // ============= INIT =============
 showConnectionStatus();
+refreshSectionsTable(true).then(function(changed) { if (changed) rebuildSongSectionsBars() });
 attachNotifBellToActiveHeader();
 
 // ✅ Restaurar siempre la identidad local primero. El SDK de Supabase se carga

@@ -1,7 +1,5 @@
-const CACHE_NAME = 'repertorios-rl-v3.2513'; // ⬅️ Bump en cada deploy
+const CACHE_NAME = 'repertorios-rl-v3.2515';
 const AUDIO_CACHE_NAME = 'repertorios-audio-v1';
-// Si hay copia en caché y la red no responde en este tiempo, se sirve la copia
-// (señal débil / "lie-fi": hay barras pero la petición queda colgada).
 const NETWORK_TIMEOUT_MS = 2000;
 const AUDIO_HOST = 'repertorios-r2-api.kevinf652.workers.dev';
 const AUDIO_FILE_EXT = /\.(?:mp3|m4a|wav|ogg|oga|aac|webm|flac)$/i;
@@ -13,7 +11,6 @@ function isOfflineAudioUrl(url) {
   return isR2Audio || isLegacySupabaseAudio;
 }
 
-// Cachea siempre la representación completa, nunca la solicitud Range parcial.
 function fullAudioRequest(request) {
   const headers = new Headers(request.headers);
   headers.delete('range');
@@ -26,8 +23,6 @@ function fullAudioRequest(request) {
 async function audioResponseForRange(response, rangeHeader) {
   if (!rangeHeader || response.status !== 200) return response;
   const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
-  // Si el reproductor pide varios rangos o un formato no estándar, el 200
-  // completo sigue siendo una respuesta HTTP válida y conserva toda la copia.
   if (!match) return response;
 
   const blob = await response.blob();
@@ -84,10 +79,6 @@ const urlsToCache = [
   './notifications.css'
 ];
 
-// Los archivos propios de la app no deben reutilizar la caché HTTP del
-// navegador durante una actualización. La Cache Storage del SW sigue siendo
-// el respaldo offline; aquí solo se fuerza que la copia de red sea realmente
-// nueva.
 function isAppShellRequest(url, request) {
   if (request && request.mode === 'navigate') return true;
   return /\.(?:html?|css|js)$/i.test(url.pathname);
@@ -97,12 +88,6 @@ function freshNetworkRequest(request) {
   return new Request(request, { cache: 'no-store' });
 }
 
-// ============================================================
-// INSTALL
-// - Precachea el app shell.
-// - Si un archivo falla, NO rompe todo el install (add individual).
-// - NO llama a skipWaiting() aquí: se hace bajo mensaje del cliente.
-// ============================================================
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
@@ -114,7 +99,6 @@ self.addEventListener('install', event => {
               return cache.put(url, response);
             })
             .catch(err => {
-              // Un 404 no debe tumbar todo el install
               console.warn('[SW] No se pudo cachear:', url, err);
             })
         )
@@ -123,18 +107,12 @@ self.addEventListener('install', event => {
   );
 });
 
-// ============================================================
-// MESSAGE - El cliente confirma que quiere activar el SW nuevo
-// ============================================================
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
 
-// ============================================================
-// ACTIVATE - Limpia cachés viejos (nunca la de audio) + claim()
-// ============================================================
 self.addEventListener('activate', event => {
   event.waitUntil(
     Promise.all([
@@ -148,7 +126,6 @@ self.addEventListener('activate', event => {
           })
         )
       ),
-      // Limpieza de la caché de audio (bug histórico)
       caches.open(AUDIO_CACHE_NAME).then(cache =>
         cache.keys().then(requests =>
           Promise.all(
@@ -165,19 +142,9 @@ self.addEventListener('activate', event => {
   );
 });
 
-// ============================================================
-// FETCH
-// - Audios R2: cache-first en su propia caché.
-// - App shell: network-first con fallback a caché.
-//   ⬅️ CAMBIO CLAVE: network-first garantiza que si hay red,
-//   siempre se sirve lo más nuevo. El caché solo entra offline.
-// ============================================================
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Audios → cache-first con copia completa.
-  // En la primera reproducción se ignora Range, descarga el archivo entero,
-  // espera a que quede guardado y luego responde con el segmento solicitado.
   if (isOfflineAudioUrl(url) && event.request.method === 'GET') {
     event.respondWith((async () => {
       const cache = await caches.open(AUDIO_CACHE_NAME);
@@ -190,23 +157,17 @@ self.addEventListener('fetch', event => {
       const response = await fetch(networkRequest);
       if (response && response.ok && response.status === 200) {
         try {
-          // Await: al empezar a reproducirse, la copia completa ya está lista.
           await cache.put(cacheKey, response.clone());
         } catch (cacheError) {
-          // No bloquear la reproducción por cuota/almacenamiento; sí registrar
-          // que en este dispositivo no se pudo garantizar el uso offline.
           console.warn('[SW] No se pudo guardar el audio offline:', cacheError);
         }
         return audioResponseForRange(response, rangeHeader);
       }
-      // Si el servidor no acepta una descarga completa, se devuelve su respuesta
-      // para no ocultar errores HTTP ni guardar un 206 como si fuera el archivo.
       return response;
     })());
     return;
   }
 
-  // Solo GET del mismo origen → network-first con timeout y fallback a caché
   if (event.request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
 
@@ -217,27 +178,22 @@ self.addEventListener('fetch', event => {
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
-    // En navegaciones se ignora el query string (?v=..., utm, etc.) para que
-    // siempre coincida con la copia guardada.
     let cached = await cache.match(event.request, { ignoreSearch: isNav });
     if (!cached && isNav) cached = await cache.match('./index.html', { ignoreSearch: true });
 
-    // La petición a red sigue su curso aunque se gane el timeout, así la
-    // caché se actualiza para la próxima vez.
     const networkPromise = fetch(networkRequest).then(res => {
       if (res && res.ok) cache.put(event.request, res.clone());
       return res;
     });
 
-    // Sin copia local (primera carga): no hay alternativa, se espera a la red.
     if (!cached) return networkPromise;
 
     event.waitUntil(networkPromise.catch(() => {}));
     const timeout = new Promise(resolve => setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS));
     try {
       const res = await Promise.race([networkPromise, timeout]);
-      if (res) return res;      // la red respondió a tiempo → versión más nueva
+      if (res) return res;
     } catch (e) { /* sin red → cae a caché */ }
-    return cached;              // offline o red colgada → copia guardada
+    return cached;
   })());
 });

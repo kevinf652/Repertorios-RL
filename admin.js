@@ -57,6 +57,7 @@ function renderAdminPanel() {
         ...((isAdmin() || isSubAdmin()) ? [{ page: 'admin-invitados', title: 'Invitados', subtitle: 'Uso sin cuenta: última conexión', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }] : []),
         ...(isAdmin() ? [{ page: 'admin-notificaciones', title: 'Notificaciones', subtitle: 'Ver, editar y eliminar activas', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' }] : []),
         ...(isAdmin() ? [{ page: 'admin-compartidos', title: 'Compartidos', subtitle: 'Supervisar envíos internos (3 días)', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>' }] : []),
+        ...((isAdmin() || isSubAdmin()) ? [{ page: 'admin-secciones', title: 'Secciones de canción', subtitle: 'Abreviaturas de los botones', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>' }] : []),
         { page: 'admin-logs', title: 'Registro de actividades', subtitle: 'Ver acciones de usuarios', icon: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>' }
     ];
     const orderedCards = sortAdminCardDefinitions(cardDefinitions);
@@ -68,6 +69,7 @@ function renderAdminPanel() {
     configureAdminCardOrdering();
     updateAdminCardEditButton();
     renderAdminSummary();
+    refreshAdminSeccionesBadge();
 }
 
 function updateAdminCardEditButton() {
@@ -1774,6 +1776,167 @@ async function adminDeleteExpiredSharedItem(id) {
     }
 }
 
+// ---------- Secciones de canción (abreviaturas de los botones) ----------
+// Usa la tabla secciones_cancion y las funciones de app.js (sectionsTable,
+// refreshSectionsTable, saveSectionsCache, buildSectionRow, extractSectionNamesFromLyrics).
+let adminSeccionesFilter = 'pendientes';
+let adminSeccionesSearch = '';
+
+function adminSeccionesPendingCount() {
+    let n = 0;
+    sectionsTable.forEach(function(r) { if (!r.revisada && r.visible !== false) n++ });
+    return n;
+}
+
+async function refreshAdminSeccionesBadge() {
+    try { await refreshSectionsTable(true) } catch (e) {}
+    const sub = document.querySelector('[data-admin-card="admin-secciones"] .admin-card-subtitle');
+    if (!sub) return;
+    const n = adminSeccionesPendingCount();
+    sub.textContent = n > 0 ? ('Abreviaturas de los botones · ' + n + ' pendiente' + (n === 1 ? '' : 's')) : 'Abreviaturas de los botones';
+    sub.style.color = n > 0 ? '#fbbf24' : '';
+}
+
+async function renderAdminSecciones() {
+    const c = document.getElementById('admin-secciones-content');
+    if (!c) return;
+    if (!isAdmin() && !isSubAdmin()) { c.innerHTML = '<div class="admin-empty">No tienes permisos para ver esta sección.</div>'; return }
+    if (!supabaseReady) { c.innerHTML = '<div class="admin-empty">Sin conexión.</div>'; return }
+    c.innerHTML = '<div class="admin-empty">Cargando...</div>';
+    await refreshSectionsTable(true);
+    c.innerHTML = '<div class="sec-toolbar"><input type="text" id="admin-secciones-search" class="admin-search-input" placeholder="Buscar sección..." value="' + esc(adminSeccionesSearch) + '" oninput="adminSeccionesSearch=this.value;drawAdminSecciones()">'
+        + '<button class="btn btn-zinc" id="admin-secciones-scan-btn" style="font-size:.72rem;white-space:nowrap" onclick="adminSeccionesScan()">🔍 Escanear canciones</button></div>'
+        + '<div class="sec-filters" id="admin-secciones-filters"></div>'
+        + '<div id="admin-secciones-list"></div>';
+    drawAdminSecciones();
+}
+
+function drawAdminSecciones() {
+    const list = document.getElementById('admin-secciones-list');
+    const filters = document.getElementById('admin-secciones-filters');
+    if (!list || !filters) return;
+    const all = Array.from(sectionsTable.values());
+    const pending = all.filter(function(r) { return !r.revisada && r.visible !== false });
+    const hidden = all.filter(function(r) { return r.visible === false });
+    const f = adminSeccionesFilter;
+    filters.innerHTML = [['pendientes', 'Pendientes (' + pending.length + ')'], ['todas', 'Todas (' + all.length + ')'], ['ocultas', 'Ocultas (' + hidden.length + ')']].map(function(x) {
+        return '<button class="sec-filter' + (f === x[0] ? ' active' : '') + '" onclick="adminSeccionesFilter=\'' + x[0] + '\';drawAdminSecciones()">' + x[1] + '</button>';
+    }).join('');
+    let rows = f === 'pendientes' ? pending : (f === 'ocultas' ? hidden : all);
+    const q = (adminSeccionesSearch || '').trim().toLowerCase();
+    if (q) rows = rows.filter(function(r) { return (r.nombre + ' ' + r.abreviatura + ' ' + r.clave).toLowerCase().indexOf(q) !== -1 });
+    rows = rows.slice().sort(function(a, b) { return a.nombre.localeCompare(b.nombre, 'es') });
+    if (!rows.length) {
+        list.innerHTML = '<div class="admin-empty">' + (f === 'pendientes' ? 'No hay secciones pendientes de revisar. 🎉' : (q ? 'Sin resultados.' : 'No hay secciones aquí.')) + '</div>';
+        return;
+    }
+    list.innerHTML = rows.map(function(r) {
+        const hiddenRow = r.visible === false;
+        return '<div class="sec-row' + (hiddenRow ? ' sec-hidden' : '') + '">'
+            + '<div class="sec-name"><div class="sec-name-main">' + esc(r.nombre) + '</div><div class="sec-name-sub">' + (r.revisada ? 'Revisada' : '<span class="sec-pending">Pendiente</span>') + (hiddenRow ? ' · sin botón' : '') + '</div></div>'
+            + '<input class="sec-abbr-input" maxlength="5" value="' + esc(r.abreviatura) + '" aria-label="Abreviatura de ' + esc(r.nombre) + '" onchange="adminSeccionSaveAbbr(\'' + r.clave + '\',this)" onkeydown="if(event.key===\'Enter\')this.blur()">'
+            + (r.revisada ? '' : '<button class="sec-icon-btn ok" title="Aprobar abreviatura sugerida" onclick="adminSeccionApprove(\'' + r.clave + '\')">✓</button>')
+            + '<button class="sec-icon-btn" title="' + (hiddenRow ? 'Mostrar botón' : 'Ocultar (no es una sección)') + '" onclick="adminSeccionToggleVisible(\'' + r.clave + '\')">' + (hiddenRow ? '🙈' : '👁') + '</button>'
+            + '<button class="sec-icon-btn danger" title="Eliminar fila" onclick="adminSeccionDelete(\'' + r.clave + '\')">🗑</button>'
+            + '</div>';
+    }).join('');
+}
+
+async function adminSeccionUpdate(clave, patch) {
+    if (blockIfOffline()) return false;
+    try {
+        const { data, error } = await supabaseClient.from('secciones_cancion').update(patch).eq('clave', clave).select('clave,nombre,abreviatura,visible,revisada');
+        if (error) throw error;
+        if (!data || !data.length) { showNotification('No se pudo guardar: no tienes permiso o la sección ya no existe.', 'error'); return false }
+        sectionsTable.set(clave, data[0]);
+        saveSectionsCache();
+        return true;
+    } catch (e) {
+        showNotification('Error al guardar: ' + (e.message || e), 'error');
+        return false;
+    }
+}
+
+async function adminSeccionSaveAbbr(clave, input) {
+    const row = sectionsTable.get(clave);
+    const v = (input.value || '').trim();
+    if (!v || Array.from(v).length > 5) {
+        showNotification('La abreviatura debe tener entre 1 y 5 caracteres.', 'error');
+        input.value = row ? row.abreviatura : '';
+        return;
+    }
+    const ok = await adminSeccionUpdate(clave, { abreviatura: v, revisada: true });
+    if (!ok && row) input.value = row.abreviatura;
+    drawAdminSecciones();
+    refreshAdminSeccionesBadge();
+}
+
+async function adminSeccionApprove(clave) {
+    if (await adminSeccionUpdate(clave, { revisada: true })) { drawAdminSecciones(); refreshAdminSeccionesBadge() }
+}
+
+async function adminSeccionToggleVisible(clave) {
+    const row = sectionsTable.get(clave);
+    if (!row) return;
+    if (await adminSeccionUpdate(clave, { visible: row.visible === false, revisada: true })) { drawAdminSecciones(); refreshAdminSeccionesBadge() }
+}
+
+async function adminSeccionDelete(clave) {
+    const row = sectionsTable.get(clave);
+    if (!row || blockIfOffline()) return;
+    if (!confirm('¿Eliminar "' + row.nombre + '" de la tabla?\n\nLas canciones no se tocan. Si esa sección vuelve a aparecer en una canción, se creará de nuevo como pendiente con una abreviatura sugerida.\n\nSi lo que quieres es que no tenga botón, mejor ocúltala.')) return;
+    try {
+        const { data, error } = await supabaseClient.from('secciones_cancion').delete().eq('clave', clave).select('clave');
+        if (error) throw error;
+        if (!data || !data.length) { showNotification('No se pudo eliminar: no tienes permiso o ya no existe.', 'error'); return }
+        sectionsTable.delete(clave);
+        sectionsRegistered.delete(clave);
+        saveSectionsCache();
+        drawAdminSecciones();
+        refreshAdminSeccionesBadge();
+    } catch (e) {
+        showNotification('Error al eliminar: ' + (e.message || e), 'error');
+    }
+}
+
+// Lee la letra de todas las canciones y agrega como pendientes las secciones que aún no están en la tabla
+async function adminSeccionesScan() {
+    if (blockIfOffline()) return;
+    const btn = document.getElementById('admin-secciones-scan-btn');
+    const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Escaneando...' }
+    try {
+        const found = new Map();
+        const size = 500;
+        for (let from = 0; ; from += size) {
+            const { data, error } = await supabaseClient.from('songs').select('id,lyrics').range(from, from + size - 1);
+            if (error) throw error;
+            (data || []).forEach(function(r) {
+                extractSectionNamesFromLyrics(r.lyrics).forEach(function(name, key) { if (!found.has(key)) found.set(key, name) });
+            });
+            if (!data || data.length < size) break;
+        }
+        const rows = [];
+        found.forEach(function(name, key) {
+            if (sectionsTable.has(key)) return;
+            const row = buildSectionRow(key, name);
+            if (row) rows.push(row);
+        });
+        if (rows.length) {
+            const { error } = await supabaseClient.from('secciones_cancion').upsert(rows, { onConflict: 'clave', ignoreDuplicates: true });
+            if (error) throw error;
+        }
+        await refreshSectionsTable(true);
+        drawAdminSecciones();
+        refreshAdminSeccionesBadge();
+        showNotification(rows.length ? (rows.length + ' sección(es) nueva(s) agregada(s) como pendientes.') : 'La tabla ya está al día: no hay secciones nuevas.', 'success');
+    } catch (e) {
+        showNotification('No se pudo escanear: ' + (e.message || e), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = label }
+    }
+}
+
 // ---------- Enganches sin tocar app.js ----------
 if (typeof showPage === 'function') {
     const _adminOriginalShowPage = showPage;
@@ -1787,6 +1950,7 @@ if (typeof showPage === 'function') {
         if (name === 'admin-delete-users') { loadAdminUsersData(true).then(() => renderAdminInactiveUsersSection()); }
         if (name === 'admin-storage') renderAdminStorage();
         if (name === 'admin-invitados') renderAdminInvitados();
+        if (name === 'admin-secciones') renderAdminSecciones();
         if (name === 'admin-compartidos') renderAdminCompartidos(true);
 	if (name === 'admin-logs') { logsPage = 0; renderAdminLogs(); }
     };
